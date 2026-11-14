@@ -11,6 +11,7 @@ from .memory_store import MemoryStore
 from .models import Objective, Observation
 from .objective_manager import ObjectivePlan
 from .providers import code_generator_from_env, planner_from_env
+from .providers.public_research import register_public_research_providers
 from .self_model import SelfModel
 from .source_evaluator import SourceEvaluator
 from .strategy_selector import StrategySelector
@@ -100,6 +101,20 @@ class CognitiveBrain:
         }
         event_id = self.memory.record_event("cognitive_cycle", event)
         return {"event_id": event_id, **event}
+
+    def enable_public_research(self, *, rss_urls: list[str] | None = None,
+                              rss_trusted_hosts: set[str] | None = None) -> dict[str, str]:
+        """Explicitly register read-only OpenAlex/arXiv providers and optional trusted RSS feeds."""
+        providers = register_public_research_providers(
+            self.investigation_engine, rss_urls=rss_urls,
+            rss_trusted_hosts=rss_trusted_hosts,
+        )
+        self.memory.record_event("research_providers_enabled", {
+            "providers": providers,
+            "rss_hosts": sorted(rss_trusted_hosts or set()),
+            "network_access": "only when investigate() is explicitly called",
+        })
+        return providers
 
     async def investigate(self, query: str, *, max_results_per_provider: int = 5) -> dict[str, Any]:
         report = await self.investigation_engine.investigate(
