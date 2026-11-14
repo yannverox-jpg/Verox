@@ -24,6 +24,7 @@ class InvestigationReport:
     providers_attempted: tuple[str, ...]
     provider_errors: dict[str, str]
     limitations: tuple[str, ...]
+    provider_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +33,7 @@ class InvestigationReport:
             "providers_attempted": list(self.providers_attempted),
             "provider_errors": dict(self.provider_errors),
             "limitations": list(self.limitations),
+            "provider_metrics": dict(self.provider_metrics),
         }
 
 class InvestigationEngine:
@@ -55,16 +57,20 @@ class InvestigationEngine:
 
     async def investigate(self, query: str, *, max_results_per_provider: int = 5) -> InvestigationReport:
         from datetime import datetime, timezone
+        import time
         if not query.strip():
             raise ValueError("Investigation query must not be empty")
         if max_results_per_provider < 1:
             raise ValueError("max_results_per_provider must be positive")
         evidence: list[EvidenceItem] = []
         errors: dict[str, str] = {}
+        provider_metrics: dict[str, dict[str, Any]] = {}
         attempted = tuple(sorted(self._providers))
         stamp = datetime.now(timezone.utc).isoformat()
 
         async def call_provider(name: str, source_type: str, provider: Provider) -> None:
+            started = time.perf_counter()
+            result_count = 0
             try:
                 value = provider(query)
                 if inspect.isawaitable(value):
@@ -91,8 +97,15 @@ class InvestigationEngine:
                         retrieved_at=stamp,
                         metadata=dict(record.get("metadata", {})) if isinstance(record.get("metadata", {}), dict) else {},
                     ))
+                    result_count += 1
             except Exception as exc:
                 errors[name] = f"{type(exc).__name__}: {exc}"
+            finally:
+                provider_metrics[name] = {
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "results_count": result_count,
+                    "status": "error" if name in errors else "ok",
+                }
 
         await asyncio.gather(*(call_provider(name, kind, fn) for name, (kind, fn) in self._providers.items()))
         limitations = []
@@ -102,4 +115,4 @@ class InvestigationEngine:
             limitations.append("One or more providers failed; results may be incomplete.")
         if not evidence:
             limitations.append("No usable evidence was returned.")
-        return InvestigationReport(query, tuple(evidence), attempted, errors, tuple(limitations))
+        return InvestigationReport(query, tuple(evidence), attempted, errors, tuple(limitations), provider_metrics)
