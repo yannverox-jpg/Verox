@@ -40,8 +40,11 @@ class Hypothesis:
     evidence: tuple[str, ...] = ()
     confidence: float = 0.0
     estimated_cost: float = 0.0
+    strategy_key: str = "general"
 
     def __post_init__(self) -> None:
+        if not self.strategy_key.strip():
+            raise ValueError("strategy_key must not be empty")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
         if self.estimated_cost < 0:
