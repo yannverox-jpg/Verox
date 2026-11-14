@@ -96,6 +96,38 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             self.assertTrue(restarted_model.has_capability("text_length"))
             self.assertEqual(restarted.execute_tool("text_length", "after restart"), 13)
 
+    def test_end_to_end_capability_creation_requires_measured_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(
+                Path(directory) / "brain.sqlite3",
+                code_generator=lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+            )
+            draft = brain.ensure_capability_or_design("text_length", "Return the length of a string")
+            self.assertEqual(draft["status"], "draft_validated")
+            self.assertFalse(draft["available"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(
+                Path(directory) / "brain.sqlite3",
+                code_generator=lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+            )
+            activated = brain.ensure_capability_or_design(
+                "text_length", "Return the length of a string",
+                test_cases=[{"args": ["Verox"], "expected": 5}],
+            )
+            self.assertEqual(activated["status"], "available")
+            self.assertTrue(brain.self_model.has_capability("text_length"))
+            self.assertEqual(brain.tool_synthesizer.execute_tool("text_length", "brain"), 5)
+
+    def test_capability_audit_lists_installed_libraries_and_provider_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            audit = brain.inspect_capabilities(library_limit=5)
+            self.assertIn("python_runtime", audit["runtime_capabilities"])
+            self.assertEqual(audit["memory_backend"], "sqlite")
+            self.assertIn("installed_libraries", audit)
+            self.assertFalse(audit["code_generator_configured"])
+
     def test_unvalidated_tool_cannot_execute(self):
         with tempfile.TemporaryDirectory() as directory:
             synthesizer = ToolSynthesizer(
