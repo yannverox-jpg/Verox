@@ -34,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument("--investigate", metavar="QUERY", help="Search configured public research providers")
     actions.add_argument("--cycle", action="store_true", help="Run one objective-directed planning cycle")
     actions.add_argument("--synthesize-tool", metavar="NAME", help="Generate and validate a pure Python tool")
+    actions.add_argument("--track-entity", metavar="NAME", help="Add a company/entity to the persistent watchlist")
+    actions.add_argument("--list-watchlist", action="store_true", help="List tracked entities")
+    actions.add_argument("--monitor-entity", metavar="NAME", help="Investigate and store current mentions for a tracked entity")
     parser.add_argument("--objective", default="Investigate and reduce data-processing latency")
     parser.add_argument("--observation", default="Observed possible latency; measurement is not verified.")
     parser.add_argument("--source", default="cli")
@@ -57,11 +60,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.investigate is not None:
-        providers = brain.enable_public_research()
-        if not providers:
-            print("Aucun fournisseur de recherche n'est configuré.", file=sys.stderr)
-            return 2
+        rss_urls = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_RSS_FEEDS", "").split(";") if item.strip()]
+        trusted_hosts = {item.strip() for item in os.getenv("COGNITIVE_BRAIN_RSS_TRUSTED_HOSTS", "").split(";") if item.strip()}
+        providers = brain.enable_public_research(
+            rss_urls=rss_urls or None, rss_trusted_hosts=trusted_hosts or None
+        )
         _print_json(asyncio.run(brain.investigate(args.investigate)))
+        return 0
+
+    if args.track_entity is not None:
+        aliases = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_ENTITY_ALIASES", "").split(";") if item.strip()]
+        tags = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_ENTITY_TAGS", "").split(";") if item.strip()]
+        _print_json(brain.event_intelligence.track(args.track_entity, aliases=aliases, tags=tags))
+        return 0
+
+    if args.list_watchlist:
+        _print_json(brain.event_intelligence.watchlist())
+        return 0
+
+    if args.monitor_entity is not None:
+        rss_urls = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_RSS_FEEDS", "").split(";") if item.strip()]
+        trusted_hosts = {item.strip() for item in os.getenv("COGNITIVE_BRAIN_RSS_TRUSTED_HOSTS", "").split(";") if item.strip()}
+        brain.enable_public_research(
+            rss_urls=rss_urls or None, rss_trusted_hosts=trusted_hosts or None
+        )
+        _print_json(asyncio.run(brain.event_intelligence.monitor_entity(args.monitor_entity)))
         return 0
 
     if args.cycle:
