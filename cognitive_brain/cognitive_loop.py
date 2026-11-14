@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .hypothesis_generator import HypothesisGenerator
+from .event_intelligence import EventIntelligence
 from .investigation_engine import InvestigationEngine
 from .memory_store import MemoryStore
 from .models import Objective, Observation
@@ -34,6 +35,7 @@ class CognitiveBrain:
         self.hypothesis_generator = HypothesisGenerator()
         self.planner_provider = planner_provider if planner_provider is not None else planner_from_env()
         self.investigation_engine = InvestigationEngine()
+        self.event_intelligence = EventIntelligence(self.memory, self.investigation_engine)
         if code_generator is None:
             code_generator = code_generator_from_env()
         self.tool_synthesizer = ToolSynthesizer(self.self_model, self.memory, code_generator)
