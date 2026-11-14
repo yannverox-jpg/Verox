@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import math
 from typing import Any
 
 @dataclass(frozen=True)
@@ -19,11 +20,13 @@ class ObjectivePlan:
             raise ValueError("Objective id and description are required")
         if self.max_steps < 1:
             raise ValueError("max_steps must be positive")
-        if self.max_experiment_cost < 0:
-            raise ValueError("max_experiment_cost must be non-negative")
+        if not math.isfinite(float(self.max_experiment_cost)) or self.max_experiment_cost < 0:
+            raise ValueError("max_experiment_cost must be a finite non-negative number")
 
     def permits(self, *, estimated_cost: float = 0.0, external_side_effect: bool = False) -> bool:
-        if estimated_cost < 0 or estimated_cost > self.max_experiment_cost:
+        if (isinstance(estimated_cost, bool) or not isinstance(estimated_cost, (int, float))
+                or not math.isfinite(float(estimated_cost))
+                or estimated_cost < 0 or estimated_cost > self.max_experiment_cost):
             return False
         if external_side_effect and not self.allow_external_side_effects:
             return False
