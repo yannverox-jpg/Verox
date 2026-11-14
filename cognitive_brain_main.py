@@ -14,7 +14,7 @@ def main() -> None:
     objective = Objective(
         description="Investigate and reduce data-processing latency",
         success_criteria={"metric": "processing_latency_ms", "direction": "lower"},
-        constraints={"max_experiment_cost": 0.0, "external_side_effects": False},
+        constraints={"max_experiment_cost": 0.3, "external_side_effects": False},
     )
     observation = Observation(
         content="Observed possible latency in data processing; measurement is not yet verified.",
