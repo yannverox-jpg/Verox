@@ -123,8 +123,9 @@ class ConstraintAnalyzer:
 class ConnectorHub:
     """Regroupe les connecteurs natifs pilotés sous les contraintes du réseau."""
     
-    def __init__(self, gateway: NetworkGateway):
+    def __init__(self, gateway: NetworkGateway, session_manager=None):
         self.gateway = gateway
+        self.session_manager = session_manager
         self.user_email = os.getenv("USER_EMAIL", "contact@cognitive-engine.local")
 
     async def fetch_openalex(self, client: httpx.AsyncClient, query: str, limit: int = 3) -> List[Dict[str, Any]]:
@@ -243,7 +244,11 @@ class ConnectorHub:
                 try:
                     browser = await (p.chromium.launch(channel="chrome", headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
                     for provider, url in providers:
-                        state_path = profile_root / f"{browser_name}-{provider.lower().replace(chr(32), chr(95))}.json"
+                        if self.session_manager:
+                            profile = self.session_manager.profile_for(provider)
+                            state_path = Path(profile["storage_state_path"])
+                        else:
+                            state_path = profile_root / f"{browser_name}-{provider.lower().replace(chr(32), chr(95))}.json"
                         context_options = {"user_agent": self.gateway.user_agent, "locale": "fr-CH", "timezone_id": "Europe/Zurich"}
                         if state_path.exists():
                             context_options["storage_state"] = str(state_path)
@@ -305,9 +310,16 @@ class ConnectorHub:
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: échec de navigation", "year": "Erreur", "evidence": str(e)[:500]})
                         finally:
                             try:
-                                await context.storage_state(path=str(state_path))
-                            except Exception:
-                                pass
+                                if self.session_manager:
+                                    await self.session_manager.save_state(context, provider)
+                                else:
+                                    await context.storage_state(path=str(state_path))
+                                    try:
+                                        state_path.chmod(0o600)
+                                    except OSError:
+                                        pass
+                            except Exception as state_error:
+                                logger.debug("État de session non sauvegardé pour %s: %s", provider, state_error)
                             await context.close()
                 except Exception as e:
                     results.append({"connector": f"Navigateur {browser_name}", "title": f"Échec de démarrage {browser_name}", "year": "Erreur", "evidence": str(e)[:500]})
@@ -446,11 +458,11 @@ class CognitiveBrain:
     def __init__(self):
         self.gateway = NetworkGateway()
         self.analyzer = ConstraintAnalyzer()
-        self.hub = ConnectorHub(self.gateway)
         self.store = CognitiveStore()
         self.app_manager = VeroxAppManager(self.store)
         self.session_manager = VeroxSessionManager(self.store)
         self.execution_manager = VeroxExecutionManager(self.store)
+        self.hub = ConnectorHub(self.gateway, self.session_manager)
         self.drive = VeroxAutonomousDrive(self.store, self.app_manager, self.execution_manager)
 
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
@@ -531,7 +543,7 @@ class CognitiveBrain:
 
         if not unique_evidence:
             print("[!] Aucune preuve validée n'a franchi les filtres de contraintes.")
-            self.store.record_outcome(strategy_id, "evidence_research", False, 0.0, {"evidence_count": 0, "network": net_status})
+            self.store.record_outcome(strategy_id, strategy_id, False, 0.0, {"evidence_count": 0, "network": net_status})
             self.store.remember("execution_result", "Aucune preuve retournée", {"strategy": strategy_id, "success": False})
             return []
 
@@ -542,7 +554,7 @@ class CognitiveBrain:
 
         print("\n" + "="*65)
         print(f"✅ Cycle terminé : {len(unique_evidence)} éléments collectés et structurés.")
-        self.store.record_outcome(strategy_id, "evidence_research", True, float(len(unique_evidence)), {"evidence_count": len(unique_evidence), "network": net_status})
+        self.store.record_outcome(strategy_id, strategy_id, True, float(len(unique_evidence)), {"evidence_count": len(unique_evidence), "network": net_status})
         self.store.remember("execution_result", f"{len(unique_evidence)} éléments de preuve collectés", {"strategy": strategy_id, "success": True, "evidence_count": len(unique_evidence)})
         return unique_evidence
         print("="*65 + "\n")
