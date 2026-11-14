@@ -6,7 +6,9 @@ from pathlib import Path
 from cognitive_brain.investigation_engine import InvestigationEngine
 from cognitive_brain.memory_store import MemoryStore
 from cognitive_brain.objective_manager import ObjectivePlan
-from cognitive_brain.sandbox.execution_environment import SandboxRunner\nfrom cognitive_brain.self_model import SelfModel\nfrom cognitive_brain.tool_synthesizer import ToolSynthesizer
+from cognitive_brain.sandbox.execution_environment import SandboxRunner
+from cognitive_brain.self_model import SelfModel
+from cognitive_brain.tool_synthesizer import ToolSynthesizer
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
@@ -59,7 +61,7 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             model = SelfModel()
             synthesizer = ToolSynthesizer(
                 model, memory,
-                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+                lambda name, spec: f"def {name}(value):\n    return len(value)\n",
             )
             self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return text length"))
             self.assertFalse(model.has_capability("text_length"))
