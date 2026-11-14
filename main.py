@@ -38,9 +38,8 @@ class NetworkGateway:
 
     def get_http_client(self, timeout: float = 20.0) -> httpx.AsyncClient:
         """Retourne un client HTTP asynchrone verrouillé sur l'IP fixe géolocalisée."""
-        proxies = {"http://": self.proxy_url, "https://": self.proxy_url} if self.proxy_url else None
         return httpx.AsyncClient(
-            proxies=proxies,
+            proxy=self.proxy_url or None,
             timeout=timeout,
             follow_redirects=True,
             headers={"User-Agent": self.user_agent, "Accept-Language": "fr-CH,fr;q=0.9,de-DE;q=0.8"}
