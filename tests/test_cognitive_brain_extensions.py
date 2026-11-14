@@ -6,7 +6,7 @@ from pathlib import Path
 from cognitive_brain.investigation_engine import InvestigationEngine
 from cognitive_brain.memory_store import MemoryStore
 from cognitive_brain.objective_manager import ObjectivePlan
-from cognitive_brain.sandbox.execution_environment import SandboxRunner
+from cognitive_brain.sandbox.execution_environment import SandboxRunner\nfrom cognitive_brain.self_model import SelfModel\nfrom cognitive_brain.tool_synthesizer import ToolSynthesizer
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
@@ -52,6 +52,24 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         self.assertEqual(len(report.evidence), 1)
         self.assertIn("independent_b", report.provider_errors)
         self.assertIn("incomplete", " ".join(report.limitations))
+
+    def test_synthesizer_requires_and_runs_real_measured_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = MemoryStore(Path(directory) / "brain.sqlite3")
+            model = SelfModel()
+            synthesizer = ToolSynthesizer(
+                model, memory,
+                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+            )
+            self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return text length"))
+            self.assertFalse(model.has_capability("text_length"))
+            result = synthesizer.validate_in_sandbox("text_length", [
+                {"args": ["Verox"], "expected": 5},
+                {"args": [""], "expected": 0},
+            ])
+            self.assertEqual(result["tests_passed"], 2)
+            self.assertTrue(result["available"])
+            self.assertTrue(model.has_capability("text_length"))
 
     def test_memory_recall_and_experiment_state_are_persistent(self):
         with tempfile.TemporaryDirectory() as directory:
