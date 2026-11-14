@@ -33,7 +33,7 @@ A tool is not available merely because source code exists. It must pass static v
 
 The runner is defense in depth, not a hardened OS/container security boundary. Its syntax allowlist blocks imports, attribute access, and non-approved calls; subprocess time and memory limits are applied where supported. Do not use this runner for untrusted, high-risk, networked, or privileged workloads. Such workloads require a separately configured OS/container sandbox with network disabled by default, restricted filesystem, resource limits, and scoped credentials.
 
-The core does not automatically install packages, access credentials, place trades, spend funds, or perform destructive/external actions. Those capabilities require explicit adapters and permissions. Tool discovery/design and external execution are separate concerns.
+Optional code generation supports an OpenAI-compatible endpoint (including local compatible model servers). Set `COGNITIVE_BRAIN_LLM_BASE_URL` and `COGNITIVE_BRAIN_LLM_MODEL`; set `COGNITIVE_BRAIN_LLM_API_KEY` only when the endpoint requires it. No request occurs until tool synthesis is invoked. The provider is not enabled by default.\n\nThe core does not automatically install packages, access credentials, place trades, spend funds, or perform destructive/external actions. Those capabilities require explicit adapters and permissions. Tool discovery/design and external execution are separate concerns.
 
 ## Epistemic rules
 
