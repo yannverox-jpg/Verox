@@ -233,6 +233,9 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         self.assertEqual(len(report.evidence), 1)
         self.assertIn("independent_b", report.provider_errors)
         self.assertIn("incomplete", " ".join(report.limitations))
+        self.assertGreaterEqual(report.provider_metrics["independent_a"]["duration_ms"], 0)
+        self.assertEqual(report.provider_metrics["independent_a"]["results_count"], 1)
+        self.assertEqual(report.provider_metrics["independent_b"]["status"], "error")
 
     def test_synthesizer_requires_and_runs_real_measured_cases(self):
         with tempfile.TemporaryDirectory() as directory:
