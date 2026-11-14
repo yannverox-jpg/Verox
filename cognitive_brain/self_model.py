@@ -1,7 +1,8 @@
 """Evidence-based inventory of runtime capabilities, dependencies, and resources."""
 from __future__ import annotations
 
-import importlib.util\nimport importlib.metadata
+import importlib.util
+import importlib.metadata
 import os
 import platform
 import shutil
