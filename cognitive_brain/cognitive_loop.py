@@ -9,7 +9,7 @@ from .hypothesis_generator import HypothesisGenerator
 from .investigation_engine import InvestigationEngine
 from .memory_store import MemoryStore
 from .models import Objective, Observation
-from .objective_manager import ObjectivePlan
+from .objective_manager import ObjectivePlan\nfrom .providers import code_generator_from_env
 from .self_model import SelfModel
 from .source_evaluator import SourceEvaluator
 from .strategy_selector import StrategySelector
@@ -31,7 +31,7 @@ class CognitiveBrain:
         self.source_evaluator = SourceEvaluator()
         self.hypothesis_generator = HypothesisGenerator()
         self.investigation_engine = InvestigationEngine()
-        self.tool_synthesizer = ToolSynthesizer(self.self_model, self.memory, code_generator)
+        if code_generator is None:\n            code_generator = code_generator_from_env()\n        self.tool_synthesizer = ToolSynthesizer(self.self_model, self.memory, code_generator)
         self.tool_registry = ToolRegistry(self.memory)
         self.strategy_selector = StrategySelector()
 
