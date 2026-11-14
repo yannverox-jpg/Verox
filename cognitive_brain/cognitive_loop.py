@@ -151,13 +151,46 @@ class CognitiveBrain:
         })
         return {"event_id": event_id, "experiment_id": experiment_id, "status": status}
 
-    def ensure_capability_or_design(self, required_capability: str, specification: str) -> dict[str, Any]:
-        if self.self_model.has_capability(required_capability):
-            return {"status": "available", "capability": required_capability}
-        generated = self.tool_synthesizer.design_and_synthesize_tool(required_capability, specification)
+    def inspect_capabilities(self, *, library_query: str = "", library_limit: int = 100) -> dict[str, Any]:
+        """Return an evidence-based view of resources, libraries, tools, and configured providers."""
+        self.self_model.refresh_runtime_inventory()
         return {
-            "status": "draft_validated" if generated else "blocked_or_failed",
-            "capability": required_capability,
-            "available": self.self_model.has_capability(required_capability),
-            "note": "Static validation is not runtime validation; explicit sandbox test cases are required.",
+            "runtime_capabilities": self.self_model.snapshot(),
+            "installed_libraries": self.self_model.library_capabilities(
+                query=library_query, limit=library_limit
+            ),
+            "validated_tools": self.tool_registry.list(available_only=True),
+            "tool_drafts_and_failures": [
+                item for item in self.tool_registry.list() if item["status"] != "available"
+            ],
+            "investigation_providers": self.investigation_engine.inventory(),
+            "planner_configured": self.planner_provider is not None,
+            "code_generator_configured": self.tool_synthesizer.code_generator is not None,
+            "memory_backend": "sqlite",
+            "memory_path": str(self.memory.path),
+        }
+
+    def ensure_capability_or_design(self, required_capability: str, specification: str,
+                                   test_cases: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if self.self_model.has_capability(required_capability):
+            return {"status": "available", "capability": required_capability,
+                    "available": True, "reason": "Capability is already registered with evidence."}
+        generated = self.tool_synthesizer.design_and_synthesize_tool(required_capability, specification)
+        if not generated:
+            return {
+                "status": "blocked_or_failed", "capability": required_capability,
+                "available": self.self_model.has_capability(required_capability),
+                "reason": "No configured generator or static validation failed; inspect memory events.",
+            }
+        if not test_cases:
+            return {
+                "status": "draft_validated", "capability": required_capability,
+                "available": False,
+                "reason": "Static validation passed; explicit test cases are required before activation.",
+            }
+        validation = self.tool_synthesizer.validate_in_sandbox(required_capability, test_cases)
+        return {
+            "status": "available" if validation["available"] else "runtime_validation_failed",
+            "capability": required_capability, "available": validation["available"],
+            "validation": validation,
         }
