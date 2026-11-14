@@ -66,6 +66,28 @@ class MemoryStore:
                     steps_used INTEGER NOT NULL DEFAULT 0 CHECK(steps_used >= 0),
                     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                 );
+                CREATE TABLE IF NOT EXISTS tracked_entities (
+                    canonical_name TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL DEFAULT 'organization',
+                    aliases_json TEXT NOT NULL DEFAULT '[]',
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                );
+                CREATE TABLE IF NOT EXISTS intelligence_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_name TEXT NOT NULL REFERENCES tracked_entities(canonical_name) ON DELETE CASCADE,
+                    source TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    source_hash TEXT NOT NULL,
+                    observed_at TEXT,
+                    retrieved_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                    UNIQUE(entity_name, source_hash)
+                );
+                CREATE INDEX IF NOT EXISTS idx_intelligence_entity_time
+                    ON intelligence_events(entity_name, retrieved_at DESC);
             """)
             experiment_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(experiments)").fetchall()
@@ -74,6 +96,91 @@ class MemoryStore:
                 db.execute(
                     "ALTER TABLE experiments ADD COLUMN strategy_key TEXT NOT NULL DEFAULT 'unspecified'"
                 )
+
+
+    def track_entity(self, canonical_name: str, *, entity_type: str = "organization",
+                     aliases: list[str] | None = None, tags: list[str] | None = None) -> dict[str, Any]:
+        name = canonical_name.strip()
+        if not name or not entity_type.strip():
+            raise ValueError("Entity name and type are required")
+        alias_values = sorted({item.strip() for item in (aliases or []) if item.strip() and item.strip().casefold() != name.casefold()})
+        tag_values = sorted({item.strip() for item in (tags or []) if item.strip()})
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO tracked_entities(canonical_name,entity_type,aliases_json,tags_json)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(canonical_name) DO UPDATE SET entity_type=excluded.entity_type,
+                   aliases_json=excluded.aliases_json,tags_json=excluded.tags_json""",
+                (name, entity_type, json.dumps(alias_values, ensure_ascii=False),
+                 json.dumps(tag_values, ensure_ascii=False)),
+            )
+        self.record_event("entity_tracked", {
+            "canonical_name": name, "entity_type": entity_type,
+            "aliases": alias_values, "tags": tag_values,
+        })
+        return {"canonical_name": name, "entity_type": entity_type,
+                "aliases": alias_values, "tags": tag_values}
+
+    def list_tracked_entities(self, limit: int = 100) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM tracked_entities ORDER BY canonical_name LIMIT ?", (limit,)
+            ).fetchall()
+        return [{**dict(row), "aliases": json.loads(row["aliases_json"]),
+                 "tags": json.loads(row["tags_json"])} for row in rows]
+
+    def record_intelligence_event(self, entity_name: str, *, source: str, source_type: str,
+                                  title: str, content: str, metadata: dict[str, Any] | None = None,
+                                  observed_at: str | None = None) -> dict[str, Any]:
+        import hashlib
+        entity = entity_name.strip()
+        if not entity or not source.strip() or not source_type.strip() or not title.strip():
+            raise ValueError("Entity, source, source type, and title are required")
+        body = content.strip() or title.strip()
+        source_hash = hashlib.sha256(
+            (source.strip() + "\\n" + title.strip() + "\\n" + body).encode("utf-8")
+        ).hexdigest()
+        with self._connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM tracked_entities WHERE canonical_name=?", (entity,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(f"Entity is not tracked: {entity}")
+            db.execute(
+                """INSERT INTO intelligence_events(entity_name,source,source_type,title,content,
+                   metadata_json,source_hash,observed_at) VALUES(?,?,?,?,?,?,?,?)
+                   ON CONFLICT(entity_name,source_hash) DO NOTHING""",
+                (entity, source, source_type, title.strip(), body,
+                 json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True, default=str),
+                 source_hash, observed_at),
+            )
+            row = db.execute(
+                "SELECT * FROM intelligence_events WHERE entity_name=? AND source_hash=?",
+                (entity, source_hash),
+            ).fetchone()
+        return {**dict(row), "metadata": json.loads(row["metadata_json"])}
+
+    def search_intelligence_events(self, entity_name: str, query: str = "",
+                                   limit: int = 50) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        terms = [term.casefold() for term in query.split() if len(term) > 2]
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM intelligence_events WHERE entity_name=? ORDER BY retrieved_at DESC LIMIT 500",
+                (entity_name,),
+            ).fetchall()
+        results = []
+        for row in rows:
+            searchable = f"{row['title']} {row['content']} {row['metadata_json']}".casefold()
+            if terms and not any(term in searchable for term in terms):
+                continue
+            results.append({**dict(row), "metadata": json.loads(row["metadata_json"])})
+            if len(results) >= limit:
+                break
+        return results
 
     def reserve_objective_step(self, objective_key: str, max_steps: int) -> tuple[bool, int]:
         """Atomically reserve a persistent step budget, including concurrent callers."""
