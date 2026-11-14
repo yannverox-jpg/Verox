@@ -52,7 +52,51 @@ class MemoryStore:
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                     PRIMARY KEY(name, version)
                 );
+                CREATE TABLE IF NOT EXISTS objective_budgets (
+                    objective_key TEXT PRIMARY KEY,
+                    max_steps INTEGER NOT NULL CHECK(max_steps > 0),
+                    steps_used INTEGER NOT NULL DEFAULT 0 CHECK(steps_used >= 0),
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                );
             """)
+
+
+    def reserve_objective_step(self, objective_key: str, max_steps: int) -> tuple[bool, int]:
+        """Atomically reserve a persistent step budget, including concurrent callers."""
+        if not objective_key.strip():
+            raise ValueError("objective_key must not be empty")
+        if max_steps < 1:
+            raise ValueError("max_steps must be positive")
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO objective_budgets(objective_key,max_steps,steps_used)
+                   VALUES(?,?,0)
+                   ON CONFLICT(objective_key) DO UPDATE SET max_steps=excluded.max_steps,
+                       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')""",
+                (objective_key, max_steps),
+            )
+            row = db.execute(
+                "SELECT steps_used FROM objective_budgets WHERE objective_key=?",
+                (objective_key,),
+            ).fetchone()
+            used = int(row["steps_used"])
+            if used >= max_steps:
+                return False, used
+            used += 1
+            db.execute(
+                """UPDATE objective_budgets SET steps_used=?,
+                   updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE objective_key=?""",
+                (used, objective_key),
+            )
+            return True, used
+
+    def objective_budget(self, objective_key: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT objective_key,max_steps,steps_used,updated_at FROM objective_budgets WHERE objective_key=?",
+                (objective_key,),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     def record_event(self, event_type: str, payload: dict[str, Any]) -> int:
         if not event_type.strip():
