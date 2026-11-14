@@ -11,10 +11,76 @@ from cognitive_brain.objective_manager import ObjectivePlan
 from cognitive_brain.sandbox.execution_environment import SandboxRunner
 from cognitive_brain.self_model import SelfModel
 from cognitive_brain.tool_synthesizer import ToolSynthesizer
+from cognitive_brain.strategy_selector import StrategySelector
+from cognitive_brain.models import Hypothesis
 from cognitive_brain.providers.public_research import OpenAlexProvider, RSSFeedProvider
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
+    def test_measured_outcomes_update_strategy_memory_and_ranking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            plan = ObjectivePlan(
+                objective_id="latency-learning", description="Reduce latency",
+                max_steps=3, max_experiment_cost=0.0,
+            )
+            first = brain.plan_experiment(
+                plan, "Baseline method", "benchmark", "latency_ms",
+                strategy_key="measure_baseline",
+            )
+            result = brain.record_experiment_result(
+                first["experiment_id"],
+                {"measured_at": "2026-11-14T10:00:00Z",
+                 "measurement_method": "monotonic timer", "latency_ms": 80},
+                success_criteria={"metric": "latency_ms", "direction": "lower", "target": 100},
+            )
+            self.assertEqual(result["evaluation"]["status"], "success")
+            self.assertEqual(result["strategy_learning"]["trials"], 1)
+            self.assertEqual(result["strategy_learning"]["successes"], 1)
+
+            second = brain.plan_experiment(
+                plan, "Baseline method repeat", "benchmark", "latency_ms",
+                strategy_key="measure_baseline",
+            )
+            failed = brain.record_experiment_result(
+                second["experiment_id"],
+                {"measured_at": "2026-11-14T10:01:00Z",
+                 "measurement_method": "monotonic timer", "latency_ms": 140},
+                success_criteria={"metric": "latency_ms", "direction": "lower", "target": 100},
+            )
+            self.assertEqual(failed["evaluation"]["status"], "target_not_met")
+            stats = brain.memory.strategy_performance()["measure_baseline"]
+            self.assertEqual(stats["trials"], 2)
+            self.assertEqual(stats["successes"], 1)
+
+            hypothesis = Hypothesis(
+                statement="Measure baseline", rationale="test", confidence=0.6,
+                estimated_cost=0.1, strategy_key="measure_baseline",
+            )
+            ranked = StrategySelector().rank(
+                [hypothesis], historical_stats=brain.memory.strategy_performance()
+            )
+            self.assertIn("measured success rate", ranked[0].rationale)
+
+    def test_unassessed_experiment_does_not_pollute_strategy_statistics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            plan = ObjectivePlan(
+                objective_id="unassessed", description="Test unknown outcome",
+                max_steps=2, max_experiment_cost=0.0,
+            )
+            planned = brain.plan_experiment(
+                plan, "Unknown outcome", "manual check", "unknown_metric",
+                strategy_key="unknown_strategy",
+            )
+            result = brain.record_experiment_result(
+                planned["experiment_id"],
+                {"measured_at": "2026-11-14T10:00:00Z",
+                 "measurement_method": "not provided", "value": 42},
+            )
+            self.assertEqual(result["evaluation"]["status"], "unassessed")
+            self.assertNotIn("unknown_strategy", brain.memory.strategy_performance())
+
     def test_experiment_planning_respects_persistent_step_budget(self):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
