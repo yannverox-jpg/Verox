@@ -102,6 +102,18 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             self.assertEqual(second["status"], "blocked")
             self.assertEqual(second["reason"], "objective_step_budget_exhausted")
 
+    def test_invalid_objective_constraints_are_rejected_early(self):
+        from cognitive_brain.models import Objective
+        with self.assertRaises(ValueError):
+            Objective("bad budget", constraints={"max_steps": 0})
+        with self.assertRaises(ValueError):
+            Objective("bad cost", constraints={"max_experiment_cost": float("nan")})
+        with self.assertRaises(ValueError):
+            ObjectivePlan(
+                objective_id="bad-cost", description="Bad cost",
+                max_experiment_cost=float("inf"),
+            )
+
     def test_objective_guardrails_block_cost_and_external_side_effects(self):
         plan = ObjectivePlan(
             objective_id="safe-research", description="Research a topic",
