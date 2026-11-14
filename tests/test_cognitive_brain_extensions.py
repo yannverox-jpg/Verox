@@ -184,6 +184,18 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             second = brain.cognitive_cycle(objective, observation)
             self.assertEqual(second["status"], "objective_step_limit_reached")
 
+    def test_objective_budget_is_persistent_and_atomic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "brain.sqlite3"
+            first = MemoryStore(path)
+            self.assertEqual(first.reserve_objective_step("goal-a", 2), (True, 1))
+            self.assertEqual(first.reserve_objective_step("goal-a", 2), (True, 2))
+            reopened = MemoryStore(path)
+            self.assertEqual(reopened.reserve_objective_step("goal-a", 2), (False, 2))
+            budget = reopened.objective_budget("goal-a")
+            self.assertEqual(budget["steps_used"], 2)
+            self.assertEqual(budget["max_steps"], 2)
+
     def test_memory_recall_and_experiment_state_are_persistent(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "brain.sqlite3"
