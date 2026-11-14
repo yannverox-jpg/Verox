@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cognitive_brain import CognitiveBrain, Objective, Observation\nfrom cognitive_brain.investigation_engine import InvestigationEngine
+from cognitive_brain import CognitiveBrain, Objective, Observation
+from cognitive_brain.investigation_engine import InvestigationEngine
 from cognitive_brain.memory_store import MemoryStore
 from cognitive_brain.objective_manager import ObjectivePlan
 from cognitive_brain.sandbox.execution_environment import SandboxRunner
