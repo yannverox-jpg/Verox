@@ -195,6 +195,8 @@ def register_public_research_providers(engine, *, rss_urls: list[str] | None = N
             "reputable_media",
             RSSFeedProvider(rss_urls, trusted_hosts=rss_trusted_hosts),
         )
+    existing = engine.inventory()
     for name, (source_type, provider) in providers.items():
-        engine.register_provider(name, source_type, provider)
-    return {name: source_type for name, (source_type, _) in providers.items()}
+        if name not in existing:
+            engine.register_provider(name, source_type, provider)
+    return engine.inventory()
