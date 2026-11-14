@@ -81,7 +81,7 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             model = SelfModel()
             synthesizer = ToolSynthesizer(
                 model, memory,
-                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+                lambda name, spec: f"def {name}(value):\n    return len(value)\n",
             )
             self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return text length"))
             result = synthesizer.validate_in_sandbox("text_length", [
@@ -100,7 +100,7 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(
                 Path(directory) / "brain.sqlite3",
-                code_generator=lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+                code_generator=lambda name, spec: f"def {name}(value):\n    return len(value)\n",
             )
             draft = brain.ensure_capability_or_design("text_length", "Return the length of a string")
             self.assertEqual(draft["status"], "draft_validated")
@@ -109,7 +109,7 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(
                 Path(directory) / "brain.sqlite3",
-                code_generator=lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+                code_generator=lambda name, spec: f"def {name}(value):\n    return len(value)\n",
             )
             activated = brain.ensure_capability_or_design(
                 "text_length", "Return the length of a string",
@@ -132,7 +132,7 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             synthesizer = ToolSynthesizer(
                 SelfModel(), MemoryStore(Path(directory) / "brain.sqlite3"),
-                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+                lambda name, spec: f"def {name}(value):\n    return len(value)\n",
             )
             self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return length"))
             with self.assertRaises(NotImplementedError):
