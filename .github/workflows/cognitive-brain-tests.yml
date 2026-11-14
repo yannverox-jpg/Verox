@@ -1,0 +1,29 @@
+name: CognitiveBrain core tests
+
+on:
+  push:
+    branches:
+      - feat/cognitive-brain-core
+  pull_request:
+    paths:
+      - "cognitive_brain/**"
+      - "tests/test_cognitive_brain_core.py"
+      - "tests/test_cognitive_brain_extensions.py"
+      - "cognitive_brain_main.py"
+      - ".github/workflows/cognitive-brain-tests.yml"
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run CognitiveBrain unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Run standalone demonstration
+        run: |
+          tmp_db="$(mktemp)"
+          COGNITIVE_BRAIN_DB="$tmp_db" python cognitive_brain_main.py
+          rm -f "$tmp_db"
