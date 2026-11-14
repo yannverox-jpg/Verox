@@ -1,7 +1,7 @@
 """Evidence-based inventory of runtime capabilities, dependencies, and resources."""
 from __future__ import annotations
 
-import importlib.util
+import importlib.util\nimport importlib.metadata
 import os
 import platform
 import shutil
@@ -90,6 +90,31 @@ class SelfModel:
 
     def missing(self, required: Iterable[str]) -> list[str]:
         return [name for name in required if not self.has_capability(name)]
+
+    def inventory_libraries(self, query: str = "", limit: int = 100) -> list[dict[str, str]]:
+        """Inspect installed distributions and their metadata without importing them."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        needle = query.casefold().strip()
+        entries: list[dict[str, str]] = []
+        try:
+            distributions = importlib.metadata.distributions()
+            for distribution in distributions:
+                name = distribution.metadata.get("Name") or "unknown"
+                version = distribution.version or "unknown"
+                summary = distribution.metadata.get("Summary") or ""
+                searchable = f"{name} {summary}".casefold()
+                if needle and needle not in searchable:
+                    continue
+                entries.append({"name": name, "version": version, "summary": summary})
+        except (OSError, importlib.metadata.PackageNotFoundError):
+            return []
+        entries.sort(key=lambda item: item["name"].casefold())
+        return entries[:limit]
+
+    def library_capabilities(self, query: str = "", limit: int = 100) -> list[dict[str, str]]:
+        """Expose what installed libraries claim to do, with metadata provenance."""
+        return self.inventory_libraries(query=query, limit=limit)
 
     def snapshot(self) -> dict:
         return {name: asdict(cap) for name, cap in sorted(self._capabilities.items())}
