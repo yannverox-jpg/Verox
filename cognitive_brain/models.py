@@ -1,5 +1,6 @@
 """Typed records shared by the CognitiveBrain modules."""
 from dataclasses import asdict, dataclass, field
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +19,17 @@ class Objective:
     def __post_init__(self) -> None:
         if not self.description.strip():
             raise ValueError("Objective description must not be empty")
+        max_steps = self.constraints.get("max_steps")
+        if max_steps is not None and (
+            isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1
+        ):
+            raise ValueError("constraints.max_steps must be a positive integer")
+        max_cost = self.constraints.get("max_experiment_cost")
+        if max_cost is not None and (
+            isinstance(max_cost, bool) or not isinstance(max_cost, (int, float))
+            or not math.isfinite(float(max_cost)) or max_cost < 0
+        ):
+            raise ValueError("constraints.max_experiment_cost must be a finite non-negative number")
 
 
 @dataclass(frozen=True)
@@ -47,8 +59,8 @@ class Hypothesis:
             raise ValueError("strategy_key must not be empty")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
-        if self.estimated_cost < 0:
-            raise ValueError("estimated_cost must be non-negative")
+        if not math.isfinite(float(self.estimated_cost)) or self.estimated_cost < 0:
+            raise ValueError("estimated_cost must be a finite non-negative number")
 
 
 @dataclass(frozen=True)
