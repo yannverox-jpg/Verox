@@ -23,6 +23,7 @@ class HypothesisGenerator:
                 evidence=(observation.source,),
                 confidence=0.5,
                 estimated_cost=0.1,
+                strategy_key="verify_independently",
             ),
             Hypothesis(
                 statement=f"Measure a reproducible baseline for: {objective.description}",
@@ -30,6 +31,7 @@ class HypothesisGenerator:
                 evidence=(observation.source,),
                 confidence=0.6,
                 estimated_cost=0.2,
+                strategy_key="measure_baseline",
             ),
             Hypothesis(
                 statement=f"Search the capability inventory for a reusable solution to: {objective.description}",
@@ -37,6 +39,7 @@ class HypothesisGenerator:
                 evidence=(observation.source,),
                 confidence=0.65,
                 estimated_cost=0.1,
+                strategy_key="reuse_capability",
             ),
             Hypothesis(
                 statement=f"Compare at least two independent approaches to: {objective.description}",
@@ -44,6 +47,7 @@ class HypothesisGenerator:
                 evidence=(observation.source,),
                 confidence=0.45,
                 estimated_cost=0.3,
+                strategy_key="compare_approaches",
             ),
         ]
         events = prior_events or []
@@ -58,6 +62,7 @@ class HypothesisGenerator:
                 evidence=tuple(f"memory_event:{event['id']}" for event in failed[:3]),
                 confidence=0.55,
                 estimated_cost=0.2,
+                strategy_key="alternative_method",
             ))
         completed = [event for event in events if event.get("event_type") == "experiment_result"]
         if completed:
@@ -67,6 +72,7 @@ class HypothesisGenerator:
                 evidence=tuple(f"memory_event:{event['id']}" for event in completed[:3]),
                 confidence=0.4,
                 estimated_cost=0.25,
+                strategy_key="replicate_result",
             ))
         # Deduplicate without collapsing distinct methods that share some words.
         unique: dict[str, Hypothesis] = {}
