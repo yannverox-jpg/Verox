@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 from .models import Hypothesis
@@ -22,6 +23,11 @@ class StrategySelector:
     """
     def rank(self, hypotheses: list[Hypothesis], *, max_cost: float | None = None,
              historical_stats: dict[str, dict[str, Any]] | None = None) -> list[RankedHypothesis]:
+        if max_cost is not None and (
+            isinstance(max_cost, bool) or not isinstance(max_cost, (int, float))
+            or not math.isfinite(float(max_cost)) or max_cost < 0
+        ):
+            raise ValueError("max_cost must be a finite non-negative number")
         eligible = [
             item for item in hypotheses
             if max_cost is None or item.estimated_cost <= max_cost
