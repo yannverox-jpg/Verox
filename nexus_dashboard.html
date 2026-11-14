@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Bot — Cerveau Autonome & Monétisation Live</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --panel-bg: #111827;
+            --border-color: #1f2937;
+            --accent-green: #10b981;
+            --accent-blue: #3b82f6;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- TIROIR LATÉRAL DES PLUG-INS --- */
+        aside {
+            width: 260px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--accent-blue);
+        }
+
+        .menu-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .menu-category {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin: 15px 0 5px 10px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            color: var(--text-main);
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .menu-item:hover {
+            background-color: var(--border-color);
+        }
+
+        .menu-item i { width: 18px; color: var(--text-muted); }
+
+        /* --- ZONE CENTRALE : PRÉVISUALISATION NO-CODE (DASHBOARD NEXUS) --- */
+        .preview-section {
+            flex: 1.2;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            background-color: #0b0f19;
+        }
+
+        .preview-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--panel-bg);
+        }
+
+        .preview-grid {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            align-content: start;
+        }
+
+        .app-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+
+        .app-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
+        }
+
+        .app-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .app-title { font-size: 0.9rem; font-weight: 600; }
+        .live-badge {
+            font-size: 0.65rem;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .dot { width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5px infinite; }
+
+        .app-metric { font-size: 1.2rem; font-weight: bold; margin-bottom: 5px; color: #fff; }
+        .app-sub { font-size: 0.75rem; color: var(--text-muted); }
+
+        /* --- ZONE DROITE : CHAT AVEC LE CERVEAU --- */
+        .chat-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-dark);
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--panel-bg);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        .message.nexus {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            align-self: flex-start;
+        }
+
+        .message.user {
+            background-color: var(--accent-blue);
+            color: #fff;
+            align-self: flex-end;
+        }
+
+        .chat-input-area {
+            padding: 15px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--panel-bg);
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            color: #fff;
+            outline: none;
+            font-size: 0.85rem;
+        }
+
+        .chat-input-area input:focus { border-color: var(--accent-blue); }
+
+        .chat-input-area button {
+            background: var(--accent-blue);
+            color: #fff;
+            border: none;
+            padding: 0 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. TIROIR LATÉRAL DES CONNECTEURS / PLUGS -->
+    <aside>
+        <div class="sidebar-header">
+            <i class="fa-solid fa-plug-circle-bolt"></i>
+            <span>Plug-ins & Connecteurs</span>
+        </div>
+        <div class="menu-list">
+            <div class="menu-category">Revenus & Automatisation</div>
+            <div class="menu-item"><i class="fa-solid fa-chart-line"></i>Trading Bot (CCXT)</div>
+            <div class="menu-item"><i class="fa-solid fa-microchip"></i>Minage Crypto Pool</div>
+            <div class="menu-item"><i class="fa-solid fa-futbol"></i>Paris Sportifs & Hippiques</div>
+            <div class="menu-item"><i class="fa-solid fa-store"></i>E-Commerce Automatisé</div>
+            <div class="menu-item"><i class="fa-solid fa-list-check"></i>Micro-Tâches & Bounties</div>
+
+            <div class="menu-category">Sécurité & Réseau</div>
+            <div class="menu-item"><i class="fa-solid fa-shield-halved"></i>Proxy Fixe (CH/DE)</div>
+            <div class="menu-item"><i class="fa-solid fa-fingerprint"></i>Sherlock / Maigret</div>
+            <div class="menu-item"><i class="fa-solid fa-robot"></i>LLM Web Scrapers</div>
+        </div>
+    </aside>
+
+    <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
+    <section class="preview-section">
+        <div class="preview-header">
+            <h2><i class="fa-solid fa-network-wired" style="color: var(--accent-blue);"></i> Nexus Live No-Code View</h2>
+            <span style="font-size: 0.8rem; color: var(--accent-green);"><i class="fa-solid fa-circle-check"></i> 5 Bots actifs en arrière-plan</span>
+        </div>
+        <div class="preview-grid">
+            <!-- Carte Trading -->
+            <div class="app-card">
+                <div class="app-card-header">
+                    <span class="app-title">Trading Automatique</span>
+                    <span class="live-badge"><div class="dot"></div>Actif</span>
+                </div>
+                <div class="app-metric">+14.2%</div>
+                <div class="app-sub">Exécution CCXT / Binance API</div>
+            </div>
+
+            <!-- Carte Minage Crypto -->
+            <div class="app-card">
+                <div class="app-card-header">
+                    <span class="app-title">Minage / Hashrate</span>
+                    <span class="live-badge"><div class="dot"></div>Actif</span>
+                </div>
+                <div class="app-metric">0.0042 BTC</div>
+                <div class="app-sub">Pool optimisé via Proxy Suisse</div>
+            </div>
+
+            <!-- Carte Paris Sportifs & Hippiques -->
+            <div class="app-card">
+                <div class="app-card-header">
+                    <span class="app-title">Paris Sportifs / Turf</span>
+                    <span class="live-badge"><div class="dot"></div>Actif</span>
+                </div>
+                <div class="app-metric">8 Paris en cours</div>
+                <div class="app-sub">Stratégie value-betting validée</div>
+            </div>
+
+            <!-- Carte E-Commerce -->
+            <div class="app-card">
+                <div class="app-card-header">
+                    <span class="app-title">E-Commerce Automated</span>
+                    <span class="live-badge"><div class="dot"></div>Actif</span>
+                </div>
+                <div class="app-metric">3 Commandes</div>
+                <div class="app-sub">Sync Stripe / PayPal / Shopify</div>
+            </div>
+
+            <!-- Carte Micro-Tâches -->
+            <div class="app-card">
+                <div class="app-card-header">
+                    <span class="app-title">Micro-Tâches & Bounties</span>
+                    <span class="live-badge"><div class="dot"></div>Actif</span>
+                </div>
+                <div class="app-metric">42 Validées</div>
+                <div class="app-sub">Extraction Playwright Stealth</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. CHAT AVEC LE CERVEAU NEXUS -->
+    <section class="chat-section">
+        <div class="chat-header">
+            <i class="fa-solid fa-brain" style="color: var(--accent-blue);"></i>
+            <span>Discuter avec le Cerveau Nexus</span>
+        </div>
+        <div class="chat-messages" id="chat-box">
+            <div class="message nexus">
+                Bonjour ! Je suis Nexus. Tous mes connecteurs sont initialisés via l'IP fixe de Francfort/Suisse. Je pilote en direct le trading, le minage, les paris et les micro-tâches. Que veux-tu optimiser aujourd'hui ?
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="user-input" placeholder="Donne un ordre à Nexus (ex: Relance le bot de trading...)" onkeypress="handleKey(event)">
+            <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </section>
+
+    <script>
+        function sendMessage() {
+            const input = document.getElementById('user-input');
+            const box = document.getElementById('chat-box');
+            if (!input.value.trim()) return;
+
+            // Message Utilisateur
+            const userDiv = document.createElement('div');
+            userDiv.className = 'message user';
+            userDiv.innerText = input.value;
+            box.appendChild(userDiv);
+
+            const query = input.value;
+            input.value = '';
+            box.scrollTop = box.scrollHeight;
+
+            // Réponse simulée du Cerveau Nexus
+            setTimeout(() => {
+                const nexusDiv = document.createElement('div');
+                nexusDiv.className = 'message nexus';
+                nexusDiv.innerText = `Ordre bien reçu. J'exécute la tâche via les connecteurs sécurisés et j'actualise le dashboard en temps réel.`;
+                box.appendChild(nexusDiv);
+                box.scrollTop = box.scrollHeight;
+            }, 800);
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+    </script>
+</body>
+              </html>
+              
