@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-type", default="unspecified")
     parser.add_argument("--library-query", default="")
     parser.add_argument("--library-limit", type=int, default=100)
+    parser.add_argument("--entity-aliases", default="", help="Semicolon-separated aliases for --track-entity")
+    parser.add_argument("--entity-tags", default="", help="Semicolon-separated tags for --track-entity")
     parser.add_argument("--tool-spec", default="")
     parser.add_argument("--tool-tests", default="",
                         help="JSON array of explicit test cases, e.g. '[{\"args\":[\"abc\"],\"expected\":3}]'")
@@ -69,8 +71,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.track_entity is not None:
-        aliases = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_ENTITY_ALIASES", "").split(";") if item.strip()]
-        tags = [item.strip() for item in os.getenv("COGNITIVE_BRAIN_ENTITY_TAGS", "").split(";") if item.strip()]
+        aliases = [item.strip() for item in args.entity_aliases.split(";") if item.strip()]
+        tags = [item.strip() for item in args.entity_tags.split(";") if item.strip()]
         _print_json(brain.event_intelligence.track(args.track_entity, aliases=aliases, tags=tags))
         return 0
 
