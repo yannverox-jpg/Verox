@@ -37,6 +37,7 @@ class MemoryStore:
                     hypothesis TEXT NOT NULL,
                     method TEXT NOT NULL,
                     expected_metric TEXT NOT NULL,
+                    strategy_key TEXT NOT NULL DEFAULT 'unspecified',
                     observed_result_json TEXT,
                     status TEXT NOT NULL CHECK(status IN ('planned','running','completed','failed','blocked')),
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -52,6 +53,13 @@ class MemoryStore:
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                     PRIMARY KEY(name, version)
                 );
+                CREATE TABLE IF NOT EXISTS strategy_performance (
+                    strategy_key TEXT PRIMARY KEY,
+                    trials INTEGER NOT NULL DEFAULT 0 CHECK(trials >= 0),
+                    successes INTEGER NOT NULL DEFAULT 0 CHECK(successes >= 0),
+                    mean_score REAL NOT NULL DEFAULT 0.0,
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                );
                 CREATE TABLE IF NOT EXISTS objective_budgets (
                     objective_key TEXT PRIMARY KEY,
                     max_steps INTEGER NOT NULL CHECK(max_steps > 0),
@@ -59,7 +67,13 @@ class MemoryStore:
                     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                 );
             """)
-
+            experiment_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(experiments)").fetchall()
+            }
+            if "strategy_key" not in experiment_columns:
+                db.execute(
+                    "ALTER TABLE experiments ADD COLUMN strategy_key TEXT NOT NULL DEFAULT 'unspecified'"
+                )
 
     def reserve_objective_step(self, objective_key: str, max_steps: int) -> tuple[bool, int]:
         """Atomically reserve a persistent step budget, including concurrent callers."""
@@ -136,13 +150,60 @@ class MemoryStore:
                 for score, row in matches[:limit]]
 
     def create_experiment(self, objective: str, hypothesis: str, method: str,
-                          expected_metric: str) -> int:
+                          expected_metric: str, strategy_key: str = "unspecified") -> int:
+        if not strategy_key.strip():
+            raise ValueError("strategy_key must not be empty")
         with self._connect() as db:
             cursor = db.execute(
-                "INSERT INTO experiments(objective,hypothesis,method,expected_metric,status) VALUES(?,?,?,?, 'planned')",
-                (objective, hypothesis, method, expected_metric),
+                """INSERT INTO experiments(objective,hypothesis,method,expected_metric,strategy_key,status)
+                   VALUES(?,?,?,?,?, 'planned')""",
+                (objective, hypothesis, method, expected_metric, strategy_key),
             )
             return int(cursor.lastrowid)
+
+    def get_experiment(self, experiment_id: int) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM experiments WHERE id=?", (experiment_id,)).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["observed_result"] = json.loads(result["observed_result_json"]) if result["observed_result_json"] else None
+        return result
+
+    def update_strategy_performance(self, strategy_key: str, score: float) -> dict[str, Any]:
+        """Update empirical strategy statistics from an explicitly evaluated outcome."""
+        if not strategy_key.strip():
+            raise ValueError("strategy_key must not be empty")
+        if not 0.0 <= score <= 1.0:
+            raise ValueError("score must be between 0 and 1")
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT trials,successes,mean_score FROM strategy_performance WHERE strategy_key=?",
+                (strategy_key,),
+            ).fetchone()
+            trials = int(row["trials"]) if row else 0
+            successes = int(row["successes"]) if row else 0
+            mean_score = float(row["mean_score"]) if row else 0.0
+            new_trials = trials + 1
+            new_successes = successes + (1 if score >= 0.5 else 0)
+            new_mean = ((mean_score * trials) + score) / new_trials
+            db.execute(
+                """INSERT INTO strategy_performance(strategy_key,trials,successes,mean_score)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(strategy_key) DO UPDATE SET trials=excluded.trials,
+                   successes=excluded.successes,mean_score=excluded.mean_score,
+                   updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')""",
+                (strategy_key, new_trials, new_successes, new_mean),
+            )
+            return {"strategy_key": strategy_key, "trials": new_trials,
+                    "successes": new_successes, "mean_score": new_mean}
+
+    def strategy_performance(self) -> dict[str, dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT strategy_key,trials,successes,mean_score,updated_at FROM strategy_performance"
+            ).fetchall()
+        return {row["strategy_key"]: dict(row) for row in rows}
 
     def finish_experiment(self, experiment_id: int, result: dict[str, Any],
                           status: str = "completed") -> None:
