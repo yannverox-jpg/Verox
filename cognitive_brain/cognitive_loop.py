@@ -12,7 +12,9 @@ from .models import Objective, Observation
 from .objective_manager import ObjectivePlan
 from .self_model import SelfModel
 from .source_evaluator import SourceEvaluator
+from .strategy_selector import StrategySelector
 from .tool_synthesizer import ToolSynthesizer
+from .tools.tool_registry import ToolRegistry
 
 
 class CognitiveBrain:
@@ -30,16 +32,25 @@ class CognitiveBrain:
         self.hypothesis_generator = HypothesisGenerator()
         self.investigation_engine = InvestigationEngine()
         self.tool_synthesizer = ToolSynthesizer(self.self_model, self.memory, code_generator)
+        self.tool_registry = ToolRegistry(self.memory)
+        self.strategy_selector = StrategySelector()
 
     def cognitive_cycle(self, objective: Objective, observation: Observation) -> dict[str, Any]:
         assessment = self.source_evaluator.assess(observation.source, observation.source_type)
         prior_events = self.memory.search_events(objective.description, limit=5)
         hypotheses = self.hypothesis_generator.generate(objective, observation, prior_events=prior_events)
+        max_cost = objective.constraints.get("max_experiment_cost")
+        ranked = self.strategy_selector.rank(hypotheses, max_cost=max_cost)
         event = {
             "objective": asdict(objective),
             "observation": asdict(observation),
             "source_assessment": asdict(assessment),
             "hypotheses": [asdict(item) for item in hypotheses],
+            "ranked_hypotheses": [
+                {"hypothesis": asdict(item.hypothesis), "score": item.score, "rationale": item.rationale}
+                for item in ranked
+            ],
+            "selected_hypothesis": asdict(ranked[0].hypothesis) if ranked else None,
             "prior_related_events": [item["id"] for item in prior_events],
             "capabilities": self.self_model.snapshot(),
             "investigation_providers": self.investigation_engine.inventory(),
