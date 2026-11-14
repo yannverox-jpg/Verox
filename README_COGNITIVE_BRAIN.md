@@ -8,6 +8,9 @@ Independent, executable cognitive core for Verox. The package is intentionally s
 python cognitive_brain_main.py
 python cognitive_brain_main.py --inspect
 python cognitive_brain_main.py --investigate "distributed system latency"
+python cognitive_brain_main.py --track-entity "Example Robotics"
+python cognitive_brain_main.py --list-watchlist
+python cognitive_brain_main.py --monitor-entity "Example Robotics"
 python cognitive_brain_main.py --cycle --objective "Reduce latency" --observation "p95 latency increased"
 python -m unittest discover -s tests -v
 ```
@@ -18,7 +21,7 @@ The first run creates `data/cognitive_brain.sqlite3`. Set `COGNITIVE_BRAIN_DB` t
 
 - **Self-model:** inventories Python/runtime details, installed distribution names/versions/descriptions, selected modules, executable availability, CPU count, disk capacity, and presence-only configuration flags without exposing secret values. `inspect_capabilities()` exposes this audit and the current provider/tool state.
 - **Objectives and constraints:** defines explicit success criteria, step/cost limits, and external-side-effect permissions.
-- **Investigation:** fans out to explicitly registered sync or async evidence providers, records provenance, handles provider failures, and marks incomplete results. `enable_public_research()` explicitly registers real read-only OpenAlex and arXiv search providers; optional RSS feeds require HTTPS and a caller-supplied trusted-host allowlist. No network call occurs until `investigate()` is invoked. Social platforms are not scraped; authenticated official APIs must be registered explicitly.
+- **Investigation and event intelligence:** fans out to explicitly registered sync or async evidence providers, records provenance, handles provider failures, and marks incomplete results. A persistent entity watchlist stores aliases/tags and deduplicated real-world mentions with source/date metadata; monitoring reports distinct source counts without claiming causal market impact or forecasting prices. `enable_public_research()` explicitly registers real read-only OpenAlex and arXiv search providers; optional RSS feeds require HTTPS and a caller-supplied trusted-host allowlist. No network call occurs until `investigate()` is invoked. Social platforms are not scraped; authenticated official APIs must be registered explicitly.
 - **Source evaluation:** applies transparent source-type heuristics and labels uncorroborated evidence as unverified. Weights are not proof of truth.
 - **Hypotheses and strategy selection:** uses an optional OpenAI-compatible planner (including local model servers) when explicitly configured, validates its structured proposals, and falls back to transparent templates if unavailable or failing. It incorporates lexical recall of prior events and ranks candidates by declared confidence and estimated cost. Ranking is heuristic, not proof.
 - **Persistent memory and adaptation:** SQLite stores events, experiment plans/results, versioned tool source, atomic per-objective step budgets, and per-strategy trial/success/mean-score statistics. Explicit numeric success criteria update empirical strategy performance; unassessed results do not pollute learning. Strategy ranking incorporates smoothed measured outcomes while retaining uncertainty and context limits. Simple lexical recall is explicit about its limitations.
