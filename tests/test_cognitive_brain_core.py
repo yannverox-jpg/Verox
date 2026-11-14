@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,7 +6,7 @@ from pathlib import Path
 from cognitive_brain import CognitiveBrain, Objective, Observation
 from cognitive_brain.memory_store import MemoryStore
 from cognitive_brain.self_model import SelfModel
-from cognitive_brain.tool_synthesizer import ToolSynthesizer
+from cognitive_brain.tool_synthesizer import RuntimeEvidence, ToolSynthesizer
 
 
 class CognitiveBrainCoreTests(unittest.TestCase):
@@ -37,9 +38,27 @@ class CognitiveBrainCoreTests(unittest.TestCase):
                 f"def {name}(text):\n    return len(text)\n")
             self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return length of text"))
             self.assertFalse(model.has_capability("text_length"))
-            synthesizer.mark_available("text_length", "Passed 12 isolated test cases", version=1)
+            source_hash = hashlib.sha256(
+                synthesizer._validated_source["text_length"].encode("utf-8")
+            ).hexdigest()
+            with self.assertRaises(ValueError):
+                synthesizer.mark_available("text_length", RuntimeEvidence(
+                    runner_id="test-runner", sandboxed=False, tests_run=12, tests_passed=12,
+                    source_hash=source_hash, metrics={"duration_ms": 1},
+                ))
+            synthesizer.mark_available("text_length", RuntimeEvidence(
+                runner_id="isolated-test-runner", sandboxed=True, tests_run=12, tests_passed=12,
+                source_hash=source_hash, metrics={"duration_ms": 1, "cases": 12},
+            ))
             self.assertTrue(model.has_capability("text_length"))
             self.assertEqual(memory.list_tools(available_only=True)[0]["name"], "text_length")
+
+    def test_missing_codegen_provider_does_not_claim_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "memory.sqlite3")
+            result = brain.ensure_capability_or_design("new_tool", "A tool that does not exist yet")
+            self.assertEqual(result["status"], "blocked_or_failed")
+            self.assertFalse(result["available"])
 
 
 if __name__ == "__main__":
