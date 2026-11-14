@@ -42,17 +42,11 @@ class CognitiveBrain:
     def cognitive_cycle(self, objective: Objective, observation: Observation) -> dict[str, Any]:
         max_steps = objective.constraints.get("max_steps")
         if max_steps is not None:
-            if not isinstance(max_steps, int) or max_steps < 1:
+            if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
                 raise ValueError("constraints.max_steps must be a positive integer")
             objective_key = objective.objective_id or objective.description
-            previous = self.memory.recent_events(limit=500)
-            used_steps = sum(
-                1 for item in previous
-                if item["event_type"] == "cognitive_cycle"
-                and ((item["payload"].get("objective", {}).get("objective_id")
-                      or item["payload"].get("objective", {}).get("description")) == objective_key)
-            )
-            if used_steps >= max_steps:
+            allowed, used_steps = self.memory.reserve_objective_step(objective_key, max_steps)
+            if not allowed:
                 event_id = self.memory.record_event("objective_step_limit_reached", {
                     "objective": asdict(objective), "max_steps": max_steps,
                     "used_steps": used_steps,
