@@ -229,9 +229,10 @@ class ConnectorHub:
 
     async def fetch_web_llm_interfaces(self, query: str, user_email: str = "") -> List[Dict[str, Any]]:
         results = []
-        providers = [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/"), ("Gemini Web", "https://gemini.google.com/app")]
+        provider_sets = {"chromium": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
         async with async_playwright() as p:
             for browser_name in ("chromium", "firefox"):
+                providers = provider_sets[browser_name]
                 browser = None
                 try:
                     browser = await getattr(p, browser_name).launch(headless=True)
@@ -437,11 +438,22 @@ def run_dashboard():
     ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), DashboardHandler).serve_forever()
 
 
+async def run_server():
+    dashboard_task = asyncio.create_task(asyncio.to_thread(run_dashboard))
+    try:
+        await run_worker()
+    finally:
+        dashboard_task.cancel()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dashboard", action="store_true")
+    parser.add_argument("--server", action="store_true")
     args = parser.parse_args()
     if args.dashboard:
         run_dashboard()
+    elif args.server:
+        asyncio.run(run_server())
     else:
         asyncio.run(run_worker())
