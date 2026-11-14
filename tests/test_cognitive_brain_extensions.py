@@ -17,6 +17,7 @@ from cognitive_brain.tool_synthesizer import ToolSynthesizer
 from cognitive_brain.strategy_selector import StrategySelector
 from cognitive_brain.models import Hypothesis
 from cognitive_brain.providers.public_research import OpenAlexProvider, RSSFeedProvider
+from cognitive_brain.providers.planning import OpenAICompatiblePlanner
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
@@ -129,6 +130,38 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             "def bad(value):\n    return value.__class__\n", "bad", args=["x"]
         )
         self.assertFalse(blocked_attr.success)
+
+    def test_configured_planner_parses_and_validates_structured_hypotheses(self):
+        from cognitive_brain.models import Objective, Observation
+
+        class FakeResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, limit):
+                return __import__("json").dumps({
+                    "choices": [{"message": {"content": __import__("json").dumps({
+                        "hypotheses": [{
+                            "statement": "Measure a reproducible baseline",
+                            "rationale": "The metric needs a baseline.",
+                            "evidence": ["local observation"],
+                            "confidence": 0.8,
+                            "estimated_cost": 0.1,
+                            "strategy_key": "measure_baseline",
+                        }]
+                    })}}]
+                }).encode("utf-8")
+
+        planner = OpenAICompatiblePlanner("http://127.0.0.1:11434/v1", "local-model")
+        with patch("cognitive_brain.providers.planning.urlopen", return_value=FakeResponse()):
+            hypotheses = planner(
+                Objective("Reduce latency"), Observation("Latency increased", source="test"), []
+            )
+        self.assertEqual(len(hypotheses), 1)
+        self.assertEqual(hypotheses[0].strategy_key, "measure_baseline")
+        self.assertEqual(hypotheses[0].confidence, 0.8)
 
     def test_public_research_providers_parse_real_response_shapes_without_network(self):
         payload = {
