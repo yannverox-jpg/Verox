@@ -152,3 +152,32 @@ class MemoryStore:
         with self._connect() as db:
             rows = db.execute(query).fetchall()
         return [{**dict(row), "validation": json.loads(row["validation_json"])} for row in rows]
+
+    def get_tool(self, name: str, version: int | None = None,
+                 available_only: bool = False) -> dict[str, Any] | None:
+        conditions = ["name=?"]
+        params: list[Any] = [name]
+        if version is not None:
+            conditions.append("version=?")
+            params.append(version)
+        if available_only:
+            conditions.append("status='available'")
+        query = "SELECT * FROM tools WHERE " + " AND ".join(conditions) + " ORDER BY version DESC LIMIT 1"
+        with self._connect() as db:
+            row = db.execute(query, params).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "validation": json.loads(row["validation_json"])}
+
+    def update_tool_status(self, name: str, version: int, status: str,
+                           validation: dict[str, Any]) -> None:
+        if status not in {"failed", "disabled", "available"}:
+            raise ValueError("Invalid registry status transition")
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE tools SET status=?, validation_json=? WHERE name=? AND version=?",
+                (status, json.dumps(validation, ensure_ascii=False, sort_keys=True),
+                 name, version),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown tool version: {name}@{version}")
