@@ -59,6 +59,54 @@ class ToolSynthesizer:
         self.sandbox_runner = sandbox_runner or SandboxRunner()
         self._validated_source: dict[str, str] = {}
         self._validated_versions: dict[str, int] = {}
+        self.restore_available_tools()
+
+    def restore_available_tools(self) -> dict[str, int]:
+        """Rehydrate only persisted tools whose hash and runtime evidence still verify."""
+        restored: dict[str, int] = {}
+        for record in self.memory.list_tools(available_only=True):
+            full = self.memory.get_tool(record["name"], record["version"], available_only=True)
+            if full is None:
+                continue
+            source = full.get("source_code", "")
+            digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            validation = full.get("validation", {})
+            static = self.validate_source(full["name"], source)
+            runtime = validation.get("runtime_evidence", validation)
+            if digest != full.get("source_hash") or not static.valid:
+                self.memory.update_tool_status(full["name"], full["version"], "failed", {
+                    "reason": "Persisted source hash or static validation mismatch",
+                    "computed_hash": digest, "stored_hash": full.get("source_hash"),
+                    "static_errors": list(static.errors),
+                })
+                self.memory.record_event("tool_restore_rejected", {
+                    "name": full["name"], "version": full["version"],
+                    "reason": "source_hash_or_static_validation_mismatch",
+                })
+                continue
+            try:
+                evidence = RuntimeEvidence(
+                    runner_id=str(runtime["runner_id"]),
+                    sandboxed=bool(runtime["sandboxed"]),
+                    tests_run=int(runtime["tests_run"]),
+                    tests_passed=int(runtime["tests_passed"]),
+                    source_hash=str(runtime["source_hash"]),
+                    metrics=dict(runtime["metrics"]),
+                )
+                evidence.validate(digest)
+            except (KeyError, TypeError, ValueError):
+                self.memory.update_tool_status(full["name"], full["version"], "failed", {
+                    "reason": "Persisted runtime evidence missing or invalid",
+                })
+                continue
+            self._validated_source[full["name"]] = source
+            self._validated_versions[full["name"]] = int(full["version"])
+            self.self_model.acquire_capability(full["name"], f"Restored validated tool {evidence.runner_id}", {
+                "source_hash": digest, "version": int(full["version"]),
+                "validation": validation,
+            })
+            restored[full["name"]] = int(full["version"])
+        return restored
 
     def diagnose_missing_capability(self, required_capability: str) -> bool:
         return not self.self_model.has_capability(required_capability)
@@ -180,6 +228,36 @@ class ToolSynthesizer:
                 "tests_passed": passed_count, "available": passed_count == len(results),
                 "results": results, "metrics": evidence.metrics}
 
+    def execute_tool(self, tool_name: str, *args: Any, **kwargs: Any) -> Any:
+        """Execute an available pure tool in the restricted child process, never in-process."""
+        source = self._validated_source.get(tool_name)
+        version = self._validated_versions.get(tool_name)
+        if source is None or version is None:
+            raise NotImplementedError(f"Tool {tool_name!r} is not validated and available")
+        record = self.memory.get_tool(tool_name, version, available_only=True)
+        if record is None:
+            self.self_model.disable_capability(tool_name, "Registry no longer marks this version available")
+            self._validated_source.pop(tool_name, None)
+            self._validated_versions.pop(tool_name, None)
+            raise NotImplementedError(f"Tool {tool_name!r} is disabled in the persistent registry")
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        if digest != record["source_hash"]:
+            self.memory.update_tool_status(tool_name, version, "failed", {
+                "reason": "Source hash changed after validation",
+                "computed_hash": digest, "stored_hash": record["source_hash"],
+            })
+            self.self_model.disable_capability(tool_name, "Source hash changed after validation")
+            raise RuntimeError(f"Integrity check failed for tool {tool_name!r}")
+        run = self.sandbox_runner.run(source, tool_name, args=list(args), kwargs=kwargs)
+        self.memory.record_event("tool_execution", {
+            "tool_name": tool_name, "version": version, "source_hash": digest,
+            "success": run.success, "duration_ms": run.duration_ms,
+            "error": run.error,
+        })
+        if not run.success:
+            raise RuntimeError(f"Tool {tool_name!r} failed in sandbox: {run.error}")
+        return run.output
+
     def mark_available(self, tool_name: str, evidence: RuntimeEvidence) -> None:
         source = self._validated_source.get(tool_name)
         version = self._validated_versions.get(tool_name)
@@ -191,6 +269,11 @@ class ToolSynthesizer:
             "runner_id": evidence.runner_id, "sandboxed": evidence.sandboxed,
             "tests_run": evidence.tests_run, "tests_passed": evidence.tests_passed,
             "source_hash": evidence.source_hash, "metrics": evidence.metrics,
+            "runtime_evidence": {
+                "runner_id": evidence.runner_id, "sandboxed": evidence.sandboxed,
+                "tests_run": evidence.tests_run, "tests_passed": evidence.tests_passed,
+                "source_hash": evidence.source_hash, "metrics": evidence.metrics,
+            },
         }
         self.memory.record_tool(tool_name, version, source, digest, "available", validation)
         self.self_model.acquire_capability(tool_name, f"Validated by {evidence.runner_id}", {
