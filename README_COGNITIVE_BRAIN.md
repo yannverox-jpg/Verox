@@ -1,37 +1,49 @@
 # Verox CognitiveBrain Core
 
-This package adds an independent, testable cognitive core without modifying the existing dashboard or its entry point.
+Independent, executable cognitive core for Verox. The package is intentionally separate from the existing dashboard and the existing server entry point; neither is modified by this implementation.
 
-## Run
+## Run locally
 
 ```bash
 python cognitive_brain_main.py
 python -m unittest discover -s tests -v
 ```
 
-The first run creates `data/cognitive_brain.sqlite3`. Set `COGNITIVE_BRAIN_DB` to use another path.
+The first run creates `data/cognitive_brain.sqlite3`. Set `COGNITIVE_BRAIN_DB` to select another path. The core uses Python's standard library only.
 
-## Lifecycle and guarantees
+## Implemented capabilities
 
-- Runtime inventory records evidence for Python, selected modules, and executable availability.
-- A cognitive cycle records an objective, observation provenance, a conservative source assessment, and explicit candidate hypotheses.
-- SQLite persists events, experiments, and versioned tool source.
-- Tool synthesis requires an injected code-generation provider. Without one, it records a blocked attempt instead of pretending code was generated.
-- Static validation does not execute generated code and does not mark a capability available.
-- A separate validation caller must supply measured evidence before `mark_available` can register a capability.
+- **Self-model:** inventories Python/runtime details, selected installed modules, executable availability, CPU count, disk capacity, and presence-only configuration flags without exposing secret values.
+- **Objectives and constraints:** defines explicit success criteria, step/cost limits, and external-side-effect permissions.
+- **Investigation:** fans out to explicitly registered sync or async evidence providers, records provenance, handles provider failures, and marks incomplete results. No providers are assumed or silently fabricated.
+- **Source evaluation:** applies transparent source-type heuristics and labels uncorroborated evidence as unverified. Weights are not proof of truth.
+- **Hypotheses and strategy selection:** proposes alternative approaches, incorporates lexical recall of related prior events, and ranks candidates by declared confidence and estimated cost. Ranking is heuristic, not proof.
+- **Persistent memory:** SQLite stores events, experiment plans/results, and versioned tool source; simple lexical recall is explicit about its limitations.
+- **Tool synthesis:** accepts an injected code-generation provider; validates a narrow pure-Python subset; stores versioned drafts and validation errors.
+- **Tool testing:** executes eligible pure functions in a resource-limited child process with restricted built-ins, AST restrictions, a timeout, and JSON-only inputs/outputs. Passing explicit test cases produces measured evidence and can register a capability.
+- **Tool registry:** retrieves versioned tool records and exposes only validated/available versions as available candidates.
+- **Experiment lifecycle:** blocks plans outside objective constraints, records measured results with timestamp/method provenance, and does not claim that a successful experiment proves causality.
+- **Continuous integration:** GitHub Actions runs unit tests and the standalone demonstration.
 
-## Security boundary
+## Tool generation lifecycle
 
-AST checks are defensive filters, not a secure sandbox. Never run generated or untrusted source in the main application process. Before enabling runtime execution, configure an OS/container sandbox with restricted filesystem, network disabled by default, resource/time limits, and scoped credentials. Financial, destructive, or externally visible actions require separate authorization.
+A tool is not available merely because source code exists. It must pass static validation, then all supplied test cases in the restricted runner. Source hash, test count, pass count, and timing metrics are stored. No code-generation provider is configured by default; in that state the core records a blocked synthesis attempt instead of pretending it generated code.
+
+## Security and autonomy boundaries
+
+The runner is defense in depth, not a hardened OS/container security boundary. Its syntax allowlist blocks imports, attribute access, and non-approved calls; subprocess time and memory limits are applied where supported. Do not use this runner for untrusted, high-risk, networked, or privileged workloads. Such workloads require a separately configured OS/container sandbox with network disabled by default, restricted filesystem, resource limits, and scoped credentials.
+
+The core does not automatically install packages, access credentials, place trades, spend funds, or perform destructive/external actions. Those capabilities require explicit adapters and permissions. Tool discovery/design and external execution are separate concerns.
 
 ## Epistemic rules
 
-- A proposed hypothesis is not an experimental result.
+- A hypothesis is a proposal, not an experimental result.
+- A generated script is a draft, not an acquired capability.
 - A successful result does not by itself establish causality.
-- Source type weights are heuristics, not proof of truth.
-- Capabilities are not considered acquired until validation evidence is recorded.
-- The initial hypothesis generator is a transparent baseline, not general intelligence or an autonomous LLM planner.
+- Source-type weights are heuristics, not proof of truth.
+- Capability acquisition requires evidence tied to the exact source hash and successful tests.
+- The baseline hypothesis generator is transparent and bounded; it is not presented as general intelligence or a fully autonomous LLM planner.
 
 ## Scope
 
-The core is independent of trading, e-commerce, microtasks, mining, and UI code. Those connectors can be attached later through explicit capability contracts. The existing dashboard and server entry point are intentionally untouched.
+CognitiveBrain's principles are independent of trading, e-commerce, microtasks, mining, and other future application connectors. Such domains can be added downstream through explicit capability contracts. The dashboard and existing application entry point remain untouched.
