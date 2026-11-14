@@ -13,14 +13,14 @@ The first run creates `data/cognitive_brain.sqlite3`. Set `COGNITIVE_BRAIN_DB` t
 
 ## Implemented capabilities
 
-- **Self-model:** inventories Python/runtime details, selected installed modules, executable availability, CPU count, disk capacity, and presence-only configuration flags without exposing secret values.
+- **Self-model:** inventories Python/runtime details, installed distribution names/versions/descriptions, selected modules, executable availability, CPU count, disk capacity, and presence-only configuration flags without exposing secret values. `inspect_capabilities()` exposes this audit and the current provider/tool state.
 - **Objectives and constraints:** defines explicit success criteria, step/cost limits, and external-side-effect permissions.
 - **Investigation:** fans out to explicitly registered sync or async evidence providers, records provenance, handles provider failures, and marks incomplete results. No providers are assumed or silently fabricated.
 - **Source evaluation:** applies transparent source-type heuristics and labels uncorroborated evidence as unverified. Weights are not proof of truth.
-- **Hypotheses and strategy selection:** proposes alternative approaches, incorporates lexical recall of related prior events, and ranks candidates by declared confidence and estimated cost. Ranking is heuristic, not proof.
+- **Hypotheses and strategy selection:** uses an optional OpenAI-compatible planner (including local model servers) when explicitly configured, validates its structured proposals, and falls back to transparent templates if unavailable or failing. It incorporates lexical recall of prior events and ranks candidates by declared confidence and estimated cost. Ranking is heuristic, not proof.
 - **Persistent memory:** SQLite stores events, experiment plans/results, and versioned tool source; simple lexical recall is explicit about its limitations.
 - **Tool synthesis:** accepts an injected code-generation provider; validates a narrow pure-Python subset; stores versioned drafts and validation errors.
-- **Tool testing:** executes eligible pure functions in a resource-limited child process with restricted built-ins, AST restrictions, a timeout, and JSON-only inputs/outputs. Passing explicit test cases produces measured evidence and can register a capability.
+- **Tool testing and execution:** executes eligible pure functions in a resource-limited child process with restricted built-ins, AST restrictions, a timeout, and JSON-only inputs/outputs. Passing explicit test cases produces measured evidence and can register a capability. Validated tools are restored from SQLite after restart, rechecked against their source hash and stored runtime evidence, and remain executable only through the sandbox runner.
 - **Tool registry:** retrieves versioned tool records and exposes only validated/available versions as available candidates.
 - **Experiment lifecycle:** blocks plans outside objective constraints, records measured results with timestamp/method provenance, and does not claim that a successful experiment proves causality.
 - **Continuous integration:** GitHub Actions runs unit tests and the standalone demonstration.
@@ -33,7 +33,7 @@ A tool is not available merely because source code exists. It must pass static v
 
 The runner is defense in depth, not a hardened OS/container security boundary. Its syntax allowlist blocks imports, attribute access, and non-approved calls; subprocess time and memory limits are applied where supported. Do not use this runner for untrusted, high-risk, networked, or privileged workloads. Such workloads require a separately configured OS/container sandbox with network disabled by default, restricted filesystem, resource limits, and scoped credentials.
 
-Optional code generation supports an OpenAI-compatible endpoint (including local compatible model servers). Set `COGNITIVE_BRAIN_LLM_BASE_URL` and `COGNITIVE_BRAIN_LLM_MODEL`; set `COGNITIVE_BRAIN_LLM_API_KEY` only when the endpoint requires it. No request occurs until tool synthesis is invoked. The provider is not enabled by default.\n\nThe core does not automatically install packages, access credentials, place trades, spend funds, or perform destructive/external actions. Those capabilities require explicit adapters and permissions. Tool discovery/design and external execution are separate concerns.
+Optional planning supports `COGNITIVE_BRAIN_PLANNER_BASE_URL`, `COGNITIVE_BRAIN_PLANNER_MODEL`, and optionally `COGNITIVE_BRAIN_PLANNER_API_KEY`; if these are unset, it reuses the `COGNITIVE_BRAIN_LLM_*` settings when available. Planner proposals are validated and recorded; a failure falls back to the deterministic baseline generator. Optional code generation supports an OpenAI-compatible endpoint (including local compatible model servers). Set `COGNITIVE_BRAIN_LLM_BASE_URL` and `COGNITIVE_BRAIN_LLM_MODEL`; set `COGNITIVE_BRAIN_LLM_API_KEY` only when the endpoint requires it. No request occurs until tool synthesis is invoked. The provider is not enabled by default.\n\nThe core does not automatically install packages, access credentials, place trades, spend funds, or perform destructive/external actions. Those capabilities require explicit adapters and permissions. Tool discovery/design and external execution are separate concerns.
 
 ## Epistemic rules
 
