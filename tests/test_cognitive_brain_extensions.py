@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cognitive_brain.investigation_engine import InvestigationEngine
+from cognitive_brain import CognitiveBrain, Objective, Observation\nfrom cognitive_brain.investigation_engine import InvestigationEngine
 from cognitive_brain.memory_store import MemoryStore
 from cognitive_brain.objective_manager import ObjectivePlan
 from cognitive_brain.sandbox.execution_environment import SandboxRunner
@@ -72,6 +72,19 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             self.assertEqual(result["tests_passed"], 2)
             self.assertTrue(result["available"])
             self.assertTrue(model.has_capability("text_length"))
+
+    def test_cognitive_cycle_enforces_objective_step_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            objective = Objective(
+                "Investigate latency", objective_id="latency-goal",
+                constraints={"max_steps": 1},
+            )
+            observation = Observation("Latency observation", source="test")
+            first = brain.cognitive_cycle(objective, observation)
+            self.assertEqual(first["status"], "hypotheses_proposed_not_executed")
+            second = brain.cognitive_cycle(objective, observation)
+            self.assertEqual(second["status"], "objective_step_limit_reached")
 
     def test_memory_recall_and_experiment_state_are_persistent(self):
         with tempfile.TemporaryDirectory() as directory:
