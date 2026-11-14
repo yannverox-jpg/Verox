@@ -28,7 +28,7 @@ class OpenAICompatiblePlanner:
         system = (
             "You are the planning component of a software agent. Return only valid JSON "
             'with shape {"hypotheses":[{"statement":string,"rationale":string,'
-            '"evidence":[string],"confidence":number 0..1,"estimated_cost":number >=0}]}. '
+            '"evidence":[string],"confidence":number 0..1,"estimated_cost":number >=0,"strategy_key":string}]}. '
             "Propose distinct, testable, lawful hypotheses. Do not claim experiments have run. "
             "Prefer reversible, low-cost tests; identify uncertainty and evidence gaps. "
             "Do not request secrets or bypass access controls."
@@ -93,6 +93,7 @@ class OpenAICompatiblePlanner:
                 statement=statement.strip(), rationale=rationale.strip(),
                 evidence=tuple(evidence[:12]), confidence=float(confidence),
                 estimated_cost=float(cost),
+                strategy_key=str(record.get("strategy_key", "general")).strip() or "general",
             ))
         return hypotheses
 
