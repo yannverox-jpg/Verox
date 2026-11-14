@@ -7,6 +7,7 @@ supported by separate evidence and measured outcomes.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from .investigation_engine import InvestigationEngine
 from .memory_store import MemoryStore
@@ -57,6 +58,10 @@ class EventIntelligence:
             )
             accepted.append(record)
         sources = sorted({item["source"] for item in accepted})
+        source_domains = sorted({
+            (urlparse(source).hostname or source).casefold()
+            for source in sources
+        })
         payload = {
             "entity": canonical_name,
             "query": report.query,
@@ -66,10 +71,11 @@ class EventIntelligence:
             "events_recorded": sum(1 for item in accepted if item["inserted"]),
             "events_duplicates": sum(1 for item in accepted if not item["inserted"]),
             "events_ignored": len(ignored),
-            "distinct_sources": len(sources),
+            "distinct_sources": len(source_domains),
+            "source_domains_or_ids": source_domains,
             "source_names": sources,
             "limitations": list(report.limitations),
-            "note": "Observed mentions are not proof of causal market impact or a price forecast.",
+            "note": "Observed mentions are not proof of causal market impact or a price forecast; distinct domains do not guarantee editorial independence.",
         }
         event_id = self.memory.record_event("entity_monitoring_run", payload)
         return {"event_id": event_id, **payload, "recorded_events": accepted, "ignored_events": ignored}
