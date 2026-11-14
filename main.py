@@ -4,6 +4,9 @@ import random
 import logging
 import json
 import argparse
+import sqlite3
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
@@ -314,6 +317,120 @@ class ConnectorHub:
         return results
 
 
+
+# ÉTAT PERSISTANT, INVENTAIRE, SESSIONS ET EXTENSION DES OUTILS
+class CognitiveStore:
+    """Source persistante unique pour mémoire, inventaire et résultats mesurés."""
+    def __init__(self, path=None):
+        self.path=str(Path(path or os.getenv("VEROX_STATE_DB","verox_state.sqlite3")).expanduser())
+        Path(self.path).parent.mkdir(parents=True,exist_ok=True)
+        with self.connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS app_inventory(app_id TEXT PRIMARY KEY,name TEXT NOT NULL,app_type TEXT NOT NULL,metadata TEXT NOT NULL,install_status TEXT NOT NULL DEFAULT 'unknown',connection_status TEXT NOT NULL DEFAULT 'unknown',updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cognitive_tools(tool_id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,specification TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'proposed',updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cognitive_memory(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,content TEXT NOT NULL,metadata TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cognitive_outcomes(id INTEGER PRIMARY KEY AUTOINCREMENT,strategy TEXT NOT NULL,tool_id TEXT NOT NULL,success INTEGER NOT NULL,measured_value REAL,result TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cognitive_sessions(app_id TEXT PRIMARY KEY,profile_path TEXT NOT NULL,state_path TEXT,updated_at TEXT NOT NULL);
+            """)
+    @staticmethod
+    def now(): return datetime.now(timezone.utc).isoformat()
+    def connect(self):
+        db=sqlite3.connect(self.path,timeout=15); db.row_factory=sqlite3.Row
+        db.execute("PRAGMA busy_timeout=15000"); db.execute("PRAGMA journal_mode=WAL"); return db
+    def remember(self,kind,content,metadata=None):
+        with self.connect() as db: db.execute("INSERT INTO cognitive_memory(kind,content,metadata,created_at) VALUES(?,?,?,?)",(kind,str(content)[:20000],json.dumps(metadata or {},ensure_ascii=False,default=str),self.now()))
+    def recent_memory(self,limit=20):
+        with self.connect() as db:return [dict(r) for r in db.execute("SELECT * FROM cognitive_memory ORDER BY id DESC LIMIT ?",(max(1,min(200,limit)),))]
+    def record_outcome(self,strategy,tool_id,success,value,result):
+        with self.connect() as db:db.execute("INSERT INTO cognitive_outcomes(strategy,tool_id,success,measured_value,result,created_at) VALUES(?,?,?,?,?,?)",(strategy,tool_id,int(bool(success)),value,json.dumps(result,ensure_ascii=False,default=str)[:20000],self.now()))
+    def outcome_stats(self):
+        with self.connect() as db:rows=db.execute("SELECT tool_id,COUNT(*) attempts,SUM(success) successes,AVG(measured_value) average_value FROM cognitive_outcomes GROUP BY tool_id").fetchall()
+        return {r["tool_id"]:dict(r) for r in rows}
+
+class VeroxAppManager:
+    """Inventaire d'applications en SQLite; un statut inconnu n'est pas présenté comme vérifié."""
+    def __init__(self,store):self.store=store
+    def register(self,app_id,name,app_type="unknown",**metadata):
+        app_id=re.sub(r"[^a-zA-Z0-9_.:-]","-",str(app_id).strip())[:120]
+        if not app_id or not str(name).strip():raise ValueError("app_id et name requis")
+        rec={"app_id":app_id,"name":str(name).strip(),"type":app_type,"origin":metadata.get("origin","user_or_brain"),"access_point":metadata.get("access_point",""),"execution_env":metadata.get("execution_env","unknown"),"capabilities":metadata.get("capabilities",[]),"authorizations":metadata.get("authorizations",[]),"remember_me":bool(metadata.get("remember_me",False))}
+        with self.store.connect() as db:
+            old=db.execute("SELECT install_status,connection_status FROM app_inventory WHERE app_id=?",(app_id,)).fetchone()
+            db.execute("""INSERT INTO app_inventory VALUES(?,?,?,?,?,?,?) ON CONFLICT(app_id) DO UPDATE SET name=excluded.name,app_type=excluded.app_type,metadata=excluded.metadata,updated_at=excluded.updated_at""",(app_id,rec["name"],str(app_type),json.dumps(rec,ensure_ascii=False),old["install_status"] if old else "unknown",old["connection_status"] if old else "unknown",self.store.now()))
+        return self.get(app_id)
+    def get(self,app_id):
+        with self.store.connect() as db:r=db.execute("SELECT * FROM app_inventory WHERE app_id=?",(app_id,)).fetchone()
+        if not r:return None
+        x=dict(r);x["metadata"]=json.loads(x.pop("metadata"));return x
+    def list(self):
+        with self.store.connect() as db:rows=db.execute("SELECT * FROM app_inventory ORDER BY name").fetchall()
+        out=[]
+        for r in rows:x=dict(r);x["metadata"]=json.loads(x.pop("metadata"));out.append(x)
+        return out
+    def update_status(self,app_id,install_status=None,connection_status=None,evidence=""):
+        if not self.get(app_id):raise KeyError("Application inconnue: "+app_id)
+        if install_status is not None and install_status not in {"unknown","not_installed","installed","in_progress","error"}:raise ValueError("Statut d'installation invalide")
+        if connection_status is not None and connection_status not in {"unknown","disconnected","connected","authentication_required","error"}:raise ValueError("Statut de connexion invalide")
+        with self.store.connect() as db:db.execute("UPDATE app_inventory SET install_status=COALESCE(?,install_status),connection_status=COALESCE(?,connection_status),updated_at=? WHERE app_id=?",(install_status,connection_status,self.store.now(),app_id))
+        if evidence:self.store.remember("app_status_evidence",evidence,{"app_id":app_id})
+        return self.get(app_id)
+
+class VeroxSessionManager:
+    """Profil isolé par application; fichiers de session traités comme données sensibles."""
+    def __init__(self,store):
+        self.store=store;self.root=Path(os.getenv("VEROX_BROWSER_PROFILE_DIR",str(Path.home()/".verox_browser_profiles"))).expanduser();self.root.mkdir(parents=True,exist_ok=True)
+    def profile_for(self,app_id):
+        safe=re.sub(r"[^a-zA-Z0-9_.-]","_",app_id)[:100]
+        if not safe:raise ValueError("Identifiant invalide")
+        path=(self.root/safe).resolve()
+        if self.root.resolve() not in path.parents:raise ValueError("Chemin de profil invalide")
+        path.mkdir(parents=True,exist_ok=True);state=path/"storage_state.json"
+        with self.store.connect() as db:db.execute("""INSERT INTO cognitive_sessions VALUES(?,?,?,?) ON CONFLICT(app_id) DO UPDATE SET profile_path=excluded.profile_path,state_path=excluded.state_path,updated_at=excluded.updated_at""",(app_id,str(path),str(state) if state.exists() else None,self.store.now()))
+        return {"profile_path":str(path),"storage_state_path":str(state),"cookies_restored":state.exists()}
+    async def save_state(self,context,app_id):
+        p=self.profile_for(app_id);state=Path(p["storage_state_path"]);await context.storage_state(path=str(state))
+        try:state.chmod(0o600)
+        except OSError:pass
+        with self.store.connect() as db:db.execute("UPDATE cognitive_sessions SET state_path=?,updated_at=? WHERE app_id=?",(str(state),self.store.now(),app_id))
+        return str(state)
+
+class VeroxExecutionManager:
+    """Registre d'outils natifs; le code proposé n'est pas exécuté automatiquement."""
+    def __init__(self,store):self.store=store;self.executors={}
+    def register_executor(self,tool_id,executor):
+        self.executors[tool_id]=executor;now=self.store.now()
+        with self.store.connect() as db:db.execute("""INSERT INTO cognitive_tools VALUES(?,?,?,?,?,?) ON CONFLICT(tool_id) DO UPDATE SET name=excluded.name,description=excluded.description,status='active',updated_at=excluded.updated_at""",(tool_id,tool_id,getattr(executor,"__doc__","") or "Connecteur natif","{}","active",now))
+    def propose_tool(self,tool_id,name,description,specification):
+        safe=re.sub(r"[^a-zA-Z0-9_.:-]","-",tool_id)[:120]
+        if not safe or not name.strip():raise ValueError("Identifiant et nom requis")
+        now=self.store.now()
+        with self.store.connect() as db:db.execute("""INSERT INTO cognitive_tools VALUES(?,?,?,?,?,?) ON CONFLICT(tool_id) DO UPDATE SET name=excluded.name,description=excluded.description,specification=excluded.specification,status=CASE WHEN cognitive_tools.status='active' THEN 'active' ELSE 'proposed' END,updated_at=excluded.updated_at""",(safe,name.strip(),description[:2000],json.dumps(specification,ensure_ascii=False)[:12000],"proposed",now))
+        return {"tool_id":safe,"status":"active" if safe in self.executors else "proposed"}
+    def list_tools(self):
+        with self.store.connect() as db:return [dict(r) for r in db.execute("SELECT * FROM cognitive_tools ORDER BY name")]
+    async def execute(self,tool_id,params):
+        fn=self.executors.get(tool_id)
+        if fn is None:raise RuntimeError("Outil proposé mais non activé: "+tool_id)
+        result=fn(**params);return await result if asyncio.iscoroutine(result) else result
+
+class VeroxAutonomousDrive:
+    """Pulsion persistante de création de valeur, choix de stratégie adaptatif et apprentissage mesuré."""
+    CORE_DIRECTIVE="Explorer les opportunités légales et autorisées de création de valeur et de revenus; inventer des stratégies librement et apprendre des résultats observés."
+    def __init__(self,store,apps,execution):self.store=store;self.apps=apps;self.execution=execution
+    def environment_snapshot(self):
+        return {"directive":self.CORE_DIRECTIVE,"apps":self.apps.list(),"tools":self.execution.list_tools(),"memory":self.store.recent_memory(15),"outcomes":self.store.outcome_stats(),"environment":{"platform":os.name,"python":os.sys.version.split()[0],"proxy_configured":bool(os.getenv("COGNITIVE_PROXY_URL")),"supabase_configured":bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_ANON_KEY"))}}
+    def choose_strategy(self,objective):
+        q=objective.lower();choices=[]
+        if any(k in q for k in ("installer","application","connecteur","outil","navigateur","session")):choices.append(("inspect_capabilities","inspecter les capacités, sessions et inventaire"))
+        if any(k in q for k in ("revenu","gagner","rentable","business","monétis","opportunité","arbitrage")):choices.append(("discover_opportunities","rechercher et comparer les opportunités légales"))
+        if any(k in q for k in ("étude","recherche","scientifique","architecture","code","analyse")):choices.append(("evidence_research","collecter et confronter des preuves"))
+        if not choices:choices=[("understand_and_research","comprendre l'objectif et choisir les connecteurs utiles")]
+        stats=self.store.outcome_stats()
+        def score(c):
+            r=stats.get(c[0],{});n=r.get("attempts") or 0;w=r.get("successes") or 0
+            return (w+1)/(n+2)+.25/(n+1)
+        return max(choices,key=score)
+
 # ==============================================================================
 # 4. CERVEAU COGNITIF UNIFIÉ (ORCHESTRATEUR & PERSISTANCE SUPABASE)
 # ==============================================================================
@@ -330,6 +447,11 @@ class CognitiveBrain:
         self.gateway = NetworkGateway()
         self.analyzer = ConstraintAnalyzer()
         self.hub = ConnectorHub(self.gateway)
+        self.store = CognitiveStore()
+        self.app_manager = VeroxAppManager(self.store)
+        self.session_manager = VeroxSessionManager(self.store)
+        self.execution_manager = VeroxExecutionManager(self.store)
+        self.drive = VeroxAutonomousDrive(self.store, self.app_manager, self.execution_manager)
 
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
         supabase_url = os.getenv("SUPABASE_URL")
@@ -352,6 +474,8 @@ class CognitiveBrain:
                 logger.error(f"[Supabase] Échec de l'archivage : {e}")
 
     async def run(self, user_query: str, user_email: str = ""):
+        strategy_id, strategy_description = self.drive.choose_strategy(user_query)
+        self.store.remember("user_request", user_query, {"strategy": strategy_id, "description": strategy_description})
         print("\n" + "="*65)
         print("🧠 CERVEAU COGNITIF SOUVERAIN — EXÉCUTION SOUS CONTRAINTES")
         print("="*65)
@@ -407,6 +531,8 @@ class CognitiveBrain:
 
         if not unique_evidence:
             print("[!] Aucune preuve validée n'a franchi les filtres de contraintes.")
+            self.store.record_outcome(strategy_id, "evidence_research", False, 0.0, {"evidence_count": 0, "network": net_status})
+            self.store.remember("execution_result", "Aucune preuve retournée", {"strategy": strategy_id, "success": False})
             return []
 
         for idx, ev in enumerate(unique_evidence, 1):
@@ -416,6 +542,8 @@ class CognitiveBrain:
 
         print("\n" + "="*65)
         print(f"✅ Cycle terminé : {len(unique_evidence)} éléments collectés et structurés.")
+        self.store.record_outcome(strategy_id, "evidence_research", True, float(len(unique_evidence)), {"evidence_count": len(unique_evidence), "network": net_status})
+        self.store.remember("execution_result", f"{len(unique_evidence)} éléments de preuve collectés", {"strategy": strategy_id, "success": True, "evidence_count": len(unique_evidence)})
         return unique_evidence
         print("="*65 + "\n")
 
