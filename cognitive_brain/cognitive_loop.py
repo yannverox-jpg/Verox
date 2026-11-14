@@ -263,6 +263,7 @@ class CognitiveBrain:
                 item for item in self.tool_registry.list() if item["status"] != "available"
             ],
             "investigation_providers": self.investigation_engine.inventory(),
+            "tracked_entities": self.event_intelligence.watchlist(limit=100),
             "planner_configured": self.planner_provider is not None,
             "code_generator_configured": self.tool_synthesizer.code_generator is not None,
             "memory_backend": "sqlite",
