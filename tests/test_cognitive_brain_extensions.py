@@ -1,4 +1,7 @@
 import asyncio
+import contextlib
+import io
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -237,6 +240,17 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             self.assertEqual(activated["status"], "available")
             self.assertTrue(brain.self_model.has_capability("text_length"))
             self.assertEqual(brain.tool_synthesizer.execute_tool("text_length", "brain"), 5)
+
+    def test_cli_inspect_is_executable_and_uses_configured_database(self):
+        from cognitive_brain_main import main
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with patch.dict(os.environ, {"COGNITIVE_BRAIN_DB": str(Path(directory) / "cli.sqlite3")}), \
+                    contextlib.redirect_stdout(output):
+                code = main(["--inspect", "--library-limit", "2"])
+            self.assertEqual(code, 0)
+            self.assertIn("runtime_capabilities", output.getvalue())
+            self.assertTrue((Path(directory) / "cli.sqlite3").exists())
 
     def test_capability_audit_lists_installed_libraries_and_provider_state(self):
         with tempfile.TemporaryDirectory() as directory:
