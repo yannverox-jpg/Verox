@@ -137,6 +137,18 @@ class CognitiveBrain:
                 "reason": "Objective constraints rejected this experiment.",
             })
             return {"status": "blocked", "event_id": event_id}
+        allowed, used_steps = self.memory.reserve_objective_step(
+            objective.objective_id, objective.max_steps
+        )
+        if not allowed:
+            event_id = self.memory.record_event("experiment_blocked", {
+                "objective": objective.to_dict(), "hypothesis": hypothesis,
+                "method": method, "expected_metric": expected_metric,
+                "reason": "Persistent objective step budget exhausted.",
+                "max_steps": objective.max_steps, "used_steps": used_steps,
+            })
+            return {"status": "blocked", "event_id": event_id,
+                    "reason": "objective_step_budget_exhausted"}
         experiment_id = self.memory.create_experiment(
             objective.description, hypothesis, method, expected_metric
         )
