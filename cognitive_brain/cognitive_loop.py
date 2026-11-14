@@ -82,7 +82,9 @@ class CognitiveBrain:
                 objective, observation, prior_events=prior_events
             )
         max_cost = objective.constraints.get("max_experiment_cost")
-        ranked = self.strategy_selector.rank(hypotheses, max_cost=max_cost)
+        ranked = self.strategy_selector.rank(
+            hypotheses, max_cost=max_cost, historical_stats=self.memory.strategy_performance()
+        )
         event = {
             "objective": asdict(objective),
             "observation": asdict(observation),
@@ -126,7 +128,8 @@ class CognitiveBrain:
 
     def plan_experiment(self, objective: ObjectivePlan, hypothesis: str, method: str,
                         expected_metric: str, *, estimated_cost: float = 0.0,
-                        external_side_effect: bool = False) -> dict[str, Any]:
+                        external_side_effect: bool = False,
+                        strategy_key: str = "unspecified") -> dict[str, Any]:
         if not objective.permits(estimated_cost=estimated_cost,
                                  external_side_effect=external_side_effect):
             event_id = self.memory.record_event("experiment_blocked", {
@@ -150,28 +153,100 @@ class CognitiveBrain:
             return {"status": "blocked", "event_id": event_id,
                     "reason": "objective_step_budget_exhausted"}
         experiment_id = self.memory.create_experiment(
-            objective.description, hypothesis, method, expected_metric
+            objective.description, hypothesis, method, expected_metric, strategy_key=strategy_key
         )
         self.memory.record_event("experiment_planned", {
             "experiment_id": experiment_id, "objective": objective.to_dict(),
             "hypothesis": hypothesis, "method": method,
             "expected_metric": expected_metric, "estimated_cost": estimated_cost,
+            "strategy_key": strategy_key,
         })
         return {"status": "planned", "experiment_id": experiment_id}
 
     def record_experiment_result(self, experiment_id: int, measurements: dict[str, Any],
-                                 *, status: str = "completed") -> dict[str, Any]:
-        """Persist measured results supplied by an execution adapter, never synthesize them."""
+                                 *, status: str = "completed",
+                                 success_criteria: dict[str, Any] | None = None,
+                                 outcome_score: float | None = None) -> dict[str, Any]:
+        """Persist measurements and learn only from an explicit, measurable outcome.
+
+        Criteria shape: {"metric": "latency_ms", "direction": "lower", "target": 100,
+        optional "tolerance": 0}. Without criteria or an explicit score, the result is
+        stored but not counted as a strategic success or failure.
+        """
         if not isinstance(measurements, dict) or not measurements:
             raise ValueError("Non-empty measured results are required")
         if "measured_at" not in measurements or "measurement_method" not in measurements:
             raise ValueError("Results must include measured_at and measurement_method provenance")
-        self.memory.finish_experiment(experiment_id, measurements, status=status)
+        if status not in {"completed", "failed", "blocked"}:
+            raise ValueError("Invalid experiment result status")
+        experiment = self.memory.get_experiment(experiment_id)
+        if experiment is None:
+            raise KeyError(f"Unknown experiment id: {experiment_id}")
+
+        evaluated_outcome: dict[str, Any] = {"status": "unassessed"}
+        score: float | None = None
+        if outcome_score is not None:
+            if isinstance(outcome_score, bool) or not isinstance(outcome_score, (int, float)):
+                raise ValueError("outcome_score must be numeric")
+            if not 0.0 <= float(outcome_score) <= 1.0:
+                raise ValueError("outcome_score must be between 0 and 1")
+            score = float(outcome_score)
+            evaluated_outcome = {"status": "evaluated", "score": score,
+                                 "method": "explicit_outcome_score"}
+        elif success_criteria:
+            metric = success_criteria.get("metric")
+            direction = success_criteria.get("direction")
+            target = success_criteria.get("target")
+            tolerance = success_criteria.get("tolerance", 0.0)
+            if not isinstance(metric, str) or not metric.strip():
+                raise ValueError("success_criteria.metric is required")
+            if direction not in {"lower", "higher", "equal", "at_most", "at_least"}:
+                raise ValueError("Unsupported success_criteria.direction")
+            actual = measurements.get(metric)
+            numeric_types = (int, float)
+            if (isinstance(actual, bool) or not isinstance(actual, numeric_types)
+                    or isinstance(target, bool) or not isinstance(target, numeric_types)
+                    or isinstance(tolerance, bool) or not isinstance(tolerance, numeric_types)
+                    or tolerance < 0):
+                evaluated_outcome = {
+                    "status": "unassessed", "reason": "Required numeric metric/target/tolerance missing",
+                    "metric": metric, "actual": actual, "target": target,
+                }
+            else:
+                if direction == "lower":
+                    passed = actual < target
+                elif direction == "higher":
+                    passed = actual > target
+                elif direction == "equal":
+                    passed = abs(actual - target) <= tolerance
+                elif direction == "at_most":
+                    passed = actual <= target
+                else:
+                    passed = actual >= target
+                score = 1.0 if passed else 0.0
+                evaluated_outcome = {
+                    "status": "success" if passed else "target_not_met",
+                    "score": score, "metric": metric, "actual": actual,
+                    "target": target, "direction": direction, "tolerance": tolerance,
+                }
+
+        self.memory.finish_experiment(experiment_id, {
+            **measurements, "evaluation": evaluated_outcome,
+            "success_criteria": success_criteria,
+        }, status=status)
+        learning = None
+        if score is not None:
+            learning = self.memory.update_strategy_performance(experiment["strategy_key"], score)
         event_id = self.memory.record_event("experiment_result", {
-            "experiment_id": experiment_id, "status": status, "measurements": measurements,
+            "experiment_id": experiment_id, "status": status,
+            "measurements": measurements, "evaluation": evaluated_outcome,
+            "strategy_learning": learning,
             "causality": "not_established_by_success_alone",
         })
-        return {"event_id": event_id, "experiment_id": experiment_id, "status": status}
+        return {
+            "event_id": event_id, "experiment_id": experiment_id, "status": status,
+            "evaluation": evaluated_outcome, "strategy_learning": learning,
+        }
 
     def inspect_capabilities(self, *, library_query: str = "", library_limit: int = 100) -> dict[str, Any]:
         """Return an evidence-based view of resources, libraries, tools, and configured providers."""
