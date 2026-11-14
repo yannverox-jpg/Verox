@@ -4,6 +4,7 @@ import random
 import logging
 import json
 import argparse
+from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 import httpx
@@ -229,14 +230,21 @@ class ConnectorHub:
     async def fetch_web_llm_interfaces(self, query: str, user_email: str = "") -> List[Dict[str, Any]]:
         results = []
         provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
+        headless = os.getenv("VEROX_BROWSER_HEADLESS", "true").lower() != "false"
+        profile_root = Path(os.getenv("VEROX_BROWSER_PROFILE_DIR", str(Path.home() / ".verox_browser_profiles")))
+        profile_root.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as p:
             for browser_name in ("chrome", "firefox"):
                 providers = provider_sets[browser_name]
                 browser = None
                 try:
-                    browser = await (p.chromium.launch(channel="chrome", headless=True) if browser_name == "chrome" else p.firefox.launch(headless=True))
+                    browser = await (p.chromium.launch(channel="chrome", headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
                     for provider, url in providers:
-                        context = await browser.new_context(user_agent=self.gateway.user_agent, locale="fr-CH", timezone_id="Europe/Zurich")
+                        state_path = profile_root / f"{browser_name}-{provider.lower().replace(chr(32), chr(95))}.json"
+                        context_options = {"user_agent": self.gateway.user_agent, "locale": "fr-CH", "timezone_id": "Europe/Zurich"}
+                        if state_path.exists():
+                            context_options["storage_state"] = str(state_path)
+                        context = await browser.new_context(**context_options)
                         page = await context.new_page()
                         try:
                             if browser_name == "chrome":
@@ -250,8 +258,26 @@ class ConnectorHub:
                                         await email_input.fill(user_email, timeout=3000)
                                     except Exception:
                                         pass
-                                results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification requise", "year": "État de session", "evidence": "Interface ouverte. Une authentification interactive est requise avant de transmettre la requête."})
-                                continue
+                                if not headless:
+                                    for selector in ('button[type="submit"]', 'button:has-text("Continue")', 'button:has-text("Next")', 'button:has-text("Continuer")', 'button:has-text("Suivant")'):
+                                        button = page.locator(selector).last
+                                        if await button.count():
+                                            try:
+                                                await button.click(timeout=1500)
+                                                break
+                                            except Exception:
+                                                pass
+                                    for _ in range(180):
+                                        await page.wait_for_timeout(1000)
+                                        prompt_check = page.locator('textarea, [contenteditable="true"], [role="textbox"]').first
+                                        if await prompt_check.count():
+                                            break
+                                    else:
+                                        results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification incomplète", "year": "État de session", "evidence": "La connexion nécessite une action manuelle dans le navigateur ouvert."})
+                                        continue
+                                else:
+                                    results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification requise", "year": "État de session", "evidence": "Le worker distant est sans interface interactive. Lance le moteur localement avec VEROX_BROWSER_HEADLESS=false pour terminer la connexion."})
+                                    continue
                             prompt = page.locator('textarea, [contenteditable="true"], [role="textbox"]').first
                             if not await prompt.count():
                                 results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: interface indisponible", "year": "État de session", "evidence": "Aucun champ de conversation détecté."})
@@ -275,6 +301,10 @@ class ConnectorHub:
                         except Exception as e:
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: échec de navigation", "year": "Erreur", "evidence": str(e)[:500]})
                         finally:
+                            try:
+                                await context.storage_state(path=str(state_path))
+                            except Exception:
+                                pass
                             await context.close()
                 except Exception as e:
                     results.append({"connector": f"Navigateur {browser_name}", "title": f"Échec de démarrage {browser_name}", "year": "Erreur", "evidence": str(e)[:500]})
