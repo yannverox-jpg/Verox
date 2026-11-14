@@ -106,6 +106,39 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             with self.assertRaises(NotImplementedError):
                 synthesizer.execute_tool("text_length", "not yet approved")
 
+    def test_cognitive_cycle_uses_configured_planner_and_records_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def planner(objective, observation, prior_events):
+                from cognitive_brain.models import Hypothesis
+                return [Hypothesis(
+                    statement="Measure latency with a reproducible benchmark",
+                    rationale="The planner returned a concrete measurable action.",
+                    evidence=(observation.source,), confidence=0.9, estimated_cost=0.1,
+                )]
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3", planner_provider=planner)
+            result = brain.cognitive_cycle(
+                Objective("Reduce latency", constraints={"max_experiment_cost": 1.0}),
+                Observation("Latency seems high", source="local-test"),
+            )
+            self.assertEqual(result["planner_status"], "configured_planner")
+            self.assertIn("Measure latency", result["selected_hypothesis"]["statement"])
+            events = brain.memory.search_events("planner_succeeded", limit=5)
+            self.assertEqual(len(events), 1)
+
+    def test_cognitive_cycle_falls_back_and_logs_planner_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def failing_planner(objective, observation, prior_events):
+                raise RuntimeError("planner unavailable")
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3", planner_provider=failing_planner)
+            result = brain.cognitive_cycle(
+                Objective("Investigate latency"),
+                Observation("Latency observation", source="local-test"),
+            )
+            self.assertEqual(result["planner_status"], "template_fallback_after_provider_error")
+            failures = brain.memory.search_events("planner_failed", limit=5)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("planner unavailable", failures[0]["payload"]["error"])
+
     def test_cognitive_cycle_enforces_objective_step_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
