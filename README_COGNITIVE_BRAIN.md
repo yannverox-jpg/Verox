@@ -8,7 +8,7 @@ Independent, executable cognitive core for Verox. The package is intentionally s
 python cognitive_brain_main.py
 python cognitive_brain_main.py --inspect
 python cognitive_brain_main.py --investigate "distributed system latency"
-python cognitive_brain_main.py --track-entity "Example Robotics"
+python cognitive_brain_main.py --track-entity "Example Robotics" --entity-aliases "Example Robotics Inc.;ER" --entity-tags "robotics;AI"
 python cognitive_brain_main.py --list-watchlist
 python cognitive_brain_main.py --monitor-entity "Example Robotics"
 python cognitive_brain_main.py --cycle --objective "Reduce latency" --observation "p95 latency increased"
