@@ -74,6 +74,38 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             self.assertTrue(result["available"])
             self.assertTrue(model.has_capability("text_length"))
 
+    def test_validated_tool_executes_in_sandbox_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "brain.sqlite3"
+            memory = MemoryStore(path)
+            model = SelfModel()
+            synthesizer = ToolSynthesizer(
+                model, memory,
+                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+            )
+            self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return text length"))
+            result = synthesizer.validate_in_sandbox("text_length", [
+                {"args": ["Verox"], "expected": 5},
+                {"args": [""], "expected": 0},
+            ])
+            self.assertTrue(result["available"])
+            self.assertEqual(synthesizer.execute_tool("text_length", "persistent"), 10)
+
+            restarted_model = SelfModel()
+            restarted = ToolSynthesizer(restarted_model, MemoryStore(path))
+            self.assertTrue(restarted_model.has_capability("text_length"))
+            self.assertEqual(restarted.execute_tool("text_length", "after restart"), 13)
+
+    def test_unvalidated_tool_cannot_execute(self):
+        with tempfile.TemporaryDirectory() as directory:
+            synthesizer = ToolSynthesizer(
+                SelfModel(), MemoryStore(Path(directory) / "brain.sqlite3"),
+                lambda name, spec: f"def {name}(value):\\n    return len(value)\\n",
+            )
+            self.assertTrue(synthesizer.design_and_synthesize_tool("text_length", "Return length"))
+            with self.assertRaises(NotImplementedError):
+                synthesizer.execute_tool("text_length", "not yet approved")
+
     def test_cognitive_cycle_enforces_objective_step_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
