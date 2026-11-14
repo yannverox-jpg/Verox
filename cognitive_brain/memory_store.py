@@ -148,7 +148,7 @@ class MemoryStore:
             ).fetchone()
             if exists is None:
                 raise KeyError(f"Entity is not tracked: {entity}")
-            db.execute(
+            cursor = db.execute(
                 """INSERT INTO intelligence_events(entity_name,source,source_type,title,content,
                    metadata_json,source_hash,observed_at) VALUES(?,?,?,?,?,?,?,?)
                    ON CONFLICT(entity_name,source_hash) DO NOTHING""",
@@ -156,11 +156,12 @@ class MemoryStore:
                  json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True, default=str),
                  source_hash, observed_at),
             )
+            inserted = cursor.rowcount == 1
             row = db.execute(
                 "SELECT * FROM intelligence_events WHERE entity_name=? AND source_hash=?",
                 (entity, source_hash),
             ).fetchone()
-        return {**dict(row), "metadata": json.loads(row["metadata_json"])}
+        return {**dict(row), "metadata": json.loads(row["metadata_json"]), "inserted": inserted}
 
     def search_intelligence_events(self, entity_name: str, query: str = "",
                                    limit: int = 50) -> list[dict[str, Any]]:
