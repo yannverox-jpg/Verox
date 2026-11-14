@@ -228,18 +228,18 @@ class ConnectorHub:
 
     async def fetch_web_llm_interfaces(self, query: str, user_email: str = "") -> List[Dict[str, Any]]:
         results = []
-        provider_sets = {"chromium": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
+        provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
         async with async_playwright() as p:
-            for browser_name in ("chromium", "firefox"):
+            for browser_name in ("chrome", "firefox"):
                 providers = provider_sets[browser_name]
                 browser = None
                 try:
-                    browser = await getattr(p, browser_name).launch(headless=True)
+                    browser = await (p.chromium.launch(channel="chrome", headless=True) if browser_name == "chrome" else p.firefox.launch(headless=True))
                     for provider, url in providers:
                         context = await browser.new_context(user_agent=self.gateway.user_agent, locale="fr-CH", timezone_id="Europe/Zurich")
                         page = await context.new_page()
                         try:
-                            if browser_name == "chromium":
+                            if browser_name == "chrome":
                                 await Stealth().apply_stealth_async(page)
                             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                             await page.wait_for_timeout(1000)
