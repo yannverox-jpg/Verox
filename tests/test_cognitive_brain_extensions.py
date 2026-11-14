@@ -1,6 +1,7 @@
 import asyncio
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from cognitive_brain import CognitiveBrain, Objective, Observation
@@ -10,6 +11,7 @@ from cognitive_brain.objective_manager import ObjectivePlan
 from cognitive_brain.sandbox.execution_environment import SandboxRunner
 from cognitive_brain.self_model import SelfModel
 from cognitive_brain.tool_synthesizer import ToolSynthesizer
+from cognitive_brain.providers.public_research import OpenAlexProvider, RSSFeedProvider
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
@@ -41,6 +43,40 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             "def bad(value):\n    return value.__class__\n", "bad", args=["x"]
         )
         self.assertFalse(blocked_attr.success)
+
+    def test_public_research_providers_parse_real_response_shapes_without_network(self):
+        payload = {
+            "results": [{
+                "id": "https://openalex.org/W123",
+                "display_name": "Measuring latency in distributed systems",
+                "publication_year": 2025,
+                "doi": "https://doi.org/10.0000/example",
+                "authorships": [{"author": {"display_name": "A. Researcher"}}],
+                "primary_location": {"landing_page_url": "https://example.org/paper"},
+            }]
+        }
+        with patch(
+            "cognitive_brain.providers.public_research._get_bytes",
+            return_value=__import__("json").dumps(payload).encode("utf-8"),
+        ) as fetch:
+            records = OpenAlexProvider(max_results=2)("latency")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["source_type"], "scientific_paper")
+        self.assertEqual(records[0]["metadata"]["authors"], ["A. Researcher"])
+        self.assertIn("search=latency", fetch.call_args.args[0])
+
+    def test_public_research_activation_is_explicit_and_rss_hosts_are_allowlisted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            self.assertEqual(brain.investigation_engine.inventory(), {})
+            providers = brain.enable_public_research()
+            self.assertIn("openalex", providers)
+            self.assertIn("arxiv", providers)
+            self.assertEqual(brain.investigation_engine.inventory(), providers)
+        with self.assertRaises(ValueError):
+            RSSFeedProvider(
+                ["https://example.com/feed.xml"], trusted_hosts={"other.example"}
+            )
 
     def test_investigation_queries_multiple_providers_and_reports_errors(self):
         engine = InvestigationEngine()
