@@ -18,6 +18,7 @@ class MemoryStore:
         connection = sqlite3.connect(str(self.path), timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 10000")
         return connection
 
     def _initialize(self) -> None:
@@ -29,6 +30,7 @@ class MemoryStore:
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                 );
+                CREATE INDEX IF NOT EXISTS idx_events_type_id ON events(event_type, id DESC);
                 CREATE TABLE IF NOT EXISTS experiments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     objective TEXT NOT NULL,
@@ -39,6 +41,7 @@ class MemoryStore:
                     status TEXT NOT NULL CHECK(status IN ('planned','running','completed','failed','blocked')),
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                 );
+                CREATE INDEX IF NOT EXISTS idx_experiments_status_id ON experiments(status, id DESC);
                 CREATE TABLE IF NOT EXISTS tools (
                     name TEXT NOT NULL,
                     version INTEGER NOT NULL,
@@ -52,6 +55,8 @@ class MemoryStore:
             """)
 
     def record_event(self, event_type: str, payload: dict[str, Any]) -> int:
+        if not event_type.strip():
+            raise ValueError("event_type must not be empty")
         with self._connect() as db:
             cursor = db.execute(
                 "INSERT INTO events(event_type, payload_json) VALUES (?, ?)",
@@ -66,7 +71,28 @@ class MemoryStore:
             rows = db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [{**dict(row), "payload": json.loads(row["payload_json"])} for row in rows]
 
-    def create_experiment(self, objective: str, hypothesis: str, method: str, expected_metric: str) -> int:
+    def search_events(self, query: str, limit: int = 10) -> list[dict]:
+        """Simple lexical recall, explicitly not semantic search."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        terms = [term.lower() for term in query.split() if len(term) > 2]
+        if not terms:
+            return []
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM events ORDER BY id DESC LIMIT 500").fetchall()
+        matches = []
+        for row in rows:
+            payload_json = row["payload_json"]
+            searchable = f"{row['event_type']} {payload_json}".lower()
+            score = sum(1 for term in set(terms) if term in searchable)
+            if score:
+                matches.append((score, dict(row)))
+        matches.sort(key=lambda pair: (pair[0], pair[1]["id"]), reverse=True)
+        return [{**row, "payload": json.loads(row["payload_json"]), "recall_score": score}
+                for score, row in matches[:limit]]
+
+    def create_experiment(self, objective: str, hypothesis: str, method: str,
+                          expected_metric: str) -> int:
         with self._connect() as db:
             cursor = db.execute(
                 "INSERT INTO experiments(objective,hypothesis,method,expected_metric,status) VALUES(?,?,?,?, 'planned')",
@@ -74,16 +100,34 @@ class MemoryStore:
             )
             return int(cursor.lastrowid)
 
-    def finish_experiment(self, experiment_id: int, result: dict[str, Any], status: str = "completed") -> None:
+    def finish_experiment(self, experiment_id: int, result: dict[str, Any],
+                          status: str = "completed") -> None:
         if status not in {"completed", "failed", "blocked"}:
             raise ValueError("Final status must be completed, failed, or blocked")
         with self._connect() as db:
             cursor = db.execute(
-                "UPDATE experiments SET observed_result_json=?, status=? WHERE id=?",
+                "UPDATE experiments SET observed_result_json=?, status=? WHERE id=? AND status IN ('planned','running')",
                 (json.dumps(result, ensure_ascii=False, sort_keys=True, default=str), status, experiment_id),
             )
             if cursor.rowcount != 1:
-                raise KeyError(f"Unknown experiment id: {experiment_id}")
+                raise KeyError(f"Unknown or already-finalized experiment id: {experiment_id}")
+
+    def list_experiments(self, status: str | None = None, limit: int = 100) -> list[dict]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        allowed = {"planned", "running", "completed", "failed", "blocked"}
+        if status is not None and status not in allowed:
+            raise ValueError("Invalid experiment status")
+        with self._connect() as db:
+            if status:
+                rows = db.execute(
+                    "SELECT * FROM experiments WHERE status=? ORDER BY id DESC LIMIT ?",
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM experiments ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{**dict(row), "observed_result": json.loads(row["observed_result_json"])
+                 if row["observed_result_json"] else None} for row in rows]
 
     def record_tool(self, name: str, version: int, source_code: str, source_hash: str,
                     status: str, validation: dict[str, Any] | None = None) -> None:
