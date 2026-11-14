@@ -77,8 +77,7 @@ class OpenAICompatibleCodeGenerator:
         if source.startswith("```"):
             lines = source.splitlines()
             if len(lines) >= 3 and lines[-1].strip() == "```":
-                source = "
-".join(lines[1:-1]).strip()
+                source = "\n".join(lines[1:-1]).strip()
         return source
 
 
