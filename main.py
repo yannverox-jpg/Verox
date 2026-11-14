@@ -2,6 +2,8 @@ import asyncio
 import os
 import random
 import logging
+import json
+import argparse
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 import httpx
@@ -224,6 +226,64 @@ class ConnectorHub:
         return results
 
 
+
+    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "") -> List[Dict[str, Any]]:
+        results = []
+        providers = [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/"), ("Gemini Web", "https://gemini.google.com/app")]
+        async with async_playwright() as p:
+            for browser_name in ("chromium", "firefox"):
+                browser = None
+                try:
+                    browser = await getattr(p, browser_name).launch(headless=True)
+                    for provider, url in providers:
+                        context = await browser.new_context(user_agent=self.gateway.user_agent, locale="fr-CH", timezone_id="Europe/Zurich")
+                        page = await context.new_page()
+                        try:
+                            if browser_name == "chromium":
+                                await Stealth().apply_stealth_async(page)
+                            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                            await page.wait_for_timeout(1000)
+                            email_input = page.locator('input[type="email"], input[autocomplete="username"], input[name*="email" i]').first
+                            if await email_input.count():
+                                if user_email:
+                                    try:
+                                        await email_input.fill(user_email, timeout=3000)
+                                    except Exception:
+                                        pass
+                                results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification requise", "year": "État de session", "evidence": "Interface ouverte. Une authentification interactive est requise avant de transmettre la requête."})
+                                continue
+                            prompt = page.locator('textarea, [contenteditable="true"], [role="textbox"]').first
+                            if not await prompt.count():
+                                results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: interface indisponible", "year": "État de session", "evidence": "Aucun champ de conversation détecté."})
+                                continue
+                            await prompt.fill(query, timeout=5000)
+                            sent = False
+                            for selector in ('button[data-testid*="send"]', 'button[aria-label*="Send" i]', 'button[aria-label*="Envoyer" i]', 'button[type="submit"]'):
+                                button = page.locator(selector).last
+                                if await button.count():
+                                    try:
+                                        await button.click(timeout=1500)
+                                        sent = True
+                                        break
+                                    except Exception:
+                                        pass
+                            if not sent:
+                                await prompt.press("Enter")
+                            await page.wait_for_timeout(5000)
+                            body = " ".join((await page.locator("body").inner_text()).split())
+                            results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: résultat Web", "year": "Temps réel", "evidence": body[-1800:] or "Aucun contenu lisible retourné."})
+                        except Exception as e:
+                            results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: échec de navigation", "year": "Erreur", "evidence": str(e)[:500]})
+                        finally:
+                            await context.close()
+                except Exception as e:
+                    results.append({"connector": f"Navigateur {browser_name}", "title": f"Échec de démarrage {browser_name}", "year": "Erreur", "evidence": str(e)[:500]})
+                finally:
+                    if browser:
+                        await browser.close()
+        return results
+
+
 # ==============================================================================
 # 4. CERVEAU COGNITIF UNIFIÉ (ORCHESTRATEUR & PERSISTANCE SUPABASE)
 # ==============================================================================
@@ -261,7 +321,7 @@ class CognitiveBrain:
             except Exception as e:
                 logger.error(f"[Supabase] Échec de l'archivage : {e}")
 
-    async def run(self, user_query: str):
+    async def run(self, user_query: str, user_email: str = ""):
         print("\n" + "="*65)
         print("🧠 CERVEAU COGNITIF SOUVERAIN — EXÉCUTION SOUS CONTRAINTES")
         print("="*65)
@@ -295,6 +355,8 @@ class CognitiveBrain:
             web_results = await self.hub.fetch_stealth_web_interfaces(user_query)
             raw_evidence.extend(web_results)
 
+        raw_evidence.extend(await self.hub.fetch_web_llm_interfaces(user_query, user_email))
+
         # 4. Filtrage et dédoublonnage strict
         unique_evidence = []
         seen = set()
@@ -323,18 +385,63 @@ class CognitiveBrain:
             print(f"Extrait : {ev['evidence']}")
 
         print("\n" + "="*65)
-        print(f"✅ Cycle terminé : {len(unique_evidence)} preuves vérifiées et structurées.")
+        print(f"✅ Cycle terminé : {len(unique_evidence)} éléments collectés et structurés.")
+        return unique_evidence
         print("="*65 + "\n")
 
 
-# ==============================================================================
-# POINT D'ENTRÉE DU LOGICIEL
-# ==============================================================================
+
+async def run_worker():
+    brain = CognitiveBrain()
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_ANON_KEY", "")
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("SUPABASE_URL et SUPABASE_ANON_KEY sont requis.")
+    headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while True:
+            try:
+                response = await client.get(f"{supabase_url}/rest/v1/cognitive_logs", params={"select": "id,query,status", "status": "eq.queued", "limit": "1"}, headers=headers)
+                response.raise_for_status()
+                rows = response.json()
+                if not rows:
+                    await asyncio.sleep(2)
+                    continue
+                command = rows[0]
+                command_id = command["id"]
+                claim = await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}", "status": "eq.queued"}, json={"status": "processing"}, headers=headers)
+                claim.raise_for_status()
+                try:
+                    payload = json.loads(command["query"].split("VEROX_COMMAND:", 1)[1])
+                    query = str(payload.get("text", "")).strip()
+                    email = str(payload.get("email", "")).strip()
+                    if not query:
+                        raise ValueError("La requête est vide.")
+                    evidence = await brain.run(query, email)
+                    await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}"}, json={"status": "completed", "evidence_data": evidence or []}, headers=headers)
+                except Exception as e:
+                    logger.exception("Échec de commande %s", command_id)
+                    await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}"}, json={"status": "failed", "evidence_data": [{"connector": "CognitiveBrain", "title": "Échec d'exécution", "year": "Erreur", "evidence": str(e)[:1000]}]}, headers=headers)
+            except Exception:
+                logger.exception("Erreur du worker cognitif")
+                await asyncio.sleep(5)
+
+
+def run_dashboard():
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    class DashboardHandler(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/", "/index.html", "/nexus_dashboard.html"):
+                self.path = "/nexus_dashboard.html"
+            return super().do_GET()
+    ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), DashboardHandler).serve_forever()
+
 
 if __name__ == "__main__":
-    brain = CognitiveBrain()
-    
-    # Exemple de requête combinant investigation OSINT et recherche technique
-    requete = "osint4all threat intelligence autonomous architecture"
-    asyncio.run(brain.run(requete))
-      
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dashboard", action="store_true")
+    args = parser.parse_args()
+    if args.dashboard:
+        run_dashboard()
+    else:
+        asyncio.run(run_worker())
