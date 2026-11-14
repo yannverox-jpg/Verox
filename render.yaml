@@ -1,9 +1,19 @@
 services:
-  - type: worker
-    name: cognitive-brain-worker
+  - type: web
+    name: verox
     env: python
-    region: frankfurt # Ou la région de ton choix
+    region: frankfurt
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
-    
+    buildCommand: pip install -r requirements.txt && playwright install --with-deps chromium firefox
+    startCommand: python main.py --server
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: COGNITIVE_PROXY_URL
+        sync: false
+      - key: COGNITIVE_GEO_TARGET
+        value: Zurich-CH / Frankfurt-DE
+      - key: USER_EMAIL
+        sync: false
