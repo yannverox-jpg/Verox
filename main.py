@@ -407,7 +407,7 @@ class CognitiveBrain:
 
         if not unique_evidence:
             print("[!] Aucune preuve validée n'a franchi les filtres de contraintes.")
-            return
+            return []
 
         for idx, ev in enumerate(unique_evidence, 1):
             print(f"\n[Preuve #{idx}] Source : {ev['connector']} ({ev['year']})")
