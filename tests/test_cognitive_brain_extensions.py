@@ -184,6 +184,29 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
         self.assertEqual(records[0]["metadata"]["authors"], ["A. Researcher"])
         self.assertIn("search=latency", fetch.call_args.args[0])
 
+    def test_entity_intelligence_persists_and_deduplicates_mentions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            brain.event_intelligence.track(
+                "Example Robotics", aliases=["Example Robotics Inc."], tags=["robotics", "AI"]
+            )
+            brain.investigation_engine.register_provider(
+                "mock_news", "reputable_media",
+                lambda query: [{
+                    "source": "https://news.example/article-1",
+                    "content": "Example Robotics announces a new autonomous factory",
+                    "metadata": {"published": "2026-11-14"},
+                }],
+            )
+            first = asyncio.run(brain.event_intelligence.monitor_entity("Example Robotics"))
+            second = asyncio.run(brain.event_intelligence.monitor_entity("Example Robotics"))
+            self.assertEqual(first["events_recorded"], 1)
+            self.assertEqual(second["events_recorded"], 0)
+            self.assertEqual(second["events_duplicates"], 1)
+            stored = brain.event_intelligence.events("Example Robotics")
+            self.assertEqual(len(stored), 1)
+            self.assertEqual(stored[0]["metadata"]["published"], "2026-11-14")
+
     def test_public_research_activation_is_explicit_and_rss_hosts_are_allowlisted(self):
         with tempfile.TemporaryDirectory() as directory:
             brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
