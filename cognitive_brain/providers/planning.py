@@ -27,12 +27,11 @@ class OpenAICompatiblePlanner:
                  prior_events: list[dict[str, Any]]) -> list[Hypothesis]:
         system = (
             "You are the planning component of a software agent. Return only valid JSON "
-            "with shape {\\"hypotheses\\":[{\\"statement\\":string,\\"rationale\\":string,"
-            "\\"evidence\\":[string],\\"confidence\\":number 0..1,"
-            "\\"estimated_cost\\":number >=0}]}. Propose distinct, testable, lawful "
-            "hypotheses. Do not claim experiments have run. Prefer reversible, low-cost "
-            "tests; identify uncertainty and evidence gaps. Do not request secrets or "
-            "bypass access controls."
+            'with shape {"hypotheses":[{"statement":string,"rationale":string,'
+            '"evidence":[string],"confidence":number 0..1,"estimated_cost":number >=0}]}. '
+            "Propose distinct, testable, lawful hypotheses. Do not claim experiments have run. "
+            "Prefer reversible, low-cost tests; identify uncertainty and evidence gaps. "
+            "Do not request secrets or bypass access controls."
         )
         user = json.dumps({
             "objective": {
