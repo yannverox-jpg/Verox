@@ -10,7 +10,7 @@ from .investigation_engine import InvestigationEngine
 from .memory_store import MemoryStore
 from .models import Objective, Observation
 from .objective_manager import ObjectivePlan
-from .providers import code_generator_from_env
+from .providers import code_generator_from_env, planner_from_env
 from .self_model import SelfModel
 from .source_evaluator import SourceEvaluator
 from .strategy_selector import StrategySelector
@@ -31,6 +31,7 @@ class CognitiveBrain:
         self.memory = MemoryStore(memory_path)
         self.source_evaluator = SourceEvaluator()
         self.hypothesis_generator = HypothesisGenerator()
+        self.planner_provider = planner_from_env()
         self.investigation_engine = InvestigationEngine()
         if code_generator is None:
             code_generator = code_generator_from_env()
@@ -59,8 +60,32 @@ class CognitiveBrain:
                 return {"event_id": event_id, "status": "objective_step_limit_reached",
                         "objective": asdict(objective), "used_steps": used_steps}
         assessment = self.source_evaluator.assess(observation.source, observation.source_type)
-        prior_events = self.memory.search_events(objective.description, limit=5)
-        hypotheses = self.hypothesis_generator.generate(objective, observation, prior_events=prior_events)
+        prior_events = self.memory.search_events(objective.description, limit=8)
+        planner_status = "template_fallback"
+        if self.planner_provider is not None:
+            try:
+                hypotheses = self.planner_provider(objective, observation, prior_events)
+                planner_status = "configured_planner"
+                self.memory.record_event("planner_succeeded", {
+                    "objective_id": objective.objective_id,
+                    "hypothesis_count": len(hypotheses),
+                    "provider": type(self.planner_provider).__name__,
+                })
+            except Exception as exc:
+                self.memory.record_event("planner_failed", {
+                    "objective_id": objective.objective_id,
+                    "provider": type(self.planner_provider).__name__,
+                    "error_type": type(exc).__name__, "error": str(exc),
+                    "fallback": "transparent_template_generator",
+                })
+                hypotheses = self.hypothesis_generator.generate(
+                    objective, observation, prior_events=prior_events
+                )
+                planner_status = "template_fallback_after_provider_error"
+        else:
+            hypotheses = self.hypothesis_generator.generate(
+                objective, observation, prior_events=prior_events
+            )
         max_cost = objective.constraints.get("max_experiment_cost")
         ranked = self.strategy_selector.rank(hypotheses, max_cost=max_cost)
         event = {
@@ -76,7 +101,7 @@ class CognitiveBrain:
             "prior_related_events": [item["id"] for item in prior_events],
             "capabilities": self.self_model.snapshot(),
             "investigation_providers": self.investigation_engine.inventory(),
-            "status": "hypotheses_proposed_not_executed",
+            "planner_status": planner_status,\n            "status": "hypotheses_proposed_not_executed",
         }
         event_id = self.memory.record_event("cognitive_cycle", event)
         return {"event_id": event_id, **event}
