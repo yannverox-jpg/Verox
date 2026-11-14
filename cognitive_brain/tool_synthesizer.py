@@ -87,9 +87,22 @@ class ToolSynthesizer:
             })
             return False
 
-        source = self.code_generator(tool_name, specification)
+        try:
+            source = self.code_generator(tool_name, specification)
+        except Exception as exc:
+            self.memory.record_event("tool_synthesis_failed", {
+                "tool_name": tool_name,
+                "reason": f"Code-generation provider failed: {type(exc).__name__}: {exc}",
+                "specification": specification,
+            })
+            logger.warning("Code generation failed for %s: %s", tool_name, exc)
+            return False
         if not isinstance(source, str):
-            raise TypeError("Code-generation provider must return Python source as a string")
+            self.memory.record_event("tool_synthesis_failed", {
+                "tool_name": tool_name, "reason": "Provider did not return source text",
+                "specification": specification,
+            })
+            return False
         result = self.validate_source(tool_name, source)
         version = 1 + max(
             (item["version"] for item in self.memory.list_tools() if item["name"] == tool_name),
