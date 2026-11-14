@@ -204,19 +204,27 @@ class CognitiveBrainExtensionTests(unittest.TestCase):
             )
             brain.investigation_engine.register_provider(
                 "mock_news", "reputable_media",
-                lambda query: [{
-                    "source": "https://news.example/article-1",
-                    "content": "Example Robotics announces a new autonomous factory",
-                    "metadata": {"published": "2026-11-14"},
-                }],
+                lambda query: [
+                    {
+                        "source": "https://news.example/article-1",
+                        "content": "Example Robotics announces a new autonomous factory",
+                        "metadata": {"published": "2026-11-14"},
+                    },
+                    {
+                        "source": "https://news.example/article-2",
+                        "content": "Example Robotics expands its robotics research center",
+                        "metadata": {"published": "2026-11-14"},
+                    },
+                ],
             )
             first = asyncio.run(brain.event_intelligence.monitor_entity("Example Robotics"))
             second = asyncio.run(brain.event_intelligence.monitor_entity("Example Robotics"))
-            self.assertEqual(first["events_recorded"], 1)
+            self.assertEqual(first["events_recorded"], 2)
+            self.assertEqual(first["distinct_sources"], 1)
             self.assertEqual(second["events_recorded"], 0)
-            self.assertEqual(second["events_duplicates"], 1)
+            self.assertEqual(second["events_duplicates"], 2)
             stored = brain.event_intelligence.events("Example Robotics")
-            self.assertEqual(len(stored), 1)
+            self.assertEqual(len(stored), 2)
             self.assertEqual(stored[0]["metadata"]["published"], "2026-11-14")
 
     def test_public_research_activation_is_explicit_and_rss_hosts_are_allowlisted(self):
