@@ -101,7 +101,8 @@ class CognitiveBrain:
             "prior_related_events": [item["id"] for item in prior_events],
             "capabilities": self.self_model.snapshot(),
             "investigation_providers": self.investigation_engine.inventory(),
-            "planner_status": planner_status,\n            "status": "hypotheses_proposed_not_executed",
+            "planner_status": planner_status,
+            "status": "hypotheses_proposed_not_executed",
         }
         event_id = self.memory.record_event("cognitive_cycle", event)
         return {"event_id": event_id, **event}
