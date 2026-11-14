@@ -21,7 +21,7 @@ _ALLOWED_NODES = (
     ast.Module, ast.FunctionDef, ast.arguments, ast.arg, ast.Return, ast.Expr,
     ast.Assign, ast.AnnAssign, ast.If, ast.IfExp, ast.Compare, ast.BoolOp,
     ast.And, ast.Or, ast.Not, ast.UnaryOp, ast.USub, ast.UAdd, ast.BinOp,
-    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
     ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Is, ast.IsNot,
     ast.In, ast.NotIn, ast.Name, ast.Load, ast.Store, ast.Constant, ast.List,
     ast.Tuple, ast.Dict, ast.Set, ast.Subscript, ast.Slice, ast.ListComp,
@@ -73,9 +73,6 @@ class SandboxRunner:
                 isinstance(node.func, ast.Name) and node.func.id in _ALLOWED_CALLS
             ):
                 errors.append("Only approved pure built-in function calls are permitted")
-                break
-            if isinstance(node, ast.Pow) and isinstance(node, ast.BinOp):
-                errors.append("Power operations are not permitted")
                 break
         return not errors, errors
 
