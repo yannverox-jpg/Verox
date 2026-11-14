@@ -15,6 +15,23 @@ from cognitive_brain.providers.public_research import OpenAlexProvider, RSSFeedP
 
 
 class CognitiveBrainExtensionTests(unittest.TestCase):
+    def test_experiment_planning_respects_persistent_step_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = CognitiveBrain(Path(directory) / "brain.sqlite3")
+            plan = ObjectivePlan(
+                objective_id="one-step-plan", description="Measure latency",
+                max_steps=1, max_experiment_cost=0.0,
+            )
+            first = brain.plan_experiment(
+                plan, "Latency is caused by repeated parsing", "benchmark", "latency_ms"
+            )
+            second = brain.plan_experiment(
+                plan, "Caching reduces latency", "compare baseline and cache", "latency_ms"
+            )
+            self.assertEqual(first["status"], "planned")
+            self.assertEqual(second["status"], "blocked")
+            self.assertEqual(second["reason"], "objective_step_budget_exhausted")
+
     def test_objective_guardrails_block_cost_and_external_side_effects(self):
         plan = ObjectivePlan(
             objective_id="safe-research", description="Research a topic",
