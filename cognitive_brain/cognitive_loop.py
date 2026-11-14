@@ -26,12 +26,12 @@ class CognitiveBrain:
     and execution capabilities.
     """
     def __init__(self, memory_path: str | Path = "data/cognitive_brain.sqlite3",
-                 code_generator=None) -> None:
+                 code_generator=None, planner_provider=None) -> None:
         self.self_model = SelfModel()
         self.memory = MemoryStore(memory_path)
         self.source_evaluator = SourceEvaluator()
         self.hypothesis_generator = HypothesisGenerator()
-        self.planner_provider = planner_from_env()
+        self.planner_provider = planner_provider if planner_provider is not None else planner_from_env()
         self.investigation_engine = InvestigationEngine()
         if code_generator is None:
             code_generator = code_generator_from_env()
