@@ -6,6 +6,9 @@ Independent, executable cognitive core for Verox. The package is intentionally s
 
 ```bash
 python cognitive_brain_main.py
+python cognitive_brain_main.py --inspect
+python cognitive_brain_main.py --investigate "distributed system latency"
+python cognitive_brain_main.py --cycle --objective "Reduce latency" --observation "p95 latency increased"
 python -m unittest discover -s tests -v
 ```
 
