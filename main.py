@@ -966,7 +966,14 @@ def run_dashboard():
                 if not query:
                     return self._json(400, {"error": "Le message est vide"})
                 task_key = str(uuid.uuid4())
-                url, headers = self._supabase()
+                try:
+                    url, headers = self._supabase()
+                except RuntimeError:
+                    # Mode de démarrage dégradé : Gemini peut répondre pendant que Supabase est configuré.
+                    fallback = asyncio.run(CognitiveBrain().ask_gemini(query, []))
+                    if fallback:
+                        return self._json(200, {"answer": fallback, "mode": "gemini_fallback"})
+                    return self._json(503, {"error": "Supabase n'est pas configuré et Gemini n'est pas disponible."})
                 task = {"task_key": task_key, "task_type": "cognitive_chat",
                         "status": "queued", "payload": {"text": query, "email": email,
                         "source": "verox_dashboard"}}
