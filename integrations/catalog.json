@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Catalogue de ressources affichées dans le tiroir latéral Verox. Les entrées externes sont des raccourcis, pas des intégrations opérationnelles.",
+  "items": [
+    {
+      "id": "huggingface",
+      "label": "Hugging Face",
+      "url": "https://huggingface.co/",
+      "category": "ai_models",
+      "integration_type": [
+        "connector",
+        "plugin",
+        "mcp_optional"
+      ],
+      "status": "catalog_only"
+    },
+    {
+      "id": "lm-studio",
+      "label": "LM Studio",
+      "url": "https://lmstudio.ai/",
+      "category": "local_inference",
+      "integration_type": [
+        "connector",
+        "plugin",
+        "mcp_optional"
+      ],
+      "status": "catalog_only",
+      "runtime": "local_machine"
+    },
+    {
+      "id": "pocketpal-ai",
+      "label": "PocketPal AI",
+      "url": "https://github.com/a-ghorbani/pocketpal-ai",
+      "category": "mobile_inference",
+      "integration_type": [
+        "connector_candidate"
+      ],
+      "status": "catalog_only"
+    },
+    {
+      "id": "pinokio",
+      "label": "Pinokio",
+      "url": "https://pinokio.work/",
+      "category": "local_app_management",
+      "integration_type": [
+        "connector_candidate",
+        "plugin_candidate"
+      ],
+      "status": "catalog_only",
+      "runtime": "local_machine"
+    },
+    {
+      "id": "heretic",
+      "label": "Heretic",
+      "url": "https://github.com/p-e-w/heretic",
+      "category": "open_model_transformation",
+      "integration_type": [
+        "optional_local_tool"
+      ],
+      "status": "catalog_only",
+      "runtime": "local_gpu_recommended",
+      "note": "Outil de transformation de modèles existants; ce n'est ni un modèle de chat ni un routeur d'inférence."
+    },
+    {
+      "id": "codesandbox",
+      "label": "CodeSandbox (à confirmer)",
+      "url": "https://codesandbox.io/",
+      "category": "development",
+      "integration_type": [
+        "connector_candidate",
+        "plugin_candidate"
+      ],
+      "status": "catalog_only"
+    },
+    {
+      "id": "free-for-dev",
+      "label": "Free-for.dev",
+      "url": "https://github.com/FreeForDev/FreeForDev",
+      "category": "free_service_discovery",
+      "integration_type": [
+        "discovery_plugin_candidate"
+      ],
+      "status": "catalog_only"
+    },
+    {
+      "id": "osint-framework",
+      "label": "OSINT Framework",
+      "url": "https://osintframework.com/",
+      "category": "open_source_research",
+      "integration_type": [
+        "discovery_plugin_candidate"
+      ],
+      "status": "catalog_only"
+    },
+    {
+      "id": "grapheneos",
+      "label": "GrapheneOS",
+      "url": "https://grapheneos.org/",
+      "category": "device_security",
+      "integration_type": [
+        "security_reference"
+      ],
+      "status": "catalog_only"
+    }
+  ],
+  "status_definitions": {
+    "catalog_only": "Lien affiché; aucune authentification ou exécution distante n'est déclarée.",
+    "configured": "Paramètres d'intégration présents.",
+    "connected": "Connexion testée avec succès.",
+    "validated": "Tests fonctionnels réussis."
+  }
+}
