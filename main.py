@@ -526,6 +526,40 @@ class CognitiveBrain:
         self.hub = ConnectorHub(self.gateway, self.session_manager)
         self.drive = VeroxAutonomousDrive(self.store, self.app_manager, self.execution_manager)
 
+    async def ask_gemini(self, user_query: str, evidence: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Modèle de secours via Gemini API; la clé reste exclusivement côté serveur."""
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            return None
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        context = json.dumps((evidence or [])[:8], ensure_ascii=False)[:18000]
+        prompt = (
+            "Tu es le moteur de secours de CognitiveBrain dans Verox. "
+            "Réponds directement et utilement à la demande, en français sauf demande contraire. "
+            "Ne prétends pas avoir exécuté une action, connecté un compte, installé une application ou généré des revenus si ce n'est pas prouvé. "
+            "Si les preuves fournies sont insuffisantes, indique les limites et propose la prochaine action sûre. "
+            "Ne demande jamais à l'utilisateur de publier une clé secrète.\\n\\n"
+            f"Demande : {user_query}\\n\\n"
+            f"Preuves disponibles : {context or 'Aucune preuve exploitable retournée par les connecteurs.'}"
+        )
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                response = await client.post(
+                    endpoint,
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                          "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}}
+                )
+                response.raise_for_status()
+                payload = response.json()
+            parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            answer = "\\n".join(str(part.get("text", "")) for part in parts if part.get("text"))
+            return answer.strip() or None
+        except Exception as exc:
+            logger.warning("Gemini fallback indisponible (%s).", type(exc).__name__)
+            return None
+
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
         """Archive la mémoire du cerveau dans le schéma PostgreSQL canonique Nexus/Verox."""
         supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -601,10 +635,22 @@ class CognitiveBrain:
                 seen.add(key)
                 unique_evidence.append(item)
 
-        # 5. Sauvegarde sur Supabase (si configuré sur Render)
+        # 5. Secours Gemini : uniquement si les connecteurs n'ont fourni aucune preuve exploitable.
+        # Gemini ne reçoit jamais le droit d'exécuter arbitrairement du code ou de manipuler des secrets.
+        if not unique_evidence:
+            fallback_answer = await self.ask_gemini(user_query, [])
+            if fallback_answer:
+                unique_evidence = [{
+                    "connector": "Gemini fallback",
+                    "year": datetime.now(timezone.utc).year,
+                    "title": "Réponse de secours CognitiveBrain",
+                    "evidence": fallback_answer
+                }]
+
+        # 6. Sauvegarde sur Supabase (si configuré sur Render)
         await self.save_to_supabase(user_query, unique_evidence)
 
-        # 6. Restitution finale strictement fondée sur les preuves
+        # 7. Restitution finale : preuves des connecteurs ou réponse de secours explicitement identifiée
         print(f"\n📍 Nœud réseau actif : {net_status['city']} ({net_status['country']}) | IP: {net_status['ip']}")
         print(f"🔍 Requête analysée : {user_query}")
         print(f"🛡️ Contraintes appliquées : Geo-Lock={constraints['enforce_fixed_geo']} | Stealth={constraints['use_stealth_browser']}")
@@ -744,9 +790,21 @@ def run_dashboard():
                     with httpx.Client(timeout=8.0) as client:
                         check = client.get(url + "/rest/v1/nexus_tasks?select=id&limit=1", headers=headers)
                         check.raise_for_status()
-                    return self._json(200, {"ok": True, "database": "connected"})
+                    catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
+                    with catalog_path.open("r", encoding="utf-8") as catalog_file:
+                        extension_count = len(json.load(catalog_file).get("items", []))
+                    return self._json(200, {
+                        "ok": True,
+                        "database": "connected",
+                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "extension_count": extension_count
+                    })
                 except Exception as exc:
-                    return self._json(503, {"ok": False, "error": str(exc)[:250]})
+                    return self._json(503, {
+                        "ok": False,
+                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "error": str(exc)[:250]
+                    })
             if parsed.path == "/api/extensions":
                 try:
                     catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
@@ -756,6 +814,48 @@ def run_dashboard():
                 except Exception as exc:
                     logger.exception("Impossible de charger le catalogue d'extensions")
                     return self._json(500, {"error": "Catalogue d'extensions indisponible"})
+            if parsed.path == "/api/metrics":
+                try:
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=12.0) as client:
+                        task_response = client.get(
+                            url + "/rest/v1/nexus_tasks",
+                            params={"select": "id,status,task_type", "limit": "1000"},
+                            headers=headers
+                        )
+                        task_response.raise_for_status()
+                        event_response = client.get(
+                            url + "/rest/v1/nexus_execution_events",
+                            params={"select": "event_type,severity", "limit": "1000"},
+                            headers=headers
+                        )
+                        event_response.raise_for_status()
+                    tasks = task_response.json()
+                    events = event_response.json()
+                    counts = {"total": len(tasks), "succeeded": 0, "failed": 0, "pending": 0, "running": 0}
+                    by_task_type = {}
+                    for row in tasks:
+                        status = str(row.get("status") or "").lower()
+                        if status in counts and status != "total":
+                            counts[status] += 1
+                        elif status in ("queued", "pending", "created"):
+                            counts["pending"] += 1
+                        kind = str(row.get("task_type") or "unspecified")
+                        by_task_type[kind] = by_task_type.get(kind, 0) + 1
+                    by_event_type = {}
+                    for row in events:
+                        kind = str(row.get("event_type") or "unspecified")
+                        by_event_type[kind] = by_event_type.get(kind, 0) + 1
+                    return self._json(200, {
+                        "tasks": counts,
+                        "by_task_type": by_task_type,
+                        "by_event_type": by_event_type,
+                        "events_total": len(events),
+                        "confirmed_revenue": None,
+                        "currency": "EUR"
+                    })
+                except Exception as exc:
+                    return self._json(503, {"error": "Métriques indisponibles", "detail": str(exc)[:200]})
             if parsed.path.startswith("/api/tasks/"):
                 task_id = parsed.path.rsplit("/", 1)[-1]
                 try:
