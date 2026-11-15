@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "purpose": "Catalogue de ressources affichées dans le tiroir latéral Verox. Les entrées externes sont des raccourcis, pas des intégrations opérationnelles.",
+  "purpose": "Registre central des extensions Verox : classification, mode d'exécution et protocoles d'intégration. Une entrée au registre n'implique pas qu'un logiciel externe soit installé ou accessible depuis Render.",
   "items": [
     {
       "id": "huggingface",
@@ -12,7 +12,9 @@
         "plugin",
         "mcp_optional"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "remote_service_or_reference",
+      "protocol": "Hugging Face Hub / Inference API; authentication may be required"
     },
     {
       "id": "lm-studio",
@@ -24,8 +26,10 @@
         "plugin",
         "mcp_optional"
       ],
-      "status": "catalog_only",
-      "runtime": "local_machine"
+      "runtime": "local_machine",
+      "lifecycle": "registered",
+      "execution_mode": "local_device_or_agent",
+      "protocol": "OpenAI-compatible HTTP API; local host must be reached through a secured local agent/tunnel"
     },
     {
       "id": "pocketpal-ai",
@@ -35,7 +39,8 @@
       "integration_type": [
         "connector_candidate"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "local_device_or_agent"
     },
     {
       "id": "pinokio",
@@ -46,8 +51,9 @@
         "connector_candidate",
         "plugin_candidate"
       ],
-      "status": "catalog_only",
-      "runtime": "local_machine"
+      "runtime": "local_machine",
+      "lifecycle": "registered",
+      "execution_mode": "local_device_or_agent"
     },
     {
       "id": "heretic",
@@ -57,20 +63,23 @@
       "integration_type": [
         "optional_local_tool"
       ],
-      "status": "catalog_only",
       "runtime": "local_gpu_recommended",
-      "note": "Outil de transformation de modèles existants; ce n'est ni un modèle de chat ni un routeur d'inférence."
+      "note": "Outil de transformation de modèles existants; ce n'est ni un modèle de chat ni un routeur d'inférence.",
+      "lifecycle": "registered",
+      "execution_mode": "local_device_or_agent",
+      "protocol": "Local CLI workflow; never a Render web-worker dependency"
     },
     {
       "id": "codesandbox",
-      "label": "CodeSandbox (à confirmer)",
+      "label": "CodeSandbox (produit à confirmer)",
       "url": "https://codesandbox.io/",
       "category": "development",
       "integration_type": [
         "connector_candidate",
         "plugin_candidate"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "remote_service_or_reference"
     },
     {
       "id": "free-for-dev",
@@ -80,7 +89,8 @@
       "integration_type": [
         "discovery_plugin_candidate"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "remote_service_or_reference"
     },
     {
       "id": "osint-framework",
@@ -90,7 +100,8 @@
       "integration_type": [
         "discovery_plugin_candidate"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "remote_service_or_reference"
     },
     {
       "id": "grapheneos",
@@ -100,7 +111,21 @@
       "integration_type": [
         "security_reference"
       ],
-      "status": "catalog_only"
+      "lifecycle": "registered",
+      "execution_mode": "local_device_or_agent"
+    },
+    {
+      "id": "gemini-fallback",
+      "label": "Gemini API — modèle de secours",
+      "category": "reasoning_fallback",
+      "integration_type": [
+        "server_side_api_connector"
+      ],
+      "execution_mode": "render_backend",
+      "protocol": "Google Gemini generateContent REST API",
+      "lifecycle": "configured_by_server_environment",
+      "secret_name": "GEMINI_API_KEY",
+      "note": "Le secret reste côté serveur; la présence de la variable ne prouve pas la disponibilité de l'API."
     }
   ],
   "status_definitions": {
