@@ -682,13 +682,13 @@ class CognitiveBrain:
                 seen.add(key)
                 unique_evidence.append(item)
 
-        # 5. Secours Gemini : uniquement si les connecteurs n'ont fourni aucune preuve exploitable.
-        # Gemini ne reçoit jamais le droit d'exécuter arbitrairement du code ou de manipuler des secrets.
+        # 5. Secours par le moteur cognitif configuré si aucun connecteur n'a fourni de preuve exploitable.
+        # La réponse du modèle reste du texte non fiable; elle n'exécute aucun outil.
         if not unique_evidence:
             fallback_answer = await self.ask_model(user_query, [])
             if fallback_answer:
                 unique_evidence = [{
-                    "connector": "Gemini fallback",
+                    "connector": "Cognitive model",
                     "year": datetime.now(timezone.utc).year,
                     "title": "Réponse de secours CognitiveBrain",
                     "evidence": fallback_answer
