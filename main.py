@@ -747,6 +747,15 @@ def run_dashboard():
                     return self._json(200, {"ok": True, "database": "connected"})
                 except Exception as exc:
                     return self._json(503, {"ok": False, "error": str(exc)[:250]})
+            if parsed.path == "/api/extensions":
+                try:
+                    catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
+                    with catalog_path.open("r", encoding="utf-8") as catalog_file:
+                        catalog = json.load(catalog_file)
+                    return self._json(200, catalog)
+                except Exception as exc:
+                    logger.exception("Impossible de charger le catalogue d'extensions")
+                    return self._json(500, {"error": "Catalogue d'extensions indisponible"})
             if parsed.path.startswith("/api/tasks/"):
                 task_id = parsed.path.rsplit("/", 1)[-1]
                 try:
