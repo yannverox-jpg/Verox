@@ -1,0 +1,3 @@
+# Dépendance facultative pour une machine locale compatible, pas pour le build Render principal.
+# Installer PyTorch séparément selon le matériel (CUDA/ROCm/CPU), puis :
+heretic-llm
