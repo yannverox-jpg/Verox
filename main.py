@@ -575,7 +575,9 @@ async def run_worker():
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
-        raise RuntimeError("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis côté serveur.")
+        logger.error("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis. Le serveur HTTP reste disponible, mais le worker est en attente de configuration.")
+        while True:
+            await asyncio.sleep(30)
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
