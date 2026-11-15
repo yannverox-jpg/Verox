@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "policy": "read_only",
+  "tools": [
+    {"id": "node", "label": "Node.js", "executable_candidates": ["node"], "purpose": "Inspect and run trusted analysis scripts only", "status": "probe_required", "default_port": null},
+    {"id": "npm", "label": "npm", "executable_candidates": ["npm"], "purpose": "Inspect package metadata; installation disabled by default", "status": "probe_required", "default_port": null},
+    {"id": "radare2", "label": "radare2", "executable_candidates": ["r2", "radare2"], "purpose": "Static binary inspection", "status": "probe_required", "default_port": null},
+    {"id": "ghidra", "label": "Ghidra headless analyzer", "executable_candidates": ["analyzeHeadless"], "purpose": "Static reverse engineering", "status": "probe_required", "default_port": null},
+    {"id": "jadx", "label": "JADX", "executable_candidates": ["jadx"], "purpose": "Read-only APK/DEX decompilation", "status": "probe_required", "default_port": null},
+    {"id": "apktool", "label": "Apktool", "executable_candidates": ["apktool"], "purpose": "APK resource and manifest inspection", "status": "probe_required", "default_port": null},
+    {"id": "file", "label": "file", "executable_candidates": ["file"], "purpose": "Identify file formats", "status": "probe_required", "default_port": null},
+    {"id": "readelf", "label": "readelf", "executable_candidates": ["readelf"], "purpose": "Inspect ELF metadata", "status": "probe_required", "default_port": null},
+    {"id": "objdump", "label": "objdump", "executable_candidates": ["objdump"], "purpose": "Inspect binary sections and disassembly", "status": "probe_required", "default_port": null}
+  ],
+  "connection_contract": {
+    "default_mode": "local_agent",
+    "no_external_links_as_connected_apps": true,
+    "required_before_active": ["executable_found", "version_checked", "read_only_adapter_registered", "smoke_test_passed"],
+    "deny_by_default": ["execute_untrusted_sample", "modify_target", "delete_target", "network_exploitation"]
+  }
+}
