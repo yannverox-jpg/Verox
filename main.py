@@ -466,24 +466,32 @@ class CognitiveBrain:
         self.drive = VeroxAutonomousDrive(self.store, self.app_manager, self.execution_manager)
 
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        """Archive la mémoire du cerveau dans le schéma PostgreSQL canonique Nexus/Verox."""
+        supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
         if not supabase_url or not supabase_key:
+            logger.warning("[Supabase] Mémoire distante ignorée: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY manquants.")
             return
-
         headers = {
             "apikey": supabase_key,
             "Authorization": f"Bearer {supabase_key}",
             "Content-Type": "application/json",
             "Prefer": "return=minimal"
         }
-        payload = {"query": query, "evidence_data": evidence, "status": "verified"}
-        async with httpx.AsyncClient() as client:
+        payload = {
+            "namespace": "verox.cognitive_brain",
+            "memory_key": f"research:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}",
+            "content": {"query": query, "evidence": evidence},
+            "source": "cognitive_brain",
+            "importance": 3
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
             try:
-                await client.post(f"{supabase_url}/rest/v1/cognitive_logs", json=payload, headers=headers)
-                logger.info("[Supabase] Preuves et rapport archivés avec succès.")
-            except Exception as e:
-                logger.error(f"[Supabase] Échec de l'archivage : {e}")
+                response = await client.post(f"{supabase_url}/rest/v1/nexus_memory", json=payload, headers=headers)
+                response.raise_for_status()
+                logger.info("[Supabase] Mémoire CognitiveBrain archivée dans nexus_memory.")
+            except Exception:
+                logger.exception("[Supabase] Échec de l'archivage dans nexus_memory.")
 
     async def run(self, user_query: str, user_email: str = ""):
         strategy_id, strategy_description = self.drive.choose_strategy(user_query)
@@ -562,36 +570,81 @@ class CognitiveBrain:
 
 
 async def run_worker():
+    """Consomme la file canonique public.nexus_tasks et écrit les résultats dans PostgreSQL."""
     brain = CognitiveBrain()
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_key = os.getenv("SUPABASE_ANON_KEY", "")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
-        raise RuntimeError("SUPABASE_URL et SUPABASE_ANON_KEY sont requis.")
-    headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}", "Content-Type": "application/json", "Prefer": "return=representation"}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+        raise RuntimeError("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis côté serveur.")
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    async with httpx.AsyncClient(timeout=45.0) as client:
         while True:
             try:
-                response = await client.get(f"{supabase_url}/rest/v1/cognitive_logs", params={"select": "id,query,status", "status": "eq.queued", "limit": "1"}, headers=headers)
+                response = await client.get(
+                    f"{supabase_url}/rest/v1/nexus_tasks",
+                    params={"select": "id,task_key,task_type,payload,status", "status": "eq.queued",
+                            "order": "scheduled_at.asc", "limit": "1"},
+                    headers=headers
+                )
                 response.raise_for_status()
                 rows = response.json()
                 if not rows:
                     await asyncio.sleep(2)
                     continue
-                command = rows[0]
-                command_id = command["id"]
-                claim = await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}", "status": "eq.queued"}, json={"status": "processing"}, headers=headers)
+                task = rows[0]
+                task_id = task["id"]
+                claim = await client.patch(
+                    f"{supabase_url}/rest/v1/nexus_tasks",
+                    params={"id": f"eq.{task_id}", "status": "eq.queued"},
+                    json={"status": "running", "started_at": datetime.now(timezone.utc).isoformat(),
+                          "attempts": (task.get("attempts") or 0) + 1},
+                    headers=headers
+                )
                 claim.raise_for_status()
+                if not claim.json():
+                    continue
                 try:
-                    payload = json.loads(command["query"].split("VEROX_COMMAND:", 1)[1])
-                    query = str(payload.get("text", "")).strip()
-                    email = str(payload.get("email", "")).strip()
+                    payload = task.get("payload") or {}
+                    query = str(payload.get("text") or payload.get("query") or "").strip()
+                    email = str(payload.get("email") or "").strip()
                     if not query:
-                        raise ValueError("La requête est vide.")
+                        raise ValueError("Le champ payload.text ou payload.query est requis.")
                     evidence = await brain.run(query, email)
-                    await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}"}, json={"status": "completed", "evidence_data": evidence or []}, headers=headers)
-                except Exception as e:
-                    logger.exception("Échec de commande %s", command_id)
-                    await client.patch(f"{supabase_url}/rest/v1/cognitive_logs", params={"id": f"eq.{command_id}"}, json={"status": "failed", "evidence_data": [{"connector": "CognitiveBrain", "title": "Échec d'exécution", "year": "Erreur", "evidence": str(e)[:1000]}]}, headers=headers)
+                    result = {"evidence": evidence or [], "evidence_count": len(evidence or [])}
+                    await client.patch(
+                        f"{supabase_url}/rest/v1/nexus_tasks",
+                        params={"id": f"eq.{task_id}"},
+                        json={"status": "succeeded", "result": result,
+                              "completed_at": datetime.now(timezone.utc).isoformat(), "error": None},
+                        headers=headers
+                    )
+                    await client.post(
+                        f"{supabase_url}/rest/v1/nexus_execution_events",
+                        json={"task_id": task_id, "event_type": "task_succeeded", "severity": "info",
+                              "message": "CognitiveBrain a terminé la tâche.", "details": result},
+                        headers={**headers, "Prefer": "return=minimal"}
+                    )
+                except Exception as exc:
+                    logger.exception("Échec de la tâche cognitive %s", task_id)
+                    error_result = {"error": str(exc)[:1000], "evidence": []}
+                    await client.patch(
+                        f"{supabase_url}/rest/v1/nexus_tasks",
+                        params={"id": f"eq.{task_id}"},
+                        json={"status": "failed", "result": error_result, "error": str(exc)[:2000],
+                              "completed_at": datetime.now(timezone.utc).isoformat()},
+                        headers=headers
+                    )
+                    await client.post(
+                        f"{supabase_url}/rest/v1/nexus_execution_events",
+                        json={"task_id": task_id, "event_type": "task_failed", "severity": "error",
+                              "message": "Échec de la tâche CognitiveBrain.", "details": error_result},
+                        headers={**headers, "Prefer": "return=minimal"}
+                    )
             except Exception:
                 logger.exception("Erreur du worker cognitif")
                 await asyncio.sleep(5)
@@ -599,11 +652,86 @@ async def run_worker():
 
 def run_dashboard():
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import urlparse
+    import uuid
+
     class DashboardHandler(SimpleHTTPRequestHandler):
+        def _supabase(self):
+            url = os.getenv("SUPABASE_URL", "").rstrip("/")
+            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+            if not url or not key:
+                raise RuntimeError("Le backend Supabase n'est pas configuré côté serveur.")
+            return url, {"apikey": key, "Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"}
+
+        def _json(self, status, payload):
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
-            if self.path in ("/", "/index.html", "/nexus_dashboard.html"):
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/health":
+                try:
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=8.0) as client:
+                        check = client.get(url + "/rest/v1/nexus_tasks?select=id&limit=1", headers=headers)
+                        check.raise_for_status()
+                    return self._json(200, {"ok": True, "database": "connected"})
+                except Exception as exc:
+                    return self._json(503, {"ok": False, "error": str(exc)[:250]})
+            if parsed.path.startswith("/api/tasks/"):
+                task_id = parsed.path.rsplit("/", 1)[-1]
+                try:
+                    uuid.UUID(task_id)
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=10.0) as client:
+                        resp = client.get(url + "/rest/v1/nexus_tasks",
+                            params={"id": f"eq.{task_id}", "select": "id,status,result,error"}, headers=headers)
+                        resp.raise_for_status()
+                    rows = resp.json()
+                    return self._json(200 if rows else 404, rows[0] if rows else {"error": "Tâche introuvable"})
+                except ValueError:
+                    return self._json(400, {"error": "Identifiant de tâche invalide"})
+                except Exception as exc:
+                    return self._json(503, {"error": str(exc)[:250]})
+            if parsed.path in ("/", "/index.html", "/nexus_dashboard.html"):
                 self.path = "/nexus_dashboard.html"
             return super().do_GET()
+
+        def do_POST(self):
+            if urlparse(self.path).path != "/api/chat":
+                return self._json(404, {"error": "Route inconnue"})
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > 20000:
+                    return self._json(400, {"error": "Taille de requête invalide"})
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                query = str(body.get("text", "")).strip()
+                email = str(body.get("email", "")).strip()
+                if not query:
+                    return self._json(400, {"error": "Le message est vide"})
+                task_key = str(uuid.uuid4())
+                url, headers = self._supabase()
+                task = {"task_key": task_key, "task_type": "cognitive_chat",
+                        "status": "queued", "payload": {"text": query, "email": email,
+                        "source": "verox_dashboard"}}
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.post(url + "/rest/v1/nexus_tasks",
+                        json=task, headers={**headers, "Prefer": "return=representation"})
+                    response.raise_for_status()
+                rows = response.json()
+                if not rows:
+                    return self._json(502, {"error": "Supabase n'a pas retourné la tâche"})
+                return self._json(202, {"id": rows[0]["id"], "status": rows[0]["status"]})
+            except Exception as exc:
+                logger.exception("Impossible de transmettre la requête du dashboard")
+                return self._json(503, {"error": str(exc)[:300]})
+
     ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), DashboardHandler).serve_forever()
 
 
