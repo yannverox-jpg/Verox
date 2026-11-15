@@ -411,7 +411,8 @@
         async function refreshMetrics() {
             try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
         }
-        loadExtensions();\n        refreshMetrics(); setInterval(refreshMetrics,15000);
+        loadExtensions();
+        refreshMetrics(); setInterval(refreshMetrics,15000);
     </script>
 </body>
 </html>
