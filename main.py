@@ -995,7 +995,7 @@ def run_dashboard():
                         capabilities=["metadata_registration", "read_only"],
                         authorizations=["read_only", "no_execution_without_adapter"]
                     )
-                    brain.app_manager.update_status(app_id, install_status="unknown", connection_status="pending",
+                    brain.app_manager.update_status(app_id, install_status="unknown", connection_status="disconnected",
                                                      evidence="Registered; adapter connectivity not yet verified.")
                     return self._json(201, {"app": record, "connection_status": "pending",
                                             "message": "Extension enregistrée comme non vérifiée; aucun lien n'est présenté comme une connexion active."})
