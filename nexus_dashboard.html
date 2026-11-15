@@ -243,8 +243,14 @@
         .summary-row span { color:var(--text-muted); }
         .chart-empty { color:var(--text-muted);font-size:.78rem;line-height:1.5;padding:12px 0; }
         .provider-status { display:block; margin-top:5px; color:var(--text-muted); font-size:.72rem; line-height:1.4; overflow-wrap:anywhere; }
+        .extension-manager { padding:10px; border-top:1px solid var(--border-color); display:grid; gap:6px; }
+        .extension-manager input,.extension-manager select { width:100%; min-width:0; background:#0b0f19; color:var(--text-main); border:1px solid var(--border-color); border-radius:5px; padding:7px; font-size:.76rem; }
+        .extension-manager button { background:var(--accent-blue); color:white; border:0; border-radius:5px; padding:8px; cursor:pointer; }
+        .extension-manager small { color:var(--text-muted); font-size:.68rem; line-height:1.35; }
+        #extension-form-status,#registered-apps { color:var(--text-muted); font-size:.72rem; overflow-wrap:anywhere; }
+        .registered-app { padding:5px 0; border-bottom:1px solid var(--border-color); }
         .chat-header { flex-wrap:wrap; align-items:center; gap:8px; }
-        @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:280px; } .preview-section,.chat-section { min-height:380px; } }
+        @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:460px; } .preview-section,.chat-section { min-height:380px; } }
 
         @keyframes pulse {
             0% { opacity: 1; }
@@ -262,6 +268,21 @@
             <span>Plug-ins & Connecteurs</span>
         </div>
         <div class="menu-list" id="extension-drawer" aria-label="Extensions CognitiveBrain"></div>
+        <form class="extension-manager" id="extension-form">
+            <strong style="font-size:.78rem">Ajouter une extension / un pont</strong>
+            <input name="name" required maxlength="120" placeholder="Nom de l'application">
+            <select name="platform" aria-label="Plateforme">
+                <option value="windows">Windows</option><option value="android">Android</option>
+                <option value="linux">Linux</option><option value="web">Web / service</option>
+            </select>
+            <input name="endpoint" type="url" placeholder="Point d'accès HTTP(S) (facultatif)">
+            <input name="port" type="number" min="1" max="65535" placeholder="Port (facultatif)">
+            <input name="admin_token" type="password" autocomplete="off" required placeholder="Jeton administrateur Verox">
+            <button type="submit">Enregistrer comme non vérifiée</button>
+            <small>Le jeton n'est pas mémorisé. L'enregistrement ne prétend pas que l'application est installée ou connectée.</small>
+            <div id="extension-form-status" aria-live="polite"></div>
+            <div id="registered-apps"></div>
+        </form>
     </aside>
 
     <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
@@ -296,6 +317,56 @@
     </section>
 
     <script>
+        async function loadRegisteredApps() {
+            const node = document.getElementById("registered-apps");
+            try {
+                const response = await fetch("/api/apps", {cache:"no-store"});
+                if (!response.ok) return;
+                const data = await response.json();
+                const apps = data.apps || [];
+                node.replaceChildren();
+                if (!apps.length) return;
+                const title = document.createElement("div");
+                title.className = "menu-category"; title.textContent = "Applications enregistrées";
+                node.appendChild(title);
+                apps.forEach(app => {
+                    const row = document.createElement("div"); row.className = "registered-app";
+                    const meta = app.metadata || {};
+                    row.textContent = app.name + " — " + (meta.platform || "plateforme inconnue") +
+                        " — " + (app.connection_status || "non vérifiée");
+                    node.appendChild(row);
+                });
+            } catch (_) {}
+        }
+        document.getElementById("extension-form").addEventListener("submit", async event => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const status = document.getElementById("extension-form-status");
+            const tokenField = form.elements.admin_token;
+            const token = tokenField.value;
+            const payload = {
+                name: form.elements.name.value.trim(),
+                platform: form.elements.platform.value,
+                endpoint: form.elements.endpoint.value.trim(),
+                port: form.elements.port.value ? Number(form.elements.port.value) : null
+            };
+            status.textContent = "Enregistrement…";
+            try {
+                const response = await fetch("/api/extensions/register", {
+                    method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer " + token},
+                    body:JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || "Enregistrement refusé");
+                status.textContent = data.message || "Extension enregistrée; connexion non vérifiée.";
+                form.elements.name.value = ""; form.elements.endpoint.value = ""; form.elements.port.value = "";
+                await loadRegisteredApps();
+            } catch (error) {
+                status.textContent = "Échec : " + error.message;
+            } finally {
+                tokenField.value = "";
+            }
+        });
         async function loadExtensions() {
             const drawer = document.getElementById("extension-drawer");
             try {
@@ -437,6 +508,7 @@
             } catch (_) { node.textContent = "État des moteurs indisponible."; }
         }
         loadExtensions();
+        loadRegisteredApps();
         refreshMetrics(); setInterval(refreshMetrics,15000);
         refreshProviders(); setInterval(refreshProviders,30000);
     </script>
