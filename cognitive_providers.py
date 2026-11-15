@@ -158,7 +158,7 @@ async def chat_with_available_model(
                 async with httpx.AsyncClient(timeout=45.0) as client:
                     response = await client.post(
                         endpoint,
-                        params={"key": os.getenv("GEMINI_API_KEY", "").strip()},
+                        headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "").strip()},
                         json={"contents": [{"parts": [{"text": prompt}]}],
                               "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}},
                     )
