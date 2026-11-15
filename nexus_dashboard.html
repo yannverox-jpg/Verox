@@ -242,6 +242,8 @@
         .summary-row { display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border-color);padding:7px 0;font-size:.78rem; }
         .summary-row span { color:var(--text-muted); }
         .chart-empty { color:var(--text-muted);font-size:.78rem;line-height:1.5;padding:12px 0; }
+        .provider-status { display:block; margin-top:5px; color:var(--text-muted); font-size:.72rem; line-height:1.4; overflow-wrap:anywhere; }
+        .chat-header { flex-wrap:wrap; align-items:center; gap:8px; }
         @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:280px; } .preview-section,.chat-section { min-height:380px; } }
 
         @keyframes pulse {
@@ -281,6 +283,7 @@
         <div class="chat-header">
             <i class="fa-solid fa-brain" style="color: var(--accent-blue);"></i>
             <span>Discuter avec CognitiveBrain</span>
+            <span class="provider-status" id="provider-status" aria-live="polite">Vérification des moteurs PocketPal / LM Studio…</span>
         </div>
 
         <div class="chat-messages" id="chat-box">
@@ -416,8 +419,26 @@
         async function refreshMetrics() {
             try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
         }
+        async function refreshProviders() {
+            const node = document.getElementById("provider-status");
+            try {
+                const response = await fetch("/api/providers", {cache:"no-store"});
+                const data = await response.json();
+                if (!response.ok) throw new Error("Sonde indisponible");
+                const providers = data.providers || [];
+                if (!providers.length) { node.textContent = "Aucun moteur configuré."; return; }
+                node.textContent = providers.map(p => {
+                    const name = p.provider === "lmstudio" ? "LM Studio" : p.provider === "pocketpal" ? "PocketPal" : p.provider;
+                    if (p.reachable === true && p.models_available) return name + ": connecté (" + (p.model_count || 0) + " modèle(s))";
+                    if (p.reachable === true) return name + ": API joignable, aucun modèle publié";
+                    if (p.provider === "gemini" && p.configured) return name + ": clé configurée, réseau non testé";
+                    return name + (p.configured ? ": configuré mais inaccessible" : ": non configuré");
+                }).join(" · ");
+            } catch (_) { node.textContent = "État des moteurs indisponible."; }
+        }
         loadExtensions();
         refreshMetrics(); setInterval(refreshMetrics,15000);
+        refreshProviders(); setInterval(refreshProviders,30000);
     </script>
 </body>
 </html>
