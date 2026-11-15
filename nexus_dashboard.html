@@ -372,7 +372,12 @@
             try {
                 const response = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});
                 const task = await response.json();
-                if (!response.ok || !task.id) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
+                if (!response.ok) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
+                if (task.answer) {
+                    resultNode.innerText = task.answer;
+                    return;
+                }
+                if (!task.id) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
                 await watchCommand(task.id, resultNode);
             } catch (error) { resultNode.innerText = "Transmission impossible : " + error.message; }
         }
