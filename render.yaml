@@ -41,3 +41,5 @@ services:
         sync: false
       - key: VEROX_STATE_DB
         value: verox_state.sqlite3
+      - key: VEROX_ADMIN_TOKEN
+        sync: false
