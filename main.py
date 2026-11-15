@@ -570,7 +570,7 @@ class CognitiveBrain:
         )
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            async with httpx.AsyncClient(timeout=25.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 response = await client.post(
                     endpoint,
                     headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
