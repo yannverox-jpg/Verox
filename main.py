@@ -868,7 +868,7 @@ def run_dashboard():
                 except Exception as exc:
                     return self._json(503, {
                         "ok": False,
-                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "model_providers": configured_providers(),
                         "error": str(exc)[:250]
                     })
             if parsed.path == "/api/providers":
