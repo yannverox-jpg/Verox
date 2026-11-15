@@ -359,21 +359,22 @@
 
         function saveConfig() {
             const email = document.getElementById("login-email").value.trim();
-            const url = document.getElementById("supabase-url").value.trim().replace(/\/+$/, "");
-            const key = document.getElementById("supabase-key").value.trim();
-            if (!email || !url || !key) {
-                document.getElementById("connection-status").innerText = "Renseigne l’e-mail, l’URL Supabase et la clé anon.";
+            if (!email) {
+                document.getElementById("connection-status").innerText = "Renseigne l’adresse e-mail.";
                 return;
             }
             localStorage.setItem(configKeys.email, email);
-            localStorage.setItem(configKeys.url, url);
-            localStorage.setItem(configKeys.key, key);
-            updateConnectionStatus();
+            localStorage.removeItem(configKeys.url);
+            localStorage.removeItem(configKeys.key);
+            fetch("/api/health", {cache: "no-store"})
+                .then(r => r.json().then(data => ({ok: r.ok, data})))
+                .then(({ok, data}) => updateConnectionStatus(ok ? "Backend Verox connecté à Supabase." : "Backend indisponible : " + (data.error || "configuration requise")))
+                .catch(() => updateConnectionStatus("Backend Verox inaccessible."));
         }
 
         function updateConnectionStatus(message) {
-            const configured = Boolean(localStorage.getItem(configKeys.email) && localStorage.getItem(configKeys.url) && localStorage.getItem(configKeys.key));
-            document.getElementById("connection-status").innerText = message || (configured ? "Configuration enregistrée sur ce navigateur." : "Configuration non activée");
+            const configured = Boolean(localStorage.getItem(configKeys.email));
+            document.getElementById("connection-status").innerText = message || (configured ? "E-mail enregistré; backend à vérifier." : "Configuration non activée");
         }
 
         function addMessage(kind, text) {
@@ -410,21 +411,21 @@
             while (Date.now() - started < 180000) {
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 try {
-                    const rows = await supabaseRequest("cognitive_logs?id=eq." + encodeURIComponent(commandId) + "&select=id,status,evidence_data");
-                    if (!rows || !rows.length) continue;
-                    const row = rows[0];
-                    if (row.status === "completed") {
-                        const evidence = Array.isArray(row.evidence_data) ? row.evidence_data : [];
+                    const response = await fetch("/api/tasks/" + encodeURIComponent(commandId), {cache: "no-store"});
+                    const row = await response.json();
+                    if (!response.ok) throw new Error(row.error || "État de tâche indisponible");
+                    if (row.status === "succeeded") {
+                        const evidence = row.result && Array.isArray(row.result.evidence) ? row.result.evidence : [];
                         messageNode.innerText = evidence.length
-                            ? evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\n" + (item.evidence || "")).join("\n\n")
+                            ? evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\\n" + (item.evidence || "")).join("\\n\\n")
                             : "Le cerveau a terminé cette requête sans résultat exploitable.";
                         return;
                     }
                     if (row.status === "failed") {
-                        messageNode.innerText = (row.evidence_data || []).map(item => item.evidence || item.title).join("\n") || "Échec d’exécution du cerveau.";
+                        messageNode.innerText = row.error || (row.result && row.result.error) || "Échec d’exécution du cerveau.";
                         return;
                     }
-                    messageNode.innerText = row.status === "processing" ? "CognitiveBrain exécute la requête…" : "Requête en attente du cerveau…";
+                    messageNode.innerText = row.status === "running" ? "CognitiveBrain exécute la requête…" : "Requête en attente du cerveau…";
                 } catch (error) {
                     messageNode.innerText = "Suivi impossible : " + error.message;
                     return;
@@ -440,27 +441,20 @@
             input.value = "";
             addMessage("user", query);
             const resultNode = addMessage("nexus", "Transmission de la requête à la file CognitiveBrain…");
-            const email = localStorage.getItem(configKeys.email);
-            if (!email || !localStorage.getItem(configKeys.url) || !localStorage.getItem(configKeys.key)) {
-                resultNode.innerText = "Configuration requise : renseigne l’adresse e-mail et les paramètres Supabase, puis enregistre.";
-                return;
-            }
+            const email = localStorage.getItem(configKeys.email) || "";
             try {
-                const rows = await supabaseRequest("cognitive_logs", {
+                const response = await fetch("/api/chat", {
                     method: "POST",
-                    headers: {"Prefer": "return=representation"},
-                    body: JSON.stringify({
-                        query: "VEROX_COMMAND:" + JSON.stringify({text: query, email}),
-                        evidence_data: [],
-                        status: "queued"
-                    })
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({text: query, email})
                 });
-                if (!rows || !rows.length || !rows[0].id) throw new Error("Supabase n’a pas retourné l’identifiant de commande.");
+                const task = await response.json();
+                if (!response.ok || !task.id) throw new Error(task.error || "Le backend n’a pas accepté la commande.");
                 updateConnectionStatus("Commande transmise au cerveau. Suivi en cours.");
-                await watchCommand(rows[0].id, resultNode);
+                await watchCommand(task.id, resultNode);
             } catch (error) {
                 resultNode.innerText = "Transmission impossible : " + error.message;
-                updateConnectionStatus("Vérifie la configuration Supabase et les permissions de la table cognitive_logs.");
+                updateConnectionStatus("Vérifie que le backend Verox est opérationnel et connecté à Supabase.");
             }
         }
 
