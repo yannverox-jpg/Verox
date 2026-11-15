@@ -11,7 +11,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 import httpx
-from cognitive_providers import chat_with_available_model, configured_providers
+from cognitive_providers import chat_with_available_model, configured_providers, probe_provider_endpoints
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
 
@@ -861,8 +861,15 @@ def run_dashboard():
                         "error": str(exc)[:250]
                     })
             if parsed.path == "/api/providers":
-                return self._json(200, {"providers": configured_providers(), "read_only": True,
-                                        "note": "Une URL locale n'est joignable que depuis la machine qui héberge le modèle."})
+                try:
+                    providers = asyncio.run(probe_provider_endpoints())
+                    return self._json(200, {
+                        "providers": providers,
+                        "read_only": True,
+                        "note": "Les modèles locaux doivent être joignables depuis le serveur ou via un pont privé authentifié."
+                    })
+                except Exception:
+                    return self._json(200, {"providers": configured_providers(), "read_only": True})
             if parsed.path == "/api/extensions":
                 try:
                     catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
