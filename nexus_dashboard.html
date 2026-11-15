@@ -78,7 +78,7 @@
             transition: background 0.2s;
         }
 
-        .menu-item:hover {
+        a.menu-item { text-decoration: none; }\n\n        .menu-item:hover {
             background-color: var(--border-color);
         }
 
@@ -251,8 +251,20 @@
             <div class="menu-item"><i class="fa-solid fa-store"></i>E-Commerce Automatisé</div>
             <div class="menu-item"><i class="fa-solid fa-list-check"></i>Micro-Tâches & Bounties</div>
 
-            <div class="menu-category">Sécurité & Réseau</div>
-            <div class="menu-item"><i class="fa-solid fa-shield-halved"></i>Proxy Fixe (CH/DE)</div>
+            <div class="menu-category">IA & Modèles</div>
+            <a class="menu-item" href="https://huggingface.co/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-cubes"></i>Hugging Face</a>
+            <a class="menu-item" href="https://lmstudio.ai/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-microchip"></i>LM Studio</a>
+            <a class="menu-item" href="https://github.com/a-ghorbani/pocketpal-ai" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-mobile-screen"></i>PocketPal AI</a>
+            <a class="menu-item" href="https://pinokio.work/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-box-open"></i>Pinokio</a>
+            <a class="menu-item" href="https://github.com/p-e-w/heretic" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-wand-magic-sparkles"></i>Heretic (outil modèles)</a>
+
+            <div class="menu-category">Développement & Ressources</div>
+            <a class="menu-item" href="https://codesandbox.io/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-code"></i>CodeSandbox (à confirmer)</a>
+            <a class="menu-item" href="https://github.com/FreeForDev/FreeForDev" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-gift"></i>Free-for.dev</a>
+
+            <div class="menu-category">Recherche & Sécurité</div>
+            <a class="menu-item" href="https://osintframework.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-magnifying-glass"></i>OSINT Framework</a>
+            <a class="menu-item" href="https://grapheneos.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-shield-halved"></i>GrapheneOS</a>
             <div class="menu-item"><i class="fa-solid fa-fingerprint"></i>Sherlock / Maigret</div>
             <div class="menu-item"><i class="fa-solid fa-robot"></i>LLM Web Scrapers</div>
         </div>
