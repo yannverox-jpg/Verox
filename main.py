@@ -862,7 +862,7 @@ def run_dashboard():
                     return self._json(200, {
                         "ok": True,
                         "database": "connected",
-                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "model_providers": configured_providers(),
                         "extension_count": extension_count
                     })
                 except Exception as exc:
@@ -884,7 +884,21 @@ def run_dashboard():
             if parsed.path == "/api/apps":
                 try:
                     brain = CognitiveBrain()
-                    return self._json(200, {"apps": brain.app_manager.list()})
+                    apps = brain.app_manager.list()
+                    safe_apps = []
+                    for app in apps:
+                        meta = app.get("metadata") or {}
+                        safe_apps.append({
+                            "app_id": app.get("app_id"),
+                            "name": app.get("name"),
+                            "app_type": app.get("app_type"),
+                            "platform": meta.get("platform", "unknown"),
+                            "port": meta.get("port"),
+                            "install_status": app.get("install_status", "unknown"),
+                            "connection_status": app.get("connection_status", "unknown"),
+                            "updated_at": app.get("updated_at")
+                        })
+                    return self._json(200, {"apps": safe_apps})
                 except Exception as exc:
                     return self._json(500, {"error": "Inventaire local indisponible", "detail": str(exc)[:150]})
             if parsed.path == "/api/extensions":
