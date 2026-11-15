@@ -171,3 +171,45 @@ async def chat_with_available_model(
         except Exception as exc:
             logger.warning("Moteur %s indisponible (%s); tentative du suivant.", provider, type(exc).__name__)
     return None
+
+async def probe_provider_endpoints() -> list[dict[str, Any]]:
+    """Check endpoint reachability without sending a user prompt or exposing credentials."""
+    results = []
+    order = [p.strip().lower() for p in os.getenv(
+        "COGNITIVE_PROVIDER_ORDER", "lmstudio,pocketpal,gemini"
+    ).split(",") if p.strip()]
+    async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as client:
+        for provider in order:
+            if provider not in {"lmstudio", "pocketpal", "gemini"}:
+                continue
+            if provider == "gemini":
+                results.append({
+                    "provider": provider,
+                    "configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                    "reachable": None,
+                    "note": "Le statut réseau Gemini n'est pas testé par cette sonde."
+                })
+                continue
+            base_url = _base_url(provider)
+            item: dict[str, Any] = {
+                "provider": provider,
+                "configured": bool(base_url),
+                "reachable": False,
+                "models_available": False,
+            }
+            if base_url and base_url.startswith(("http://", "https://")):
+                headers = {}
+                api_key = _api_key(provider)
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                try:
+                    response = await client.get(f"{base_url}/models", headers=headers)
+                    response.raise_for_status()
+                    models = response.json().get("data", [])
+                    item["reachable"] = True
+                    item["models_available"] = bool(models)
+                    item["model_count"] = len(models)
+                except Exception as exc:
+                    item["note"] = f"Connexion impossible ({type(exc).__name__}); vérifier l'URL et le pont réseau."
+            results.append(item)
+    return results
