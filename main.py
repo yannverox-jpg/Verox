@@ -99,8 +99,12 @@ class ConstraintAnalyzer:
         needs_academic = any(k in q_lower for k in self.academic_keywords) or not needs_osint
         needs_stealth_browser = any(k in q_lower for k in self.web_llm_keywords) or needs_osint
 
+        model_keywords = ["hugging face", "huggingface", "modèle local", "modèles locaux", "modèle ia", "modèle d'ia", "llm", "modèle gratuit", "modèles gratuits"]
+        needs_model_catalog = any(k in q_lower for k in model_keywords)
+
         constraints = {
             "query": query,
+            "use_model_catalog": needs_model_catalog,
             "use_academic_apis": needs_academic,
             "use_osint_connectors": needs_osint,
             "use_stealth_browser": needs_stealth_browser,
@@ -127,6 +131,37 @@ class ConnectorHub:
         self.gateway = gateway
         self.session_manager = session_manager
         self.user_email = os.getenv("USER_EMAIL", "contact@cognitive-engine.local")
+
+    async def fetch_huggingface_models(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Recherche des modèles publics dans le Hub Hugging Face, sans clé pour les métadonnées publiques."""
+        terms = query.strip()[:180] or "text-generation"
+        try:
+            response = await client.get(
+                "https://huggingface.co/api/models",
+                params={"search": terms, "sort": "downloads", "direction": "-1", "limit": limit},
+                timeout=8.0
+            )
+            response.raise_for_status()
+            models = response.json()
+            results = []
+            for model in models[:limit]:
+                model_id = model.get("id") or model.get("modelId")
+                if not model_id:
+                    continue
+                results.append({
+                    "connector": "Hugging Face Hub",
+                    "year": datetime.now(timezone.utc).year,
+                    "title": model_id,
+                    "evidence": (
+                        f"Modèle public répertorié. Téléchargements : {model.get('downloads', 0)}; "
+                        f"likes : {model.get('likes', 0)}; tâche : {model.get('pipeline_tag') or 'non précisée'}. "
+                        "La compatibilité, la licence et les ressources matérielles doivent être vérifiées avant installation."
+                    )
+                })
+            return results
+        except Exception as exc:
+            logger.warning("Hugging Face Hub indisponible (%s).", type(exc).__name__)
+            return []
 
     async def fetch_openalex(self, client: httpx.AsyncClient, query: str, limit: int = 3) -> List[Dict[str, Any]]:
         url = "https://api.openalex.org/works"
@@ -564,6 +599,9 @@ class CognitiveBrain:
             "Réponds directement et utilement à la demande, en français sauf demande contraire. "
             "Ne prétends pas avoir exécuté une action, connecté un compte, installé une application ou généré des revenus si ce n'est pas prouvé. "
             "Si les preuves fournies sont insuffisantes, indique les limites et propose la prochaine action sûre. "
+            "Priorise les opportunités légales, à faible coût et testables rapidement, avec l'objectif de rechercher des premières recettes dans les 30 minutes sans garantir de revenu. "
+            "N'engage pas d'argent, ne passe pas de transaction, ne crée pas de compte et ne publie pas de contenu sans autorisation explicite. "
+            "Un revenu n'est confirmé que par une preuve de transaction ou un enregistrement financier fiable. "
             "Ne demande jamais à l'utilisateur de publier une clé secrète.\n\n"
             f"Demande : {user_query}\n\n"
             f"Preuves disponibles : {context or 'Aucune preuve exploitable retournée par les connecteurs.'}"
@@ -636,6 +674,8 @@ class CognitiveBrain:
                 tasks.append(self.hub.fetch_arxiv(client, user_query))
             if constraints["use_osint_connectors"]:
                 tasks.append(self.hub.fetch_osint4all_and_threat(client, user_query))
+            if constraints.get("use_model_catalog"):
+                tasks.append(self.hub.fetch_huggingface_models(client, user_query))
 
             if tasks:
                 batches = await asyncio.gather(*tasks, return_exceptions=True)
