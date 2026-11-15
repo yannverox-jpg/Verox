@@ -48,7 +48,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path != "/health":
-            if path not in ALLOWED_PATHS:
+            if path != "/v1/models":
                 return self._reply(404, b'{"error":"route not allowed"}')
             if not self._authorized():
                 return self._reply(401, b'{"error":"unauthorized"}')
