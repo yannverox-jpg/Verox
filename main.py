@@ -349,14 +349,75 @@ class CognitiveStore:
     def connect(self):
         db=sqlite3.connect(self.path,timeout=15); db.row_factory=sqlite3.Row
         db.execute("PRAGMA busy_timeout=15000"); db.execute("PRAGMA journal_mode=WAL"); return db
+    def _supabase(self, method, table, params=None, payload=None):
+        url=os.getenv("SUPABASE_URL","").rstrip("/")
+        key=os.getenv("SUPABASE_SERVICE_ROLE_KEY","")
+        if not url or not key:return None
+        headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json","Prefer":"return=representation"}
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                response=client.request(method,url+"/rest/v1/"+table,params=params,json=payload,headers=headers)
+                response.raise_for_status()
+                return response.json() if response.content else []
+        except Exception:
+            logger.exception("[Supabase] Opération CognitiveStore impossible sur %s",table)
+            return None
+
     def remember(self,kind,content,metadata=None):
-        with self.connect() as db: db.execute("INSERT INTO cognitive_memory(kind,content,metadata,created_at) VALUES(?,?,?,?)",(kind,str(content)[:20000],json.dumps(metadata or {},ensure_ascii=False,default=str),self.now()))
+        clean_content=str(content)[:20000]
+        clean_metadata=metadata or {}
+        with self.connect() as db:
+            db.execute("INSERT INTO cognitive_memory(kind,content,metadata,created_at) VALUES(?,?,?,?)",(kind,clean_content,json.dumps(clean_metadata,ensure_ascii=False,default=str),self.now()))
+        self._supabase("POST","nexus_memory",payload={
+            "namespace":"verox.cognitive_brain",
+            "memory_key":f"{kind}:{uuid.uuid4()}",
+            "content":{"kind":kind,"content":clean_content,"metadata":clean_metadata},
+            "source":"cognitive_brain",
+            "importance":3
+        })
+
     def recent_memory(self,limit=20):
-        with self.connect() as db:return [dict(r) for r in db.execute("SELECT * FROM cognitive_memory ORDER BY id DESC LIMIT ?",(max(1,min(200,limit)),))]
+        limit=max(1,min(200,limit))
+        remote=self._supabase("GET","nexus_memory",params={
+            "select":"id,memory_key,content,source,importance,created_at",
+            "namespace":"eq.verox.cognitive_brain","order":"created_at.desc","limit":str(limit)
+        })
+        if remote is not None:
+            return [{"id":r.get("id"),"kind":(r.get("content") or {}).get("kind","memory"),
+                     "content":(r.get("content") or {}).get("content",r.get("content")),
+                     "metadata":json.dumps((r.get("content") or {}).get("metadata",{}),ensure_ascii=False),
+                     "created_at":r.get("created_at"),"source":r.get("source")} for r in remote]
+        with self.connect() as db:
+            return [dict(r) for r in db.execute("SELECT * FROM cognitive_memory ORDER BY id DESC LIMIT ?",(limit,))]
+
     def record_outcome(self,strategy,tool_id,success,value,result):
-        with self.connect() as db:db.execute("INSERT INTO cognitive_outcomes(strategy,tool_id,success,measured_value,result,created_at) VALUES(?,?,?,?,?,?)",(strategy,tool_id,int(bool(success)),value,json.dumps(result,ensure_ascii=False,default=str)[:20000],self.now()))
+        result_json=json.loads(json.dumps(result,ensure_ascii=False,default=str))
+        with self.connect() as db:
+            db.execute("INSERT INTO cognitive_outcomes(strategy,tool_id,success,measured_value,result,created_at) VALUES(?,?,?,?,?,?)",(strategy,tool_id,int(bool(success)),value,json.dumps(result_json,ensure_ascii=False),self.now()))
+        self._supabase("POST","nexus_execution_events",payload={
+            "task_id":None,"event_type":"outcome_recorded","severity":"info" if success else "warning",
+            "message":f"Résultat mesuré pour {tool_id}",
+            "details":{"strategy":strategy,"tool_id":tool_id,"success":bool(success),"measured_value":value,"result":result_json}
+        })
+
     def outcome_stats(self):
-        with self.connect() as db:rows=db.execute("SELECT tool_id,COUNT(*) attempts,SUM(success) successes,AVG(measured_value) average_value FROM cognitive_outcomes GROUP BY tool_id").fetchall()
+        remote=self._supabase("GET","nexus_execution_events",params={
+            "select":"details","event_type":"eq.outcome_recorded","order":"created_at.desc","limit":"1000"
+        })
+        if remote is not None:
+            grouped={}
+            for row in remote:
+                d=row.get("details") or {}; tool=d.get("tool_id")
+                if not tool:continue
+                x=grouped.setdefault(tool,{"attempts":0,"successes":0,"_values":[]})
+                x["attempts"]+=1
+                x["successes"]+=int(bool(d.get("success")))
+                if isinstance(d.get("measured_value"),(int,float)):x["_values"].append(d["measured_value"])
+            for x in grouped.values():
+                values=x.pop("_values");x["average_value"]=(sum(values)/len(values)) if values else None
+            return grouped
+        with self.connect() as db:
+            rows=db.execute("SELECT tool_id,COUNT(*) attempts,SUM(success) successes,AVG(measured_value) average_value FROM cognitive_outcomes GROUP BY tool_id").fetchall()
         return {r["tool_id"]:dict(r) for r in rows}
 
 class VeroxAppManager:
