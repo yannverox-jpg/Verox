@@ -78,7 +78,7 @@
             transition: background 0.2s;
         }
 
-        a.menu-item { text-decoration: none; }\n\n        .menu-item:hover {
+        .menu-item:hover {
             background-color: var(--border-color);
         }
 
@@ -228,7 +228,22 @@
             font-weight: 600;
         }
 
-        @keyframes pulse {
+
+        .metric-card { min-height: 210px; }
+        .donut { width:116px;height:116px;border-radius:50%;margin:14px auto 4px;display:grid;place-items:center;background:conic-gradient(var(--border-color) 0 100%); }
+        .donut::before { content:"";width:78px;height:78px;border-radius:50%;background:var(--panel-bg);grid-area:1/1; }
+        .donut span { grid-area:1/1;z-index:1;font-size:.75rem;color:var(--text-muted); }
+        .bar-chart,.summary-table { display:flex;flex-direction:column;gap:10px;margin-top:12px; }
+        .bar-row { display:grid;grid-template-columns:minmax(74px,1fr) 2fr 24px;gap:8px;align-items:center;font-size:.72rem; }
+        .bar-label { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted); }
+        .bar-track { height:8px;background:var(--border-color);border-radius:5px;overflow:hidden; }
+        .bar-fill { height:100%;background:linear-gradient(90deg,var(--accent-blue),var(--accent-green));border-radius:5px; }
+        .bar-value { text-align:right; }
+        .summary-row { display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border-color);padding:7px 0;font-size:.78rem; }
+        .summary-row span { color:var(--text-muted); }
+        .chart-empty { color:var(--text-muted);font-size:.78rem;line-height:1.5;padding:12px 0; }
+        @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:280px; } .preview-section,.chat-section { min-height:380px; } }
+\n        @keyframes pulse {
             0% { opacity: 1; }
             50% { opacity: 0.4; }
             100% { opacity: 1; }
@@ -243,89 +258,41 @@
             <i class="fa-solid fa-plug-circle-bolt"></i>
             <span>Plug-ins & Connecteurs</span>
         </div>
-        <div class="menu-list">
+        <div class="menu-list" id="extension-drawer">
             <div class="menu-category">Revenus & Automatisation</div>
-            <div class="menu-item"><i class="fa-solid fa-chart-line"></i>Trading Bot (CCXT)</div>
-            <div class="menu-item"><i class="fa-solid fa-microchip"></i>Minage Crypto Pool</div>
-            <div class="menu-item"><i class="fa-solid fa-futbol"></i>Paris Sportifs & Hippiques</div>
-            <div class="menu-item"><i class="fa-solid fa-store"></i>E-Commerce Automatisé</div>
-            <div class="menu-item"><i class="fa-solid fa-list-check"></i>Micro-Tâches & Bounties</div>
-
+            <div class="menu-item"><i class="fa-solid fa-chart-line"></i><span>Trading Bot (CCXT)</span></div>
+            <div class="menu-item"><i class="fa-solid fa-microchip"></i><span>Minage Crypto Pool</span></div>
+            <div class="menu-item"><i class="fa-solid fa-futbol"></i><span>Paris Sportifs & Hippiques</span></div>
+            <div class="menu-item"><i class="fa-solid fa-store"></i><span>E-Commerce Automatisé</span></div>
+            <div class="menu-item"><i class="fa-solid fa-list-check"></i><span>Micro-Tâches & Bounties</span></div>
             <div class="menu-category">IA & Modèles</div>
-            <a class="menu-item" href="https://huggingface.co/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-cubes"></i>Hugging Face</a>
-            <a class="menu-item" href="https://lmstudio.ai/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-microchip"></i>LM Studio</a>
-            <a class="menu-item" href="https://github.com/a-ghorbani/pocketpal-ai" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-mobile-screen"></i>PocketPal AI</a>
-            <a class="menu-item" href="https://pinokio.work/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-box-open"></i>Pinokio</a>
-            <a class="menu-item" href="https://github.com/p-e-w/heretic" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-wand-magic-sparkles"></i>Heretic (outil modèles)</a>
-
+            <div class="menu-item"><i class="fa-solid fa-cubes"></i><span>Hugging Face</span></div>
+            <div class="menu-item"><i class="fa-solid fa-microchip"></i><span>LM Studio</span></div>
+            <div class="menu-item"><i class="fa-solid fa-mobile-screen"></i><span>PocketPal AI</span></div>
+            <div class="menu-item"><i class="fa-solid fa-box-open"></i><span>Pinokio</span></div>
+            <div class="menu-item"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Heretic</span></div>
             <div class="menu-category">Développement & Ressources</div>
-            <a class="menu-item" href="https://codesandbox.io/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-code"></i>CodeSandbox (à confirmer)</a>
-            <a class="menu-item" href="https://github.com/FreeForDev/FreeForDev" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-gift"></i>Free-for.dev</a>
-
+            <div class="menu-item"><i class="fa-solid fa-code"></i><span>CodeSandbox</span></div>
+            <div class="menu-item"><i class="fa-solid fa-gift"></i><span>Free-for.dev</span></div>
             <div class="menu-category">Recherche & Sécurité</div>
-            <a class="menu-item" href="https://osintframework.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-magnifying-glass"></i>OSINT Framework</a>
-            <a class="menu-item" href="https://grapheneos.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-shield-halved"></i>GrapheneOS</a>
-            <div class="menu-item"><i class="fa-solid fa-fingerprint"></i>Sherlock / Maigret</div>
-            <div class="menu-item"><i class="fa-solid fa-robot"></i>LLM Web Scrapers</div>
+            <div class="menu-item"><i class="fa-solid fa-magnifying-glass"></i><span>OSINT Framework</span></div>
+            <div class="menu-item"><i class="fa-solid fa-shield-halved"></i><span>GrapheneOS</span></div>
+            <div class="menu-item"><i class="fa-solid fa-fingerprint"></i><span>Sherlock / Maigret</span></div>
+            <div class="menu-item"><i class="fa-solid fa-robot"></i><span>LLM Web Scrapers</span></div>
         </div>
     </aside>
 
     <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
     <section class="preview-section">
         <div class="preview-header">
-            <h2><i class="fa-solid fa-network-wired" style="color: var(--accent-blue);"></i> Nexus Live No-Code View</h2>
+            <h2><i class="fa-solid fa-network-wired" style="color: var(--accent-blue);"></i> Verox — CognitiveBrain</h2>
             <span style="font-size: 0.8rem; color: var(--accent-green);"><i class="fa-solid fa-circle-check"></i> État des opérations</span>
         </div>
         <div class="preview-grid">
-            <!-- Carte Trading -->
-            <div class="app-card">
-                <div class="app-card-header">
-                    <span class="app-title">Trading Automatique</span>
-                    <span class="live-badge"><div class="dot"></div>Non connecté</span>
-                </div>
-                <div class="app-metric">Aucune donnée</div>
-                <div class="app-sub">Aucune exécution vérifiée</div>
-            </div>
-
-            <!-- Carte Minage Crypto -->
-            <div class="app-card">
-                <div class="app-card-header">
-                    <span class="app-title">Minage / Hashrate</span>
-                    <span class="live-badge"><div class="dot"></div>Non connecté</span>
-                </div>
-                <div class="app-metric">Aucune donnée</div>
-                <div class="app-sub">Aucune activité de minage vérifiée</div>
-            </div>
-
-            <!-- Carte Paris Sportifs & Hippiques -->
-            <div class="app-card">
-                <div class="app-card-header">
-                    <span class="app-title">Paris Sportifs / Turf</span>
-                    <span class="live-badge"><div class="dot"></div>Non connecté</span>
-                </div>
-                <div class="app-metric">Aucune donnée</div>
-                <div class="app-sub">Aucun pari vérifié</div>
-            </div>
-
-            <!-- Carte E-Commerce -->
-            <div class="app-card">
-                <div class="app-card-header">
-                    <span class="app-title">E-Commerce Automated</span>
-                    <span class="live-badge"><div class="dot"></div>Non connecté</span>
-                </div>
-                <div class="app-metric">Aucune donnée</div>
-                <div class="app-sub">Aucune commande vérifiée</div>
-            </div>
-
-            <!-- Carte Micro-Tâches -->
-            <div class="app-card">
-                <div class="app-card-header">
-                    <span class="app-title">Micro-Tâches & Bounties</span>
-                    <span class="live-badge"><div class="dot"></div>Non connecté</span>
-                </div>
-                <div class="app-metric">Aucune donnée</div>
-                <div class="app-sub">Aucune tâche vérifiée</div>
-            </div>
+            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Taux de réussite</span></div><div class="app-metric" id="success-rate">—%</div><div class="donut" id="success-donut" aria-label="Taux de réussite"><span id="success-total">0 tâches</span></div></div>
+            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Interactions par activité</span></div><div id="interaction-bars" class="bar-chart"><div class="chart-empty">Les données apparaîtront après les premières exécutions.</div></div></div>
+            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Résultats d'exécution</span></div><div id="execution-summary" class="summary-table"><div class="chart-empty">Aucune mesure disponible.</div></div></div>
+            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Revenus confirmés</span></div><div class="app-metric" id="confirmed-revenue">Non mesuré</div><div class="app-sub">Seules les recettes réellement enregistrées seront affichées.</div></div>
         </div>
     </section>
 
@@ -333,62 +300,19 @@
     <section class="chat-section">
         <div class="chat-header">
             <i class="fa-solid fa-brain" style="color: var(--accent-blue);"></i>
-            <span>Discuter avec le Cerveau Nexus</span>
-        </div>
-
-        <div style="padding:12px 15px;display:grid;grid-template-columns:1fr 1fr;gap:8px;border-bottom:1px solid var(--border-color);background:var(--panel-bg)">
-            <input id="login-email" type="email" autocomplete="email" placeholder="Adresse e-mail Claude / GPT / Gemini" style="min-width:0;background:var(--bg-dark);border:1px solid var(--border-color);border-radius:6px;padding:9px;color:#fff">
-            <input id="supabase-url" type="url" placeholder="URL Supabase" style="min-width:0;background:var(--bg-dark);border:1px solid var(--border-color);border-radius:6px;padding:9px;color:#fff">
-            <input id="supabase-key" type="password" autocomplete="off" placeholder="Clé publique Supabase (anon)" style="min-width:0;background:var(--bg-dark);border:1px solid var(--border-color);border-radius:6px;padding:9px;color:#fff">
-            <button id="save-config" type="button" onclick="saveConfig()" style="background:var(--accent-blue);color:#fff;border:0;border-radius:6px;padding:9px;cursor:pointer">Enregistrer la configuration</button>
-            <div id="connection-status" style="grid-column:1/-1;color:var(--text-muted);font-size:.75rem">Configuration non activée</div>
+            <span>Discuter avec CognitiveBrain</span>
         </div>
 
         <div class="chat-messages" id="chat-box">
-            <div class="message nexus">
-                Bonjour ! Je suis Nexus. Tous mes connecteurs sont initialisés via l'IP fixe de Francfort/Suisse. Je pilote en direct le trading, le minage, les paris et les micro-tâches. Que veux-tu optimiser aujourd'hui ?
-            </div>
+            <div class="message nexus">CognitiveBrain traite les tâches autorisées, utilise les connecteurs disponibles et mesure les résultats vérifiables.</div>
         </div>
         <div class="chat-input-area">
-            <input type="text" id="user-input" placeholder="Donne un ordre à Nexus (ex: Relance le bot de trading...)" onkeypress="handleKey(event)">
+            <input type="text" id="user-input" placeholder="Donne une tâche à CognitiveBrain…" onkeypress="handleKey(event)">
             <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
         </div>
     </section>
 
     <script>
-        const configKeys = {
-            email: "verox.loginEmail",
-            url: "verox.supabaseUrl",
-            key: "verox.supabaseAnonKey"
-        };
-
-        function loadConfig() {
-            document.getElementById("login-email").value = localStorage.getItem(configKeys.email) || "";
-            document.getElementById("supabase-url").value = localStorage.getItem(configKeys.url) || "";
-            document.getElementById("supabase-key").value = localStorage.getItem(configKeys.key) || "";
-            updateConnectionStatus();
-        }
-
-        function saveConfig() {
-            const email = document.getElementById("login-email").value.trim();
-            if (!email) {
-                document.getElementById("connection-status").innerText = "Renseigne l’adresse e-mail.";
-                return;
-            }
-            localStorage.setItem(configKeys.email, email);
-            localStorage.removeItem(configKeys.url);
-            localStorage.removeItem(configKeys.key);
-            fetch("/api/health", {cache: "no-store"})
-                .then(r => r.json().then(data => ({ok: r.ok, data})))
-                .then(({ok, data}) => updateConnectionStatus(ok ? "Backend Verox connecté à Supabase." : "Backend indisponible : " + (data.error || "configuration requise")))
-                .catch(() => updateConnectionStatus("Backend Verox inaccessible."));
-        }
-
-        function updateConnectionStatus(message) {
-            const configured = Boolean(localStorage.getItem(configKeys.email));
-            document.getElementById("connection-status").innerText = message || (configured ? "E-mail enregistré; backend à vérifier." : "Configuration non activée");
-        }
-
         function addMessage(kind, text) {
             const box = document.getElementById("chat-box");
             const node = document.createElement("div");
@@ -398,83 +322,77 @@
             box.scrollTop = box.scrollHeight;
             return node;
         }
-
-        async function supabaseRequest(path, options = {}) {
-            const url = localStorage.getItem(configKeys.url);
-            const key = localStorage.getItem(configKeys.key);
-            const response = await fetch(url + "/rest/v1/" + path, {
-                ...options,
-                headers: {
-                    "apikey": key,
-                    "Authorization": "Bearer " + key,
-                    "Content-Type": "application/json",
-                    ...(options.headers || {})
-                }
-            });
-            if (!response.ok) {
-                const detail = await response.text();
-                throw new Error("Supabase " + response.status + ": " + detail.slice(0, 300));
-            }
-            return response.status === 204 ? null : response.json();
-        }
-
         async function watchCommand(commandId, messageNode) {
             const started = Date.now();
             while (Date.now() - started < 180000) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 1500));
                 try {
                     const response = await fetch("/api/tasks/" + encodeURIComponent(commandId), {cache: "no-store"});
                     const row = await response.json();
                     if (!response.ok) throw new Error(row.error || "État de tâche indisponible");
                     if (row.status === "succeeded") {
-                        const evidence = row.result && Array.isArray(row.result.evidence) ? row.result.evidence : [];
-                        messageNode.innerText = evidence.length
-                            ? evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\\n" + (item.evidence || "")).join("\\n\\n")
-                            : "Le cerveau a terminé cette requête sans résultat exploitable.";
-                        return;
+                        const result = row.result || {};
+                        const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+                        const answer = result.answer || result.summary || "";
+                        messageNode.innerText = answer + (evidence.length ? (answer ? "\n\n" : "") + evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\n" + (item.evidence || "")).join("\n\n") : (answer ? "" : "Tâche terminée, aucun résultat exploitable."));
+                        refreshMetrics(); return;
                     }
-                    if (row.status === "failed") {
-                        messageNode.innerText = row.error || (row.result && row.result.error) || "Échec d’exécution du cerveau.";
-                        return;
-                    }
-                    messageNode.innerText = row.status === "running" ? "CognitiveBrain exécute la requête…" : "Requête en attente du cerveau…";
-                } catch (error) {
-                    messageNode.innerText = "Suivi impossible : " + error.message;
-                    return;
-                }
+                    if (row.status === "failed") { messageNode.innerText = row.error || (row.result && row.result.error) || "Échec d’exécution du cerveau."; refreshMetrics(); return; }
+                    messageNode.innerText = row.status === "running" ? "Traitement de la tâche…" : "Tâche en file d'exécution…";
+                } catch (error) { messageNode.innerText = "Suivi impossible : " + error.message; return; }
             }
-            messageNode.innerText = "Délai de suivi dépassé. La requête reste enregistrée dans la file du cerveau.";
+            messageNode.innerText = "Délai de suivi dépassé. La tâche reste enregistrée dans la file du cerveau.";
         }
-
         async function sendMessage() {
             const input = document.getElementById("user-input");
             const query = input.value.trim();
             if (!query) return;
             input.value = "";
             addMessage("user", query);
-            const resultNode = addMessage("nexus", "Transmission de la requête à la file CognitiveBrain…");
-            const email = localStorage.getItem(configKeys.email) || "";
+            const resultNode = addMessage("nexus", "Transmission de la tâche à CognitiveBrain…");
             try {
-                const response = await fetch("/api/chat", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({text: query, email})
-                });
+                const response = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});
                 const task = await response.json();
-                if (!response.ok || !task.id) throw new Error(task.error || "Le backend n’a pas accepté la commande.");
-                updateConnectionStatus("Commande transmise au cerveau. Suivi en cours.");
+                if (!response.ok || !task.id) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
                 await watchCommand(task.id, resultNode);
-            } catch (error) {
-                resultNode.innerText = "Transmission impossible : " + error.message;
-                updateConnectionStatus("Vérifie que le backend Verox est opérationnel et connecté à Supabase.");
+            } catch (error) { resultNode.innerText = "Transmission impossible : " + error.message; }
+        }
+        function handleKey(event) { if (event.key === "Enter") sendMessage(); }
+        function renderMetrics(data) {
+            const tasks = data.tasks || {};
+            const total = Number(tasks.total || 0), succeeded = Number(tasks.succeeded || 0), failed = Number(tasks.failed || 0);
+            const rate = total ? Math.round(succeeded * 100 / total) : 0;
+            document.getElementById("success-rate").innerText = total ? rate + "%" : "—%";
+            document.getElementById("success-total").innerText = total + " tâches";
+            document.getElementById("success-donut").style.background = "conic-gradient(var(--accent-green) " + rate + "%, var(--border-color) " + rate + "% 100%)";
+            const bars = document.getElementById("interaction-bars"), types = Object.entries(data.by_task_type || {}).sort((a,b)=>b[1]-a[1]).slice(0,8);
+            bars.innerHTML = "";
+            if (!types.length) bars.innerHTML = '<div class="chart-empty">Les données apparaîtront après les premières exécutions.</div>';
+            else {
+                const max = Math.max(1, ...types.map(x => Number(x[1])));
+                types.forEach(([name,value]) => {
+                    const row=document.createElement("div"); row.className="bar-row";
+                    const label=document.createElement("span"); label.className="bar-label"; label.textContent=name;
+                    const track=document.createElement("div"); track.className="bar-track";
+                    const fill=document.createElement("div"); fill.className="bar-fill"; fill.style.width=Math.max(2,Number(value)*100/max)+"%";
+                    track.appendChild(fill);
+                    const count=document.createElement("span"); count.className="bar-value"; count.textContent=String(value);
+                    row.append(label,track,count); bars.appendChild(row);
+                });
             }
+            const summary=document.getElementById("execution-summary"); summary.innerHTML="";
+            [["Total",total],["Réussies",succeeded],["Échouées",failed],["En attente / en cours",Number(tasks.pending||0)+Number(tasks.running||0)]].forEach(([label,value])=>{
+                const row=document.createElement("div");row.className="summary-row";
+                const name=document.createElement("span");name.textContent=label;
+                const count=document.createElement("strong");count.textContent=String(value);
+                row.append(name,count);summary.appendChild(row);
+            });
+            document.getElementById("confirmed-revenue").innerText = data.confirmed_revenue == null ? "Non mesuré" : new Intl.NumberFormat("fr-FR",{style:"currency",currency:data.currency||"EUR"}).format(data.confirmed_revenue);
         }
-
-        function handleKey(event) {
-            if (event.key === "Enter") sendMessage();
+        async function refreshMetrics() {
+            try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
         }
-
-        loadConfig();
+        refreshMetrics(); setInterval(refreshMetrics,15000);
     </script>
 </body>
 </html>
