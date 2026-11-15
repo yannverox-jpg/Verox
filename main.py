@@ -802,7 +802,22 @@ async def run_worker():
                     if not query:
                         raise ValueError("Le champ payload.text ou payload.query est requis.")
                     evidence = await brain.run(query, email)
-                    result = {"evidence": evidence or [], "evidence_count": len(evidence or [])}
+                    # Le chat doit recevoir une réponse rédigée, pas uniquement une liste de preuves.
+                    # Si le cycle a déjà produit la réponse Gemini de secours, on la réutilise.
+                    gemini_fallback = next(
+                        (item for item in (evidence or []) if item.get("connector") == "Gemini fallback"),
+                        None,
+                    )
+                    if gemini_fallback:
+                        answer = str(gemini_fallback.get("evidence") or "").strip()
+                    else:
+                        answer = await brain.ask_gemini(query, evidence or [])
+                    result = {
+                        "answer": answer or "",
+                        "provider": "gemini" if answer else "connectors",
+                        "evidence": evidence or [],
+                        "evidence_count": len(evidence or []),
+                    }
                     await client.patch(
                         f"{supabase_url}/rest/v1/nexus_tasks",
                         params={"id": f"eq.{task_id}"},
