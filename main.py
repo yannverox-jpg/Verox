@@ -6,6 +6,7 @@ import json
 import argparse
 import sqlite3
 import re
+import hmac
 from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -462,7 +463,17 @@ class VeroxAppManager:
     def register(self,app_id,name,app_type="unknown",**metadata):
         app_id=re.sub(r"[^a-zA-Z0-9_.:-]","-",str(app_id).strip())[:120]
         if not app_id or not str(name).strip():raise ValueError("app_id et name requis")
-        rec={"app_id":app_id,"name":str(name).strip(),"type":app_type,"origin":metadata.get("origin","user_or_brain"),"access_point":metadata.get("access_point",""),"execution_env":metadata.get("execution_env","unknown"),"capabilities":metadata.get("capabilities",[]),"authorizations":metadata.get("authorizations",[]),"remember_me":bool(metadata.get("remember_me",False))}
+        rec={"app_id":app_id,"name":str(name).strip(),"type":app_type,
+             "origin":metadata.get("origin","user_or_brain"),
+             "access_point":metadata.get("access_point",""),
+             "platform":metadata.get("platform","unknown"),
+             "protocol":metadata.get("protocol","http"),
+             "port":metadata.get("port"),
+             "connection_mode":metadata.get("connection_mode","local_agent"),
+             "execution_env":metadata.get("execution_env","unknown"),
+             "capabilities":metadata.get("capabilities",[]),
+             "authorizations":metadata.get("authorizations",["read_only"]),
+             "remember_me":bool(metadata.get("remember_me",False))}
         with self.store.connect() as db:
             old=db.execute("SELECT install_status,connection_status FROM app_inventory WHERE app_id=?",(app_id,)).fetchone()
             db.execute("""INSERT INTO app_inventory VALUES(?,?,?,?,?,?,?) ON CONFLICT(app_id) DO UPDATE SET name=excluded.name,app_type=excluded.app_type,metadata=excluded.metadata,updated_at=excluded.updated_at""",(app_id,rec["name"],str(app_type),json.dumps(rec,ensure_ascii=False),old["install_status"] if old else "unknown",old["connection_status"] if old else "unknown",self.store.now()))
@@ -870,6 +881,12 @@ def run_dashboard():
                     })
                 except Exception:
                     return self._json(200, {"providers": configured_providers(), "read_only": True})
+            if parsed.path == "/api/apps":
+                try:
+                    brain = CognitiveBrain()
+                    return self._json(200, {"apps": brain.app_manager.list()})
+                except Exception as exc:
+                    return self._json(500, {"error": "Inventaire local indisponible", "detail": str(exc)[:150]})
             if parsed.path == "/api/extensions":
                 try:
                     catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
@@ -941,7 +958,53 @@ def run_dashboard():
             return super().do_GET()
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/chat":
+            route = urlparse(self.path).path
+            if route == "/api/extensions/register":
+                admin_token = os.getenv("VEROX_ADMIN_TOKEN", "").strip()
+                supplied = self.headers.get("Authorization", "")
+                if not admin_token or not hmac.compare_digest(supplied, "Bearer " + admin_token):
+                    return self._json(401, {"error": "Autorisation administrateur requise."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 8000:
+                        return self._json(400, {"error": "Taille de requête invalide"})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    name = str(body.get("name", "")).strip()[:120]
+                    app_id = str(body.get("app_id") or re.sub(r"[^a-zA-Z0-9_.:-]", "-", name.lower()))[:120]
+                    platform = str(body.get("platform", "unknown")).lower()
+                    app_type = str(body.get("type", "application")).lower()
+                    endpoint = str(body.get("endpoint", "")).strip()
+                    port = body.get("port")
+                    if not name or platform not in {"android", "windows", "linux", "web", "unknown"}:
+                        return self._json(400, {"error": "Nom requis et plateforme invalide."})
+                    if port not in (None, ""):
+                        port = int(port)
+                        if port < 1 or port > 65535:
+                            return self._json(400, {"error": "Port hors plage (1–65535)."})
+                    if endpoint:
+                        parsed_endpoint = urlparse(endpoint)
+                        if parsed_endpoint.scheme not in {"http", "https"} or not parsed_endpoint.hostname:
+                            return self._json(400, {"error": "Le point d'accès doit être une URL HTTP(S) valide."})
+                    brain = CognitiveBrain()
+                    record = brain.app_manager.register(
+                        app_id, name, app_type, origin="authenticated_dashboard_registration",
+                        access_point=endpoint, platform=platform, port=port,
+                        protocol="https" if endpoint.startswith("https://") else "http",
+                        connection_mode="bridge",
+                        execution_env="android" if platform == "android" else "desktop" if platform in {"windows", "linux"} else platform,
+                        capabilities=["metadata_registration", "read_only"],
+                        authorizations=["read_only", "no_execution_without_adapter"]
+                    )
+                    brain.app_manager.update_status(app_id, install_status="unknown", connection_status="pending",
+                                                     evidence="Registered; adapter connectivity not yet verified.")
+                    return self._json(201, {"app": record, "connection_status": "pending",
+                                            "message": "Extension enregistrée comme non vérifiée; aucun lien n'est présenté comme une connexion active."})
+                except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                    return self._json(400, {"error": "Données d'extension invalides: " + str(exc)[:150]})
+                except Exception as exc:
+                    logger.exception("Extension registration failed")
+                    return self._json(500, {"error": str(exc)[:200]})
+            if route != "/api/chat":
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
