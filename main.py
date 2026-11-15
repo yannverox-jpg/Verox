@@ -538,8 +538,8 @@ class CognitiveBrain:
             "Réponds directement et utilement à la demande, en français sauf demande contraire. "
             "Ne prétends pas avoir exécuté une action, connecté un compte, installé une application ou généré des revenus si ce n'est pas prouvé. "
             "Si les preuves fournies sont insuffisantes, indique les limites et propose la prochaine action sûre. "
-            "Ne demande jamais à l'utilisateur de publier une clé secrète.\\n\\n"
-            f"Demande : {user_query}\\n\\n"
+            "Ne demande jamais à l'utilisateur de publier une clé secrète.\n\n"
+            f"Demande : {user_query}\n\n"
             f"Preuves disponibles : {context or 'Aucune preuve exploitable retournée par les connecteurs.'}"
         )
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -554,7 +554,7 @@ class CognitiveBrain:
                 response.raise_for_status()
                 payload = response.json()
             parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            answer = "\\n".join(str(part.get("text", "")) for part in parts if part.get("text"))
+            answer = "\n".join(str(part.get("text", "")) for part in parts if part.get("text"))
             return answer.strip() or None
         except Exception as exc:
             logger.warning("Gemini fallback indisponible (%s).", type(exc).__name__)
