@@ -8,7 +8,7 @@ services:
     startCommand: python main.py --server
     envVars:
       - key: SUPABASE_URL
-        sync: false
+        value: https://nruxwnfiwxeomeqalgat.supabase.co
       - key: GEMINI_API_KEY
         sync: false
       - key: SUPABASE_ANON_KEY
@@ -20,4 +20,26 @@ services:
       - key: COGNITIVE_GEO_TARGET
         value: Zurich-CH / Frankfurt-DE
       - key: USER_EMAIL
+        sync: false
+      - key: COGNITIVE_PROVIDER_ORDER
+        value: lmstudio,pocketpal,gemini
+      - key: COGNITIVE_MODEL
+        sync: false
+      - key: COGNITIVE_MODEL_TIMEOUT_SECONDS
+        value: "45"
+      - key: LMSTUDIO_BASE_URL
+        sync: false
+      - key: LMSTUDIO_API_KEY
+        sync: false
+      - key: LMSTUDIO_MODEL
+        sync: false
+      - key: POCKETPAL_BASE_URL
+        sync: false
+      - key: POCKETPAL_API_KEY
+        sync: false
+      - key: POCKETPAL_MODEL
+        sync: false
+      - key: VEROX_STATE_DB
+        value: verox_state.sqlite3
+      - key: VEROX_ADMIN_TOKEN
         sync: false

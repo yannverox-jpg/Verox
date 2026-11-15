@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "Verox CognitiveBrain",
+  "short_name": "Verox",
+  "description": "Centre de contrôle mobile pour les passerelles Verox.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080d18",
+  "theme_color": "#080d18",
+  "categories": ["productivity", "utilities"]
+}

@@ -6,11 +6,13 @@ import json
 import argparse
 import sqlite3
 import re
+import hmac
 from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 import httpx
+from cognitive_providers import chat_with_available_model, configured_providers, probe_provider_endpoints
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
 
@@ -461,7 +463,17 @@ class VeroxAppManager:
     def register(self,app_id,name,app_type="unknown",**metadata):
         app_id=re.sub(r"[^a-zA-Z0-9_.:-]","-",str(app_id).strip())[:120]
         if not app_id or not str(name).strip():raise ValueError("app_id et name requis")
-        rec={"app_id":app_id,"name":str(name).strip(),"type":app_type,"origin":metadata.get("origin","user_or_brain"),"access_point":metadata.get("access_point",""),"execution_env":metadata.get("execution_env","unknown"),"capabilities":metadata.get("capabilities",[]),"authorizations":metadata.get("authorizations",[]),"remember_me":bool(metadata.get("remember_me",False))}
+        rec={"app_id":app_id,"name":str(name).strip(),"type":app_type,
+             "origin":metadata.get("origin","user_or_brain"),
+             "access_point":metadata.get("access_point",""),
+             "platform":metadata.get("platform","unknown"),
+             "protocol":metadata.get("protocol","http"),
+             "port":metadata.get("port"),
+             "connection_mode":metadata.get("connection_mode","local_agent"),
+             "execution_env":metadata.get("execution_env","unknown"),
+             "capabilities":metadata.get("capabilities",[]),
+             "authorizations":metadata.get("authorizations",["read_only"]),
+             "remember_me":bool(metadata.get("remember_me",False))}
         with self.store.connect() as db:
             old=db.execute("SELECT install_status,connection_status FROM app_inventory WHERE app_id=?",(app_id,)).fetchone()
             db.execute("""INSERT INTO app_inventory VALUES(?,?,?,?,?,?,?) ON CONFLICT(app_id) DO UPDATE SET name=excluded.name,app_type=excluded.app_type,metadata=excluded.metadata,updated_at=excluded.updated_at""",(app_id,rec["name"],str(app_type),json.dumps(rec,ensure_ascii=False),old["install_status"] if old else "unknown",old["connection_status"] if old else "unknown",self.store.now()))
@@ -580,49 +592,18 @@ class CognitiveBrain:
             )
         return len(items)
 
-    async def probe_gemini(self) -> bool:
-        """Vérifie réellement l'API de secours au démarrage sans bloquer le service."""
-        if not os.getenv("GEMINI_API_KEY", "").strip():
-            return False
-        response = await self.ask_gemini("Test technique de démarrage. Réponds uniquement OK.", [])
-        return bool(response)
+    async def probe_model(self) -> bool:
+        """Vérifie le moteur de modèle disponible sans révéler de secrets."""
+        reply = await chat_with_available_model("Test technique. Réponds uniquement OK.", [])
+        return bool(reply and reply.content)
 
-    async def ask_gemini(self, user_query: str, evidence: List[Dict[str, Any]] = None) -> Optional[str]:
-        """Modèle de secours via Gemini API; la clé reste exclusivement côté serveur."""
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not api_key:
+    async def ask_model(self, user_query: str, evidence: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Sélectionne PocketPal, LM Studio ou le secours cloud configuré."""
+        reply = await chat_with_available_model(user_query, evidence or [])
+        if not reply:
+            logger.warning("Aucun moteur cognitif accessible. Vérifier les URLs PocketPal/LM Studio; localhost sur Render désigne Render.")
             return None
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
-        context = json.dumps((evidence or [])[:8], ensure_ascii=False)[:18000]
-        prompt = (
-            "Tu es le moteur de secours de CognitiveBrain dans Verox. "
-            "Réponds directement et utilement à la demande, en français sauf demande contraire. "
-            "Ne prétends pas avoir exécuté une action, connecté un compte, installé une application ou généré des revenus si ce n'est pas prouvé. "
-            "Si les preuves fournies sont insuffisantes, indique les limites et propose la prochaine action sûre. "
-            "Priorise les opportunités légales, à faible coût et testables rapidement, avec l'objectif de rechercher des premières recettes dans les 30 minutes sans garantir de revenu. "
-            "N'engage pas d'argent, ne passe pas de transaction, ne crée pas de compte et ne publie pas de contenu sans autorisation explicite. "
-            "Un revenu n'est confirmé que par une preuve de transaction ou un enregistrement financier fiable. "
-            "Ne demande jamais à l'utilisateur de publier une clé secrète.\n\n"
-            f"Demande : {user_query}\n\n"
-            f"Preuves disponibles : {context or 'Aucune preuve exploitable retournée par les connecteurs.'}"
-        )
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                response = await client.post(
-                    endpoint,
-                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                    json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                          "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}}
-                )
-                response.raise_for_status()
-                payload = response.json()
-            parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            answer = "\n".join(str(part.get("text", "")) for part in parts if part.get("text"))
-            return answer.strip() or None
-        except Exception as exc:
-            logger.warning("Gemini fallback indisponible (%s).", type(exc).__name__)
-            return None
+        return reply.content
 
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
         """Archive la mémoire du cerveau dans le schéma PostgreSQL canonique Nexus/Verox."""
@@ -701,13 +682,13 @@ class CognitiveBrain:
                 seen.add(key)
                 unique_evidence.append(item)
 
-        # 5. Secours Gemini : uniquement si les connecteurs n'ont fourni aucune preuve exploitable.
-        # Gemini ne reçoit jamais le droit d'exécuter arbitrairement du code ou de manipuler des secrets.
+        # 5. Secours par le moteur cognitif configuré si aucun connecteur n'a fourni de preuve exploitable.
+        # La réponse du modèle reste du texte non fiable; elle n'exécute aucun outil.
         if not unique_evidence:
-            fallback_answer = await self.ask_gemini(user_query, [])
+            fallback_answer = await self.ask_model(user_query, [])
             if fallback_answer:
                 unique_evidence = [{
-                    "connector": "Gemini fallback",
+                    "connector": "Cognitive model",
                     "year": datetime.now(timezone.utc).year,
                     "title": "Réponse de secours CognitiveBrain",
                     "evidence": fallback_answer
@@ -750,17 +731,16 @@ async def run_worker():
         logger.info("Registre CognitiveBrain chargé : %s extensions classées.", extension_count)
     except Exception:
         logger.exception("Impossible de charger le registre des extensions")
-    if os.getenv("GEMINI_API_KEY", "").strip():
-        if await brain.probe_gemini():
-            logger.info("Gemini API de secours vérifiée au démarrage.")
-        else:
-            logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
+    provider_status = configured_providers()
+    logger.info("Moteurs configurés (sans secrets) : %s", provider_status)
+    if await brain.probe_model():
+        logger.info("Un moteur de raisonnement a répondu au test de démarrage.")
     else:
-        logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
+        logger.warning("Aucun moteur de raisonnement accessible; le chat direct indiquera l'indisponibilité.")
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
-        logger.error("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis. Le serveur HTTP reste disponible, mais le worker est en attente de configuration.")
+        logger.warning("Supabase non configuré : file distante désactivée. Le chat direct reste disponible via un moteur configuré; SQLite local est durable après redéploiement uniquement si VEROX_STATE_DB est sur un disque persistant.")
         while True:
             await asyncio.sleep(30)
     headers = {
@@ -802,7 +782,15 @@ async def run_worker():
                     if not query:
                         raise ValueError("Le champ payload.text ou payload.query est requis.")
                     evidence = await brain.run(query, email)
-                    result = {"evidence": evidence or [], "evidence_count": len(evidence or [])}
+                    answer = None
+                    if task.get("task_type") == "cognitive_chat":
+                        answer = await brain.ask_model(query, evidence or [])
+                    result = {
+                        "answer": answer or "",
+                        "provider_status": configured_providers(),
+                        "evidence": evidence or [],
+                        "evidence_count": len(evidence or [])
+                    }
                     await client.patch(
                         f"{supabase_url}/rest/v1/nexus_tasks",
                         params={"id": f"eq.{task_id}"},
@@ -874,15 +862,45 @@ def run_dashboard():
                     return self._json(200, {
                         "ok": True,
                         "database": "connected",
-                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "model_providers": configured_providers(),
                         "extension_count": extension_count
                     })
                 except Exception as exc:
                     return self._json(503, {
                         "ok": False,
-                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "model_providers": configured_providers(),
                         "error": str(exc)[:250]
                     })
+            if parsed.path == "/api/providers":
+                try:
+                    providers = asyncio.run(probe_provider_endpoints())
+                    return self._json(200, {
+                        "providers": providers,
+                        "read_only": True,
+                        "note": "Les modèles locaux doivent être joignables depuis le serveur ou via un pont privé authentifié."
+                    })
+                except Exception:
+                    return self._json(200, {"providers": configured_providers(), "read_only": True})
+            if parsed.path == "/api/apps":
+                try:
+                    brain = CognitiveBrain()
+                    apps = brain.app_manager.list()
+                    safe_apps = []
+                    for app in apps:
+                        meta = app.get("metadata") or {}
+                        safe_apps.append({
+                            "app_id": app.get("app_id"),
+                            "name": app.get("name"),
+                            "app_type": app.get("app_type"),
+                            "platform": meta.get("platform", "unknown"),
+                            "port": meta.get("port"),
+                            "install_status": app.get("install_status", "unknown"),
+                            "connection_status": app.get("connection_status", "unknown"),
+                            "updated_at": app.get("updated_at")
+                        })
+                    return self._json(200, {"apps": safe_apps})
+                except Exception as exc:
+                    return self._json(500, {"error": "Inventaire local indisponible", "detail": str(exc)[:150]})
             if parsed.path == "/api/extensions":
                 try:
                     catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
@@ -954,7 +972,53 @@ def run_dashboard():
             return super().do_GET()
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/chat":
+            route = urlparse(self.path).path
+            if route == "/api/extensions/register":
+                admin_token = os.getenv("VEROX_ADMIN_TOKEN", "").strip()
+                supplied = self.headers.get("Authorization", "")
+                if not admin_token or not hmac.compare_digest(supplied, "Bearer " + admin_token):
+                    return self._json(401, {"error": "Autorisation administrateur requise."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 8000:
+                        return self._json(400, {"error": "Taille de requête invalide"})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    name = str(body.get("name", "")).strip()[:120]
+                    app_id = str(body.get("app_id") or re.sub(r"[^a-zA-Z0-9_.:-]", "-", name.lower()))[:120]
+                    platform = str(body.get("platform", "unknown")).lower()
+                    app_type = str(body.get("type", "application")).lower()
+                    endpoint = str(body.get("endpoint", "")).strip()
+                    port = body.get("port")
+                    if not name or platform not in {"android", "windows", "linux", "web", "unknown"}:
+                        return self._json(400, {"error": "Nom requis et plateforme invalide."})
+                    if port not in (None, ""):
+                        port = int(port)
+                        if port < 1 or port > 65535:
+                            return self._json(400, {"error": "Port hors plage (1–65535)."})
+                    if endpoint:
+                        parsed_endpoint = urlparse(endpoint)
+                        if parsed_endpoint.scheme not in {"http", "https"} or not parsed_endpoint.hostname:
+                            return self._json(400, {"error": "Le point d'accès doit être une URL HTTP(S) valide."})
+                    brain = CognitiveBrain()
+                    record = brain.app_manager.register(
+                        app_id, name, app_type, origin="authenticated_dashboard_registration",
+                        access_point=endpoint, platform=platform, port=port,
+                        protocol="https" if endpoint.startswith("https://") else "http",
+                        connection_mode="bridge",
+                        execution_env="android" if platform == "android" else "desktop" if platform in {"windows", "linux"} else platform,
+                        capabilities=["metadata_registration", "read_only"],
+                        authorizations=["read_only", "no_execution_without_adapter"]
+                    )
+                    brain.app_manager.update_status(app_id, install_status="unknown", connection_status="disconnected",
+                                                     evidence="Registered; adapter connectivity not yet verified.")
+                    return self._json(201, {"app": record, "connection_status": "pending",
+                                            "message": "Extension enregistrée comme non vérifiée; aucun lien n'est présenté comme une connexion active."})
+                except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                    return self._json(400, {"error": "Données d'extension invalides: " + str(exc)[:150]})
+                except Exception as exc:
+                    logger.exception("Extension registration failed")
+                    return self._json(500, {"error": str(exc)[:200]})
+            if route != "/api/chat":
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -969,11 +1033,18 @@ def run_dashboard():
                 try:
                     url, headers = self._supabase()
                 except RuntimeError:
-                    # Mode de démarrage dégradé : Gemini peut répondre pendant que Supabase est configuré.
-                    fallback = asyncio.run(CognitiveBrain().ask_gemini(query, []))
-                    if fallback:
-                        return self._json(200, {"answer": fallback, "mode": "gemini_fallback"})
-                    return self._json(503, {"error": "Supabase n'est pas configuré et Gemini n'est pas disponible."})
+                    # Mode dégradé : sélectionne PocketPal/LM Studio, puis un secours cloud configuré.
+                    # Sur Render, la durabilité SQLite après redéploiement exige un disque persistant.
+                    brain = CognitiveBrain()
+                    brain.store.remember("dashboard_chat_user", query, {"source": "verox_dashboard", "mode": "no_supabase"})
+                    answer = asyncio.run(brain.ask_model(query, []))
+                    if answer:
+                        brain.store.remember("dashboard_chat_assistant", answer, {"source": "verox_dashboard", "mode": "no_supabase"})
+                        return self._json(200, {"answer": answer, "mode": "direct_model_no_supabase", "provider_status": configured_providers(), "persistence": "sqlite_local"})
+                    return self._json(503, {
+                        "error": "Supabase est absent et aucun moteur cognitif n'est joignable. Configurez PocketPal ou LM Studio via une URL accessible depuis le serveur.",
+                        "provider_status": configured_providers()
+                    })
                 task = {"task_key": task_key, "task_type": "cognitive_chat",
                         "status": "queued", "payload": {"text": query, "email": email,
                         "source": "verox_dashboard"}}
