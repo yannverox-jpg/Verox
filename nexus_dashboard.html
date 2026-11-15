@@ -259,28 +259,7 @@
             <i class="fa-solid fa-plug-circle-bolt"></i>
             <span>Plug-ins & Connecteurs</span>
         </div>
-        <div class="menu-list" id="extension-drawer">
-            <div class="menu-category">Revenus & Automatisation</div>
-            <div class="menu-item"><i class="fa-solid fa-chart-line"></i><span>Trading Bot (CCXT)</span></div>
-            <div class="menu-item"><i class="fa-solid fa-microchip"></i><span>Minage Crypto Pool</span></div>
-            <div class="menu-item"><i class="fa-solid fa-futbol"></i><span>Paris Sportifs & Hippiques</span></div>
-            <div class="menu-item"><i class="fa-solid fa-store"></i><span>E-Commerce Automatisé</span></div>
-            <div class="menu-item"><i class="fa-solid fa-list-check"></i><span>Micro-Tâches & Bounties</span></div>
-            <div class="menu-category">IA & Modèles</div>
-            <div class="menu-item"><i class="fa-solid fa-cubes"></i><span>Hugging Face</span></div>
-            <div class="menu-item"><i class="fa-solid fa-microchip"></i><span>LM Studio</span></div>
-            <div class="menu-item"><i class="fa-solid fa-mobile-screen"></i><span>PocketPal AI</span></div>
-            <div class="menu-item"><i class="fa-solid fa-box-open"></i><span>Pinokio</span></div>
-            <div class="menu-item"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Heretic</span></div>
-            <div class="menu-category">Développement & Ressources</div>
-            <div class="menu-item"><i class="fa-solid fa-code"></i><span>CodeSandbox</span></div>
-            <div class="menu-item"><i class="fa-solid fa-gift"></i><span>Free-for.dev</span></div>
-            <div class="menu-category">Recherche & Sécurité</div>
-            <div class="menu-item"><i class="fa-solid fa-magnifying-glass"></i><span>OSINT Framework</span></div>
-            <div class="menu-item"><i class="fa-solid fa-shield-halved"></i><span>GrapheneOS</span></div>
-            <div class="menu-item"><i class="fa-solid fa-fingerprint"></i><span>Sherlock / Maigret</span></div>
-            <div class="menu-item"><i class="fa-solid fa-robot"></i><span>LLM Web Scrapers</span></div>
-        </div>
+        <div class="menu-list" id="extension-drawer" aria-label="Extensions CognitiveBrain"></div>
     </aside>
 
     <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
@@ -314,6 +293,45 @@
     </section>
 
     <script>
+        async function loadExtensions() {
+            const drawer = document.getElementById("extension-drawer");
+            try {
+                const response = await fetch("/api/extensions", {cache:"no-store"});
+                if (!response.ok) throw new Error("Catalogue indisponible");
+                const catalog = await response.json();
+                const groups = new Map();
+                (catalog.items || []).forEach(item => {
+                    const group = item.group || "Autres extensions";
+                    if (!groups.has(group)) groups.set(group, []);
+                    groups.get(group).push(item);
+                });
+                drawer.replaceChildren();
+                groups.forEach((items, groupName) => {
+                    const heading = document.createElement("div");
+                    heading.className = "menu-category";
+                    heading.textContent = groupName;
+                    drawer.appendChild(heading);
+                    items.forEach(item => {
+                        const row = document.createElement("div");
+                        row.className = "menu-item";
+                        const icon = document.createElement("i");
+                        icon.className = item.icon || "fa-solid fa-puzzle-piece";
+                        const label = document.createElement("span");
+                        label.textContent = item.label;
+                        row.append(icon, label);
+                        row.title = item.protocol || item.category || "";
+                        drawer.appendChild(row);
+                    });
+                });
+            } catch (_) {
+                drawer.replaceChildren();
+                const row = document.createElement("div");
+                row.className = "chart-empty";
+                row.textContent = "Le catalogue des extensions n'est pas disponible.";
+                drawer.appendChild(row);
+            }
+        }
+
         function addMessage(kind, text) {
             const box = document.getElementById("chat-box");
             const node = document.createElement("div");
@@ -393,7 +411,7 @@
         async function refreshMetrics() {
             try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
         }
-        refreshMetrics(); setInterval(refreshMetrics,15000);
+        loadExtensions();\n        refreshMetrics(); setInterval(refreshMetrics,15000);
     </script>
 </body>
 </html>
