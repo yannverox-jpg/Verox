@@ -526,6 +526,32 @@ class CognitiveBrain:
         self.hub = ConnectorHub(self.gateway, self.session_manager)
         self.drive = VeroxAutonomousDrive(self.store, self.app_manager, self.execution_manager)
 
+    def initialize_extensions(self) -> int:
+        """Charge le registre versionné et l'inscrit dans l'inventaire local du cerveau."""
+        catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
+        with catalog_path.open("r", encoding="utf-8") as catalog_file:
+            catalog = json.load(catalog_file)
+        items = catalog.get("items", [])
+        for item in items:
+            self.app_manager.register(
+                item["id"],
+                item["label"],
+                item.get("category", "extension"),
+                origin="repository_catalog",
+                access_point=item.get("url", ""),
+                execution_env=item.get("execution_mode", "unknown"),
+                capabilities=item.get("integration_type", []),
+                authorizations=["respect_service_auth", "explicit_approval_for_sensitive_actions"]
+            )
+        return len(items)
+
+    async def probe_gemini(self) -> bool:
+        """Vérifie réellement l'API de secours au démarrage sans bloquer le service."""
+        if not os.getenv("GEMINI_API_KEY", "").strip():
+            return False
+        response = await self.ask_gemini("Test technique de démarrage. Réponds uniquement OK.", [])
+        return bool(response)
+
     async def ask_gemini(self, user_query: str, evidence: List[Dict[str, Any]] = None) -> Optional[str]:
         """Modèle de secours via Gemini API; la clé reste exclusivement côté serveur."""
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -679,6 +705,18 @@ class CognitiveBrain:
 async def run_worker():
     """Consomme la file canonique public.nexus_tasks et écrit les résultats dans PostgreSQL."""
     brain = CognitiveBrain()
+    try:
+        extension_count = brain.initialize_extensions()
+        logger.info("Registre CognitiveBrain chargé : %s extensions classées.", extension_count)
+    except Exception:
+        logger.exception("Impossible de charger le registre des extensions")
+    if os.getenv("GEMINI_API_KEY", "").strip():
+        if await brain.probe_gemini():
+            logger.info("Gemini API de secours vérifiée au démarrage.")
+        else:
+            logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
+    else:
+        logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
