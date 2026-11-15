@@ -1,137 +1,247 @@
 {
-  "schema_version": "1.0",
-  "purpose": "Registre central des extensions Verox : classification, mode d'exécution et protocoles d'intégration. Une entrée au registre n'implique pas qu'un logiciel externe soit installé ou accessible depuis Render.",
+  "schema_version": "1.1",
+  "purpose": "Registre central des extensions Verox. Il classe les capacités et modes d'exécution; l'inscription ne déclare pas un service connecté ni un logiciel installé.",
   "items": [
+    {
+      "id": "trading-ccxt",
+      "label": "Trading Bot (CCXT)",
+      "group": "Revenus & Automatisation",
+      "icon": "fa-solid fa-chart-line",
+      "category": "income_automation",
+      "integration_type": [
+        "plugin",
+        "connector"
+      ],
+      "execution_mode": "server_backend",
+      "protocol": "CCXT exchange API; trading stays disabled until explicitly configured",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "crypto-mining",
+      "label": "Minage Crypto Pool",
+      "group": "Revenus & Automatisation",
+      "icon": "fa-solid fa-microchip",
+      "category": "income_automation",
+      "integration_type": [
+        "plugin",
+        "connector"
+      ],
+      "execution_mode": "external_compute",
+      "protocol": "Pool protocol/API must be specified; not enabled by catalog registration",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "sports-betting",
+      "label": "Paris Sportifs & Hippiques",
+      "group": "Revenus & Automatisation",
+      "icon": "fa-solid fa-futbol",
+      "category": "income_automation",
+      "integration_type": [
+        "connector_candidate"
+      ],
+      "execution_mode": "remote_service",
+      "protocol": "Provider-specific API and legal/age eligibility checks required",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "ecommerce",
+      "label": "E-Commerce Automatisé",
+      "group": "Revenus & Automatisation",
+      "icon": "fa-solid fa-store",
+      "category": "income_automation",
+      "integration_type": [
+        "plugin",
+        "connector"
+      ],
+      "execution_mode": "remote_service",
+      "protocol": "Provider-specific API and explicit merchant authorization required",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "microtasks",
+      "label": "Micro-Tâches & Bounties",
+      "group": "Revenus & Automatisation",
+      "icon": "fa-solid fa-list-check",
+      "category": "income_automation",
+      "integration_type": [
+        "connector_candidate"
+      ],
+      "execution_mode": "remote_service",
+      "protocol": "Each platform requires its own supported API and account authorization",
+      "lifecycle": "registered"
+    },
     {
       "id": "huggingface",
       "label": "Hugging Face",
-      "url": "https://huggingface.co/",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-cubes",
       "category": "ai_models",
       "integration_type": [
         "connector",
         "plugin",
         "mcp_optional"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "remote_service_or_reference",
-      "protocol": "Hugging Face Hub / Inference API; authentication may be required"
+      "execution_mode": "remote_service",
+      "protocol": "Hugging Face Hub / Inference API; authentication may be required",
+      "url": "https://huggingface.co/",
+      "lifecycle": "registered"
     },
     {
       "id": "lm-studio",
       "label": "LM Studio",
-      "url": "https://lmstudio.ai/",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-microchip",
       "category": "local_inference",
       "integration_type": [
         "connector",
         "plugin",
         "mcp_optional"
       ],
-      "runtime": "local_machine",
-      "lifecycle": "registered",
       "execution_mode": "local_device_or_agent",
-      "protocol": "OpenAI-compatible HTTP API; local host must be reached through a secured local agent/tunnel"
+      "protocol": "OpenAI-compatible HTTP API; local host must be reached through a secured local agent/tunnel",
+      "url": "https://lmstudio.ai/",
+      "lifecycle": "registered"
     },
     {
       "id": "pocketpal-ai",
       "label": "PocketPal AI",
-      "url": "https://github.com/a-ghorbani/pocketpal-ai",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-mobile-screen",
       "category": "mobile_inference",
       "integration_type": [
         "connector_candidate"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "local_device_or_agent"
+      "execution_mode": "mobile_device",
+      "protocol": "Mobile model runtime; supported remote API must be verified before use",
+      "url": "https://github.com/a-ghorbani/pocketpal-ai",
+      "lifecycle": "registered"
     },
     {
       "id": "pinokio",
       "label": "Pinokio",
-      "url": "https://pinokio.work/",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-box-open",
       "category": "local_app_management",
       "integration_type": [
         "connector_candidate",
         "plugin_candidate"
       ],
-      "runtime": "local_machine",
-      "lifecycle": "registered",
-      "execution_mode": "local_device_or_agent"
+      "execution_mode": "local_device_or_agent",
+      "protocol": "Local app manager; no remote control assumed without a verified interface",
+      "url": "https://pinokio.work/",
+      "lifecycle": "registered"
     },
     {
       "id": "heretic",
       "label": "Heretic",
-      "url": "https://github.com/p-e-w/heretic",
-      "category": "open_model_transformation",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-wand-magic-sparkles",
+      "category": "model_transform",
       "integration_type": [
         "optional_local_tool"
       ],
-      "runtime": "local_gpu_recommended",
-      "note": "Outil de transformation de modèles existants; ce n'est ni un modèle de chat ni un routeur d'inférence.",
-      "lifecycle": "registered",
-      "execution_mode": "local_device_or_agent",
-      "protocol": "Local CLI workflow; never a Render web-worker dependency"
+      "execution_mode": "local_gpu_machine",
+      "protocol": "Local CLI model transformation; not an inference endpoint",
+      "url": "https://github.com/p-e-w/heretic",
+      "lifecycle": "registered"
     },
     {
       "id": "codesandbox",
-      "label": "CodeSandbox (produit à confirmer)",
-      "url": "https://codesandbox.io/",
+      "label": "CodeSandbox",
+      "group": "Développement & Ressources",
+      "icon": "fa-solid fa-code",
       "category": "development",
       "integration_type": [
         "connector_candidate",
         "plugin_candidate"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "remote_service_or_reference"
+      "execution_mode": "remote_service",
+      "protocol": "Product-specific API and authorization must be verified",
+      "url": "https://codesandbox.io/",
+      "lifecycle": "registered"
     },
     {
       "id": "free-for-dev",
       "label": "Free-for.dev",
-      "url": "https://github.com/FreeForDev/FreeForDev",
+      "group": "Développement & Ressources",
+      "icon": "fa-solid fa-gift",
       "category": "free_service_discovery",
       "integration_type": [
         "discovery_plugin_candidate"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "remote_service_or_reference"
+      "execution_mode": "reference_catalog",
+      "protocol": "Curated service catalogue, not a general execution API",
+      "url": "https://github.com/FreeForDev/FreeForDev",
+      "lifecycle": "registered"
     },
     {
       "id": "osint-framework",
       "label": "OSINT Framework",
-      "url": "https://osintframework.com/",
+      "group": "Recherche & Sécurité",
+      "icon": "fa-solid fa-magnifying-glass",
       "category": "open_source_research",
       "integration_type": [
         "discovery_plugin_candidate"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "remote_service_or_reference"
+      "execution_mode": "reference_catalog",
+      "protocol": "Individual source connectors must be integrated separately",
+      "url": "https://osintframework.com/",
+      "lifecycle": "registered"
     },
     {
       "id": "grapheneos",
       "label": "GrapheneOS",
-      "url": "https://grapheneos.org/",
+      "group": "Recherche & Sécurité",
+      "icon": "fa-solid fa-shield-halved",
       "category": "device_security",
       "integration_type": [
         "security_reference"
       ],
-      "lifecycle": "registered",
-      "execution_mode": "local_device_or_agent"
+      "execution_mode": "mobile_device",
+      "protocol": "Device operating system; not a plugin or remote API",
+      "url": "https://grapheneos.org/",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "sherlock-maigret",
+      "label": "Sherlock / Maigret",
+      "group": "Recherche & Sécurité",
+      "icon": "fa-solid fa-fingerprint",
+      "category": "osint_tools",
+      "integration_type": [
+        "optional_local_tool",
+        "plugin_candidate"
+      ],
+      "execution_mode": "local_device_or_agent",
+      "protocol": "Install and execute only on an authorized environment",
+      "lifecycle": "registered"
+    },
+    {
+      "id": "llm-web-scrapers",
+      "label": "LLM Web Scrapers",
+      "group": "Recherche & Sécurité",
+      "icon": "fa-solid fa-robot",
+      "category": "web_research",
+      "integration_type": [
+        "plugin_candidate"
+      ],
+      "execution_mode": "server_backend",
+      "protocol": "Use source APIs and respect access controls and site terms",
+      "lifecycle": "registered"
     },
     {
       "id": "gemini-fallback",
       "label": "Gemini API — modèle de secours",
+      "group": "IA & Modèles",
+      "icon": "fa-solid fa-brain",
       "category": "reasoning_fallback",
       "integration_type": [
         "server_side_api_connector"
       ],
       "execution_mode": "render_backend",
-      "protocol": "Google Gemini generateContent REST API",
-      "lifecycle": "configured_by_server_environment",
-      "secret_name": "GEMINI_API_KEY",
-      "note": "Le secret reste côté serveur; la présence de la variable ne prouve pas la disponibilité de l'API."
+      "protocol": "Google Gemini generateContent REST API; secret is GEMINI_API_KEY",
+      "lifecycle": "server_connector"
     }
   ],
-  "status_definitions": {
-    "catalog_only": "Lien affiché; aucune authentification ou exécution distante n'est déclarée.",
-    "configured": "Paramètres d'intégration présents.",
-    "connected": "Connexion testée avec succès.",
-    "validated": "Tests fonctionnels réussis."
-  }
+  "status_policy": "Les états d'installation et de connexion doivent être établis par des contrôles de protocole réels, jamais par une valeur par défaut."
 }
