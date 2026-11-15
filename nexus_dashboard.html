@@ -1,516 +1,80 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verox — CognitiveBrain</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root {
-            --bg-dark: #090d16;
-            --panel-bg: #111827;
-            --border-color: #1f2937;
-            --accent-green: #10b981;
-            --accent-blue: #3b82f6;
-            --text-main: #f9fafb;
-            --text-muted: #9ca3af;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-
-        body {
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* --- TIROIR LATÉRAL DES PLUG-INS --- */
-        aside {
-            width: 260px;
-            background-color: var(--panel-bg);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .sidebar-header {
-            padding: 20px;
-            font-size: 1rem;
-            font-weight: bold;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: var(--accent-blue);
-        }
-
-        .menu-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px;
-        }
-
-        .menu-category {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin: 15px 0 5px 10px;
-        }
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            color: var(--text-main);
-            border-radius: 6px;
-            margin-bottom: 4px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .menu-item:hover {
-            background-color: var(--border-color);
-        }
-
-        .menu-item i { width: 18px; color: var(--text-muted); }
-
-        /* --- ZONE CENTRALE : PRÉVISUALISATION NO-CODE (DASHBOARD NEXUS) --- */
-        .preview-section {
-            flex: 1.2;
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            background-color: #0b0f19;
-        }
-
-        .preview-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background-color: var(--panel-bg);
-        }
-
-        .preview-grid {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 15px;
-            align-content: start;
-        }
-
-        .app-card {
-            background-color: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 15px;
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.2s;
-        }
-
-        .app-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--accent-blue);
-        }
-
-        .app-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .app-title { font-size: 0.9rem; font-weight: 600; }
-        .live-badge {
-            font-size: 0.65rem;
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--accent-green);
-            padding: 2px 6px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .dot { width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5px infinite; }
-
-        .app-metric { font-size: 1.2rem; font-weight: bold; margin-bottom: 5px; color: #fff; }
-        .app-sub { font-size: 0.75rem; color: var(--text-muted); }
-
-        /* --- ZONE DROITE : CHAT AVEC LE CERVEAU --- */
-        .chat-section {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-color: var(--bg-dark);
-        }
-
-        .chat-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border-color);
-            background-color: var(--panel-bg);
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .chat-messages {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .message {
-            max-width: 85%;
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            line-height: 1.4;
-        }
-
-        .message.nexus {
-            background-color: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            align-self: flex-start;
-        }
-
-        .message.user {
-            background-color: var(--accent-blue);
-            color: #fff;
-            align-self: flex-end;
-        }
-
-        .chat-input-area {
-            padding: 15px;
-            border-top: 1px solid var(--border-color);
-            background-color: var(--panel-bg);
-            display: flex;
-            gap: 10px;
-        }
-
-        .chat-input-area input {
-            flex: 1;
-            background: var(--bg-dark);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 10px;
-            color: #fff;
-            outline: none;
-            font-size: 0.85rem;
-        }
-
-        .chat-input-area input:focus { border-color: var(--accent-blue); }
-
-        .chat-input-area button {
-            background: var(--accent-blue);
-            color: #fff;
-            border: none;
-            padding: 0 15px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-
-        .metric-card { min-height: 210px; }
-        .donut { width:116px;height:116px;border-radius:50%;margin:14px auto 4px;display:grid;place-items:center;background:conic-gradient(var(--border-color) 0 100%); }
-        .donut::before { content:"";width:78px;height:78px;border-radius:50%;background:var(--panel-bg);grid-area:1/1; }
-        .donut span { grid-area:1/1;z-index:1;font-size:.75rem;color:var(--text-muted); }
-        .bar-chart,.summary-table { display:flex;flex-direction:column;gap:10px;margin-top:12px; }
-        .bar-row { display:grid;grid-template-columns:minmax(74px,1fr) 2fr 24px;gap:8px;align-items:center;font-size:.72rem; }
-        .bar-label { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted); }
-        .bar-track { height:8px;background:var(--border-color);border-radius:5px;overflow:hidden; }
-        .bar-fill { height:100%;background:linear-gradient(90deg,var(--accent-blue),var(--accent-green));border-radius:5px; }
-        .bar-value { text-align:right; }
-        .summary-row { display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border-color);padding:7px 0;font-size:.78rem; }
-        .summary-row span { color:var(--text-muted); }
-        .chart-empty { color:var(--text-muted);font-size:.78rem;line-height:1.5;padding:12px 0; }
-        .provider-status { display:block; margin-top:5px; color:var(--text-muted); font-size:.72rem; line-height:1.4; overflow-wrap:anywhere; }
-        .extension-manager { padding:10px; border-top:1px solid var(--border-color); display:grid; gap:6px; }
-        .extension-manager input,.extension-manager select { width:100%; min-width:0; background:#0b0f19; color:var(--text-main); border:1px solid var(--border-color); border-radius:5px; padding:7px; font-size:.76rem; }
-        .extension-manager button { background:var(--accent-blue); color:white; border:0; border-radius:5px; padding:8px; cursor:pointer; }
-        .extension-manager small { color:var(--text-muted); font-size:.68rem; line-height:1.35; }
-        #extension-form-status,#registered-apps { color:var(--text-muted); font-size:.72rem; overflow-wrap:anywhere; }
-        .registered-app { padding:5px 0; border-bottom:1px solid var(--border-color); }
-        .chat-header { flex-wrap:wrap; align-items:center; gap:8px; }
-        @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:460px; } .preview-section,.chat-section { min-height:380px; } }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.4; }
-            100% { opacity: 1; }
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#080d18">
+<meta name="description" content="Verox — CognitiveBrain, centre de contrôle mobile et passerelles Windows, Web et Android.">
+<title>Verox · Centre de contrôle</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+:root{color-scheme:dark;--bg:#080d18;--panel:#101827;--panel2:#151f31;--line:#263248;--text:#f4f7fb;--muted:#9aa9bd;--blue:#62a0ff;--green:#45d6a0;--amber:#f6c66b;--red:#ff8181}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#12213a 0,var(--bg) 55%);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;padding:env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom))}
+button,input,select{font:inherit}button{cursor:pointer}.app{width:min(100%,760px);margin:auto;padding:16px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px 20px}.brand{display:flex;align-items:center;gap:11px}.logo{width:44px;height:44px;border-radius:15px;display:grid;place-items:center;background:linear-gradient(140deg,#377ef2,#44d9a4);color:#07111d;font-size:20px}.brand h1{font-size:19px;margin:0;letter-spacing:.2px}.brand p{margin:2px 0 0;color:var(--muted);font-size:12px}.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:#111b2b;border-radius:99px;padding:7px 10px;color:var(--muted);font-size:11px;white-space:nowrap}.led{width:7px;height:7px;border-radius:50%;background:var(--amber)}.hero{padding:20px;border:1px solid #2c4261;border-radius:24px;background:linear-gradient(135deg,rgba(48,105,190,.23),rgba(16,24,39,.92) 65%);box-shadow:0 18px 55px #0002}.eyebrow{color:var(--blue);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.4px}.hero h2{font-size:25px;line-height:1.15;margin:8px 0}.hero p{color:var(--muted);margin:0 0 16px;font-size:13px;max-width:540px}.hero-actions{display:flex;gap:9px;flex-wrap:wrap}.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:11px 13px;border-radius:12px;font-weight:650;font-size:12px}.btn.primary{background:var(--blue);border-color:var(--blue);color:#061222}.btn:disabled{opacity:.5;cursor:wait}.section{margin-top:24px}.section-head{display:flex;align-items:end;justify-content:space-between;gap:10px;margin:0 2px 12px}.section-head h3{font-size:16px;margin:0}.section-head p{font-size:11px;color:var(--muted);margin:3px 0 0}.small-action{background:none;border:0;color:var(--blue);font-size:12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{min-width:0;border:1px solid var(--line);border-radius:18px;background:rgba(16,24,39,.92);padding:14px}.card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.app-icon{width:38px;height:38px;border-radius:12px;background:#1a2a43;display:grid;place-items:center;color:var(--blue);font-size:17px}.status{font-size:10px;color:var(--amber);border:1px solid #55472b;border-radius:99px;padding:4px 7px}.status.ok{color:var(--green);border-color:#245c4b}.card h4{margin:12px 0 4px;font-size:14px}.card p{margin:0;color:var(--muted);font-size:11px;min-height:34px}.card-actions{display:flex;gap:7px;margin-top:13px}.card-actions .btn{flex:1;padding:9px 7px;font-size:11px}.notice{border:1px solid #4e432c;background:#211d14;color:#e7d5a5;border-radius:12px;padding:11px 12px;font-size:11px;margin-top:12px}.panel{border:1px solid var(--line);border-radius:18px;background:rgba(16,24,39,.92);padding:14px}.row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #202c40;font-size:12px}.row:last-child{border:0}.row span{color:var(--muted)}.field{width:100%;background:#080e19;border:1px solid var(--line);color:var(--text);border-radius:11px;padding:12px;margin-top:8px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}.chat-log{height:190px;overflow:auto;display:flex;flex-direction:column;gap:9px;margin-bottom:12px}.bubble{max-width:92%;padding:10px 12px;border-radius:13px;background:#172337;border:1px solid var(--line);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.bubble.user{align-self:flex-end;background:#1c4273;border-color:#285c9b}.chat-form{display:flex;gap:8px}.chat-form input{flex:1;min-width:0}.chat-form button{width:44px;border:0;border-radius:12px;background:var(--blue);color:#071222}.bottom-nav{position:fixed;z-index:5;bottom:0;left:0;right:0;padding:9px 8px calc(9px + env(safe-area-inset-bottom));background:#0b1220ee;backdrop-filter:blur(16px);border-top:1px solid var(--line);display:flex;justify-content:center;gap:4px}.bottom-nav button{flex:1;max-width:150px;border:0;background:transparent;color:var(--muted);border-radius:12px;padding:9px 4px;font-size:10px}.bottom-nav i{display:block;font-size:17px;margin-bottom:4px}.bottom-nav button.active{color:var(--blue);background:#16243a}.view{display:none}.view.active{display:block}.status-line{font-size:11px;color:var(--muted);margin-top:8px;overflow-wrap:anywhere}#toast{position:fixed;z-index:9;left:16px;right:16px;bottom:95px;margin:auto;max-width:600px;background:#1a2a40;border:1px solid #355070;border-radius:12px;padding:12px;font-size:12px;display:none}
+@media(min-width:600px){.app{padding:24px}.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{padding:26px}.hero h2{font-size:30px}}
+@media(max-width:360px){.grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.full{grid-column:auto}.pill{font-size:10px}.hero h2{font-size:22px}}
+</style>
 </head>
 <body>
-
-    <!-- 1. TIROIR LATÉRAL DES CONNECTEURS / PLUGS -->
-    <aside>
-        <div class="sidebar-header">
-            <i class="fa-solid fa-plug-circle-bolt"></i>
-            <span>Plug-ins & Connecteurs</span>
-        </div>
-        <div class="menu-list" id="extension-drawer" aria-label="Extensions CognitiveBrain"></div>
-        <form class="extension-manager" id="extension-form">
-            <strong style="font-size:.78rem">Ajouter une extension / un pont</strong>
-            <input name="name" required maxlength="120" placeholder="Nom de l'application">
-            <select name="platform" aria-label="Plateforme">
-                <option value="windows">Windows</option><option value="android">Android</option>
-                <option value="linux">Linux</option><option value="web">Web / service</option>
-            </select>
-            <input name="endpoint" type="url" placeholder="Point d'accès HTTP(S) (facultatif)">
-            <input name="port" type="number" min="1" max="65535" placeholder="Port (facultatif)">
-            <input name="admin_token" type="password" autocomplete="off" required placeholder="Jeton administrateur Verox">
-            <button type="submit">Enregistrer comme non vérifiée</button>
-            <small>Le jeton n'est pas mémorisé. L'enregistrement ne prétend pas que l'application est installée ou connectée.</small>
-            <div id="extension-form-status" aria-live="polite"></div>
-            <div id="registered-apps"></div>
-        </form>
-    </aside>
-
-    <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
-    <section class="preview-section">
-        <div class="preview-header">
-            <h2><i class="fa-solid fa-network-wired" style="color: var(--accent-blue);"></i> Verox — CognitiveBrain</h2>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">Indicateurs mesurés</span>
-        </div>
-        <div class="preview-grid">
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Taux de réussite</span></div><div class="app-metric" id="success-rate">—%</div><div class="donut" id="success-donut" aria-label="Taux de réussite"><span id="success-total">0 tâches</span></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Interactions par activité</span></div><div id="interaction-bars" class="bar-chart"><div class="chart-empty">Les données apparaîtront après les premières exécutions.</div></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Résultats d'exécution</span></div><div id="execution-summary" class="summary-table"><div class="chart-empty">Aucune mesure disponible.</div></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Revenus confirmés</span></div><div class="app-metric" id="confirmed-revenue">Non mesuré</div><div class="app-sub">Seules les recettes réellement enregistrées seront affichées.</div></div>
-        </div>
-    </section>
-
-    <!-- 3. CHAT AVEC LE CERVEAU NEXUS -->
-    <section class="chat-section">
-        <div class="chat-header">
-            <i class="fa-solid fa-brain" style="color: var(--accent-blue);"></i>
-            <span>Discuter avec CognitiveBrain</span>
-            <span class="provider-status" id="provider-status" aria-live="polite">Vérification des moteurs PocketPal / LM Studio…</span>
-        </div>
-
-        <div class="chat-messages" id="chat-box">
-            <div class="message nexus">CognitiveBrain traite les tâches autorisées, utilise les connecteurs disponibles et mesure les résultats vérifiables.</div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="user-input" placeholder="Donne une tâche à CognitiveBrain…" onkeypress="handleKey(event)">
-            <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
-    </section>
-
-    <script>
-        async function loadRegisteredApps() {
-            const node = document.getElementById("registered-apps");
-            try {
-                const response = await fetch("/api/apps", {cache:"no-store"});
-                if (!response.ok) return;
-                const data = await response.json();
-                const apps = data.apps || [];
-                node.replaceChildren();
-                if (!apps.length) return;
-                const title = document.createElement("div");
-                title.className = "menu-category"; title.textContent = "Applications enregistrées";
-                node.appendChild(title);
-                apps.forEach(app => {
-                    const row = document.createElement("div"); row.className = "registered-app";
-                    const meta = app.metadata || {};
-                    row.textContent = app.name + " — " + (meta.platform || "plateforme inconnue") +
-                        " — " + (app.connection_status || "non vérifiée");
-                    node.appendChild(row);
-                });
-            } catch (_) {}
-        }
-        document.getElementById("extension-form").addEventListener("submit", async event => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const status = document.getElementById("extension-form-status");
-            const tokenField = form.elements.admin_token;
-            const token = tokenField.value;
-            const payload = {
-                name: form.elements.name.value.trim(),
-                platform: form.elements.platform.value,
-                endpoint: form.elements.endpoint.value.trim(),
-                port: form.elements.port.value ? Number(form.elements.port.value) : null
-            };
-            status.textContent = "Enregistrement…";
-            try {
-                const response = await fetch("/api/extensions/register", {
-                    method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer " + token},
-                    body:JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || "Enregistrement refusé");
-                status.textContent = data.message || "Extension enregistrée; connexion non vérifiée.";
-                form.elements.name.value = ""; form.elements.endpoint.value = ""; form.elements.port.value = "";
-                await loadRegisteredApps();
-            } catch (error) {
-                status.textContent = "Échec : " + error.message;
-            } finally {
-                tokenField.value = "";
-            }
-        });
-        async function loadExtensions() {
-            const drawer = document.getElementById("extension-drawer");
-            try {
-                const response = await fetch("/api/extensions", {cache:"no-store"});
-                if (!response.ok) throw new Error("Catalogue indisponible");
-                const catalog = await response.json();
-                const groups = new Map();
-                (catalog.items || []).forEach(item => {
-                    const group = item.group || "Autres extensions";
-                    if (!groups.has(group)) groups.set(group, []);
-                    groups.get(group).push(item);
-                });
-                drawer.replaceChildren();
-                groups.forEach((items, groupName) => {
-                    const heading = document.createElement("div");
-                    heading.className = "menu-category";
-                    heading.textContent = groupName;
-                    drawer.appendChild(heading);
-                    items.forEach(item => {
-                        const row = document.createElement("div");
-                        row.className = "menu-item";
-                        const icon = document.createElement("i");
-                        icon.className = item.icon || "fa-solid fa-puzzle-piece";
-                        const label = document.createElement("span");
-                        label.textContent = item.label;
-                        row.append(icon, label);
-                        row.title = item.protocol || item.category || "";
-                        drawer.appendChild(row);
-                    });
-                });
-            } catch (_) {
-                drawer.replaceChildren();
-                const row = document.createElement("div");
-                row.className = "chart-empty";
-                row.textContent = "Le catalogue des extensions n'est pas disponible.";
-                drawer.appendChild(row);
-            }
-        }
-
-        function addMessage(kind, text) {
-            const box = document.getElementById("chat-box");
-            const node = document.createElement("div");
-            node.className = "message " + kind;
-            node.innerText = text;
-            box.appendChild(node);
-            box.scrollTop = box.scrollHeight;
-            return node;
-        }
-        async function watchCommand(commandId, messageNode) {
-            const started = Date.now();
-            while (Date.now() - started < 180000) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                try {
-                    const response = await fetch("/api/tasks/" + encodeURIComponent(commandId), {cache: "no-store"});
-                    const row = await response.json();
-                    if (!response.ok) throw new Error(row.error || "État de tâche indisponible");
-                    if (row.status === "succeeded") {
-                        const result = row.result || {};
-                        const evidence = Array.isArray(result.evidence) ? result.evidence : [];
-                        const answer = result.answer || result.summary || "";
-                        messageNode.innerText = answer + (evidence.length ? (answer ? "\n\n" : "") + evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\n" + (item.evidence || "")).join("\n\n") : (answer ? "" : "Tâche terminée, aucun résultat exploitable."));
-                        refreshMetrics(); return;
-                    }
-                    if (row.status === "failed") { messageNode.innerText = row.error || (row.result && row.result.error) || "Échec d’exécution du cerveau."; refreshMetrics(); return; }
-                    messageNode.innerText = row.status === "running" ? "Traitement de la tâche…" : "Tâche en file d'exécution…";
-                } catch (error) { messageNode.innerText = "Suivi impossible : " + error.message; return; }
-            }
-            messageNode.innerText = "Délai de suivi dépassé. La tâche reste enregistrée dans la file du cerveau.";
-        }
-        async function sendMessage() {
-            const input = document.getElementById("user-input");
-            const query = input.value.trim();
-            if (!query) return;
-            input.value = "";
-            addMessage("user", query);
-            const resultNode = addMessage("nexus", "Transmission de la tâche à CognitiveBrain…");
-            try {
-                const response = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});
-                const task = await response.json();
-                if (!response.ok) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
-                if (task.answer) {
-                    resultNode.innerText = task.answer;
-                    return;
-                }
-                if (!task.id) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
-                await watchCommand(task.id, resultNode);
-            } catch (error) { resultNode.innerText = "Transmission impossible : " + error.message; }
-        }
-        function handleKey(event) { if (event.key === "Enter") sendMessage(); }
-        function renderMetrics(data) {
-            const tasks = data.tasks || {};
-            const total = Number(tasks.total || 0), succeeded = Number(tasks.succeeded || 0), failed = Number(tasks.failed || 0);
-            const rate = total ? Math.round(succeeded * 100 / total) : 0;
-            document.getElementById("success-rate").innerText = total ? rate + "%" : "—%";
-            document.getElementById("success-total").innerText = total + " tâches";
-            document.getElementById("success-donut").style.background = "conic-gradient(var(--accent-green) " + rate + "%, var(--border-color) " + rate + "% 100%)";
-            const bars = document.getElementById("interaction-bars"), types = Object.entries(data.by_task_type || {}).sort((a,b)=>b[1]-a[1]).slice(0,8);
-            bars.innerHTML = "";
-            if (!types.length) bars.innerHTML = '<div class="chart-empty">Les données apparaîtront après les premières exécutions.</div>';
-            else {
-                const max = Math.max(1, ...types.map(x => Number(x[1])));
-                types.forEach(([name,value]) => {
-                    const row=document.createElement("div"); row.className="bar-row";
-                    const label=document.createElement("span"); label.className="bar-label"; label.textContent=name;
-                    const track=document.createElement("div"); track.className="bar-track";
-                    const fill=document.createElement("div"); fill.className="bar-fill"; fill.style.width=Math.max(2,Number(value)*100/max)+"%";
-                    track.appendChild(fill);
-                    const count=document.createElement("span"); count.className="bar-value"; count.textContent=String(value);
-                    row.append(label,track,count); bars.appendChild(row);
-                });
-            }
-            const summary=document.getElementById("execution-summary"); summary.innerHTML="";
-            [["Total",total],["Réussies",succeeded],["Échouées",failed],["En attente / en cours",Number(tasks.pending||0)+Number(tasks.running||0)]].forEach(([label,value])=>{
-                const row=document.createElement("div");row.className="summary-row";
-                const name=document.createElement("span");name.textContent=label;
-                const count=document.createElement("strong");count.textContent=String(value);
-                row.append(name,count);summary.appendChild(row);
-            });
-            document.getElementById("confirmed-revenue").innerText = data.confirmed_revenue == null ? "Non mesuré" : new Intl.NumberFormat("fr-FR",{style:"currency",currency:data.currency||"EUR"}).format(data.confirmed_revenue);
-        }
-        async function refreshMetrics() {
-            try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
-        }
-        async function refreshProviders() {
-            const node = document.getElementById("provider-status");
-            try {
-                const response = await fetch("/api/providers", {cache:"no-store"});
-                const data = await response.json();
-                if (!response.ok) throw new Error("Sonde indisponible");
-                const providers = data.providers || [];
-                if (!providers.length) { node.textContent = "Aucun moteur configuré."; return; }
-                node.textContent = providers.map(p => {
-                    const name = p.provider === "lmstudio" ? "LM Studio" : p.provider === "pocketpal" ? "PocketPal" : p.provider;
-                    if (p.reachable === true && p.models_available) return name + ": connecté (" + (p.model_count || 0) + " modèle(s))";
-                    if (p.reachable === true) return name + ": API joignable, aucun modèle publié";
-                    if (p.provider === "gemini" && p.configured) return name + ": clé configurée, réseau non testé";
-                    return name + (p.configured ? ": configuré mais inaccessible" : ": non configuré");
-                }).join(" · ");
-            } catch (_) { node.textContent = "État des moteurs indisponible."; }
-        }
-        loadExtensions();
-        loadRegisteredApps();
-        refreshMetrics(); setInterval(refreshMetrics,15000);
-        refreshProviders(); setInterval(refreshProviders,30000);
-    </script>
+<main class="app">
+<header class="top"><div class="brand"><div class="logo"><i class="fa-solid fa-brain"></i></div><div><h1>VEROX</h1><p>CognitiveBrain · console mobile</p></div></div><div class="pill"><span class="led" id="server-led"></span><span id="server-state">Serveur à vérifier</span></div></header>
+<section class="hero">
+<div class="eyebrow">Votre centre de contrôle</div><h2>Un cerveau. Trois passerelles.</h2>
+<p>Depuis Android, pilotez les connecteurs Windows et les services Web. Les téléchargements proposés ici sont des configurations/ponts de démarrage, pas des applications tierces complètes.</p>
+<div class="hero-actions"><button class="btn primary" data-go="bridges"><i class="fa-solid fa-plug"></i> Gérer les ponts</button><button class="btn" id="refresh-btn"><i class="fa-solid fa-rotate"></i> Actualiser l'état</button></div>
+</section>
+<section class="section"><div class="section-head"><div><h3>État du cerveau</h3><p>État obtenu depuis l'API Verox, sans statut simulé.</p></div></div><div class="panel"><div class="row"><span>API CognitiveBrain</span><strong id="api-state">Vérification…</strong></div><div class="row"><span>Moteurs de raisonnement</span><strong id="provider-state">Vérification…</strong></div><div class="row"><span>Extensions enregistrées</span><strong id="app-count">—</strong></div><div class="row"><span>Stockage persistant</span><strong id="storage-state">Via backend</strong></div></div></section>
+<section class="view active section" id="view-home"><div class="section-head"><div><h3>Passerelles disponibles</h3><p>Choisissez une plateforme pour préparer son connecteur.</p></div></div><div class="grid" id="home-bridges"></div></section>
+<section class="view section" id="view-bridges"><div class="section-head"><div><h3>Gestion des passerelles</h3><p>Enregistrer, télécharger et vérifier séparément.</p></div></div><div class="grid" id="bridge-grid"></div>
+<div class="notice"><strong>Limite technique importante :</strong> Render ne peut pas commander directement les applications installées sur votre PC ou votre téléphone. Un pont Windows doit tourner sur le PC pour atteindre ses applications locales. Les services Web accessibles par API peuvent, eux, être connectés depuis le serveur.</div>
+<div class="section-head" style="margin-top:20px"><div><h3>Enregistrer un connecteur</h3><p>Le jeton est envoyé uniquement à l'API et effacé du formulaire après l'appel.</p></div></div>
+<form class="panel" id="extension-form"><div class="form-grid">
+<input class="field full" name="name" required maxlength="120" placeholder="Nom de l'application / du service">
+<select class="field" name="platform"><option value="windows">Windows (PC)</option><option value="web">Web / API</option><option value="android">Android (interface)</option><option value="linux">Linux</option></select>
+<input class="field" name="port" type="number" min="1" max="65535" placeholder="Port (facultatif)">
+<input class="field full" name="endpoint" type="url" placeholder="Endpoint HTTPS/API (facultatif)">
+<input class="field full" name="admin_token" type="password" autocomplete="off" required placeholder="Jeton administrateur Verox">
+<button class="btn primary full" type="submit">Enregistrer comme non vérifié</button></div><div class="status-line" id="form-status" aria-live="polite"></div></form>
+<div class="section-head" style="margin-top:20px"><div><h3>Applications enregistrées</h3><p>Inscription ≠ connexion vérifiée.</p></div><button class="small-action" id="reload-apps">Actualiser</button></div><div class="panel" id="registered-apps"><div class="status-line">Chargement…</div></div>
+</section>
+<section class="view section" id="view-brain"><div class="section-head"><div><h3>Parler à CognitiveBrain</h3><p>Les demandes sont transmises au backend Verox.</p></div></div><div class="panel"><div class="chat-log" id="chat-log"><div class="bubble">Je suis prêt à recevoir une tâche. Les actions non prises en charge doivent rester signalées comme telles.</div></div><form class="chat-form" id="chat-form"><input class="field" id="chat-input" placeholder="Décrire une tâche…" autocomplete="off" required><button aria-label="Envoyer"><i class="fa-solid fa-arrow-up"></i></button></form><div class="status-line" id="chat-status"></div></div></section>
+<section class="view section" id="view-settings"><div class="section-head"><div><h3>Imports & SDK</h3><p>Les clés privées ne doivent jamais être placées dans ce HTML.</p></div></div><div class="panel"><div class="row"><span>API Verox</span><strong>fetch() · JSON</strong></div><div class="row"><span>Supabase JS SDK</span><strong id="supabase-sdk-state">SDK prêt, config à vérifier</strong></div><div class="row"><span>PWA Android</span><strong id="pwa-state">Vérification…</strong></div><p class="status-line">Le stockage et les secrets restent côté serveur. Le navigateur n'utilise jamais la clé service_role Supabase.</p><button class="btn" id="download-manifest" style="margin-top:12px">Télécharger le manifeste des ponts</button></div></section>
+</main>
+<nav class="bottom-nav" aria-label="Navigation principale"><button class="active" data-view="home"><i class="fa-solid fa-house"></i>Accueil</button><button data-view="bridges"><i class="fa-solid fa-plug"></i>Passerelles</button><button data-view="brain"><i class="fa-solid fa-comments"></i>CognitiveBrain</button><button data-view="settings"><i class="fa-solid fa-sliders"></i>Configuration</button></nav><div id="toast" role="status" aria-live="polite"></div>
+<script type="module">
+/* Supabase JS SDK importé comme demandé. La connexion directe reste désactivée sans configuration publique explicite. */
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const $ = id => document.getElementById(id);
+const API = "";
+const bridgeDefinitions = [
+ {id:"windows",name:"Pont Windows",platform:"windows",icon:"fa-brands fa-windows",desc:"Connecteur de démarrage pour le PC Windows.",detail:"Nécessite un agent exécuté sur le PC pour accéder aux applications locales."},
+ {id:"web",name:"Pont Web / API",platform:"web",icon:"fa-solid fa-globe",desc:"Configuration pour un service Web accessible par HTTPS.",detail:"N'utilise que les API autorisées et les endpoints configurés."},
+ {id:"android",name:"Interface Android",platform:"android",icon:"fa-brands fa-android",desc:"Manifeste PWA pour ouvrir Verox depuis l'écran d'accueil.",detail:"Cette page est l'interface Android; elle ne contrôle pas les autres applications du téléphone."}
+];
+let supabase = null;
+function toast(message){const n=$("toast");n.textContent=message;n.style.display="block";clearTimeout(toast.timer);toast.timer=setTimeout(()=>n.style.display="none",4200)}
+function safeText(value){return String(value??"")}
+function download(name,content,type="application/json"){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+function connectorPackage(def){return {schema_version:"1.0",product:"Verox CognitiveBrain",connector_id:def.id,platform:def.platform,created_at:new Date().toISOString(),status:"template_not_connected",server_base_url:location.origin,api_contract:{register:"POST /api/extensions/register",catalog:"GET /api/extensions",applications:"GET /api/apps",chat:"POST /api/chat"},security:{secrets_in_browser:false,require_tls:true,require_authentication:true,least_privilege:true},instructions:def.detail,notes:["Ce fichier est un manifeste de configuration, pas l'application tierce complète.","Une connexion ne sera affichée comme active qu'après une vérification protocolaire réelle."]}}
+function bridgeCard(def){const card=document.createElement("article");card.className="card";const top=document.createElement("div");top.className="card-top";const icon=document.createElement("div");icon.className="app-icon";const i=document.createElement("i");i.className=def.icon;icon.append(i);const status=document.createElement("span");status.className="status";status.textContent="Non vérifié";top.append(icon,status);const title=document.createElement("h4");title.textContent=def.name;const desc=document.createElement("p");desc.textContent=def.desc;const actions=document.createElement("div");actions.className="card-actions";const dl=document.createElement("button");dl.className="btn";dl.textContent="Télécharger";dl.addEventListener("click",()=>{download("verox-"+def.id+"-connector.json",JSON.stringify(connectorPackage(def),null,2));toast("Manifeste du pont "+def.name+" téléchargé.")});const add=document.createElement("button");add.className="btn primary";add.textContent="Configurer";add.addEventListener("click",()=>{showView("bridges");$("extension-form").elements.name.value=def.name;$("extension-form").elements.platform.value=def.platform;$("extension-form").elements.endpoint.focus()});actions.append(dl,add);card.append(top,title,desc,actions);return card}
+function renderBridges(){for(const id of ["home-bridges","bridge-grid"]){const root=$(id);root.replaceChildren();bridgeDefinitions.forEach(d=>root.appendChild(bridgeCard(d)))}}
+function showView(name){document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active",v.id==="view-"+name));document.querySelectorAll(".bottom-nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===name));window.scrollTo({top:0,behavior:"smooth"})}
+document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
+document.querySelectorAll("[data-go]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.go)));
+async function api(path,options={}){const response=await fetch(API+path,{cache:"no-store",...options});let data={};try{data=await response.json()}catch{}if(!response.ok)throw new Error(data.error||("HTTP "+response.status));return data}
+async function refreshHealth(){try{await api("/api/apps");$("api-state").textContent="Accessible";$("server-state").textContent="API accessible";$("server-led").style.background="var(--green)"}catch(e){$("api-state").textContent="Indisponible";$("server-state").textContent="API non vérifiée";$("server-led").style.background="var(--red)"}try{const d=await api("/api/providers");const p=d.providers||[];const online=p.filter(x=>x.reachable===true&&x.models_available).length;$("provider-state").textContent=online?online+" moteur(s) joignable(s)":"Aucun moteur confirmé"}catch{$("provider-state").textContent="État indisponible"}}
+async function loadApps(){const root=$("registered-apps");try{const d=await api("/api/apps");const apps=d.apps||[];$("app-count").textContent=String(apps.length);root.replaceChildren();if(!apps.length){root.textContent="Aucune application enregistrée.";return}apps.forEach(app=>{const row=document.createElement("div");row.className="row";const name=document.createElement("strong");name.textContent=safeText(app.name);const state=document.createElement("span");state.textContent=safeText(app.connection_status||"non vérifiée");row.append(name,state);root.append(row)})}catch(e){root.textContent="Impossible de lire les applications : "+e.message}}
+$("extension-form").addEventListener("submit",async e=>{e.preventDefault();const f=e.currentTarget,token=f.elements.admin_token.value;const status=$("form-status");status.textContent="Enregistrement…";try{const payload={name:f.elements.name.value.trim(),platform:f.elements.platform.value,endpoint:f.elements.endpoint.value.trim(),port:f.elements.port.value?Number(f.elements.port.value):null};const result=await api("/api/extensions/register",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify(payload)});status.textContent=result.message||"Enregistré comme non vérifié.";f.elements.name.value="";f.elements.endpoint.value="";f.elements.port.value="";await loadApps();toast("Extension enregistrée; connexion toujours non vérifiée.")}catch(err){status.textContent="Échec : "+err.message}finally{f.elements.admin_token.value=""}});
+$("reload-apps").addEventListener("click",loadApps);$("refresh-btn").addEventListener("click",()=>{refreshHealth();loadApps();toast("Actualisation demandée.")});
+function appendBubble(kind,text){const node=document.createElement("div");node.className="bubble "+kind;node.textContent=text;$("chat-log").append(node);$("chat-log").scrollTop=$("chat-log").scrollHeight;return node}
+$("chat-form").addEventListener("submit",async e=>{e.preventDefault();const input=$("chat-input"),query=input.value.trim();if(!query)return;input.value="";appendBubble("user",query);const answer=appendBubble("","Transmission à CognitiveBrain…");$("chat-status").textContent="";try{const task=await api("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});if(task.answer){answer.textContent=task.answer;return}if(!task.id)throw new Error("Le backend n'a renvoyé ni réponse ni identifiant de tâche.");answer.textContent="Tâche acceptée. Identifiant : "+task.id+" — suivi disponible via le backend."; }catch(err){answer.textContent="Transmission impossible : "+err.message}});
+$("download-manifest").addEventListener("click",()=>download("verox-connectors-manifest.json",JSON.stringify({schema_version:"1.0",product:"Verox CognitiveBrain",generated_at:new Date().toISOString(),connectors:bridgeDefinitions.map(connectorPackage)},null,2)));
+/* Le SDK est importé mais aucune connexion directe n'est ouverte sans URL + clé anon publique fournie par le backend. */
+try{const cfg=window.VEROX_PUBLIC_CONFIG;if(cfg?.supabaseUrl&&cfg?.supabaseAnonKey){supabase=createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);$("supabase-sdk-state").textContent="Configuré (clé publique)"}else{$("supabase-sdk-state").textContent="Importé; config publique absente"}}catch{$("supabase-sdk-state").textContent="SDK non initialisé"}
+if("serviceWorker" in navigator){navigator.serviceWorker.register("/service-worker.js").then(()=>$("pwa-state").textContent="Service worker enregistré").catch(()=>$("pwa-state").textContent="Service worker indisponible")}else{$("pwa-state").textContent="Non pris en charge"}
+renderBridges();refreshHealth();loadApps();
+</script>
 </body>
 </html>
