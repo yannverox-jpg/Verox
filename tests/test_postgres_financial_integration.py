@@ -199,7 +199,7 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
             conn.execute(
                 """INSERT INTO public.verox_event_outbox
                    (event_type, aggregate_id, idempotency_key, payload)
-                   VALUES ('test.collision', %s, %s, '{}'::jsonb)""",
+                   VALUES ('test.collision', %s::uuid, %s, '{}'::jsonb)""",
                 (str(uuid.uuid4()), "order-reserved:" + params["p_event_id"]),
             )
         with self.assertRaises(psycopg.Error):
