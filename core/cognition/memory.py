@@ -6,15 +6,29 @@ this module does not invent embeddings or silently claim semantic search.
 """
 from __future__ import annotations
 
+import math
 import os
-from typing import Any, Mapping
+from typing import Any
 import httpx
 
 from .evidence import EvidenceItem
 
+EMBEDDING_DIMENSIONS = 768
+
 
 class MemoryConfigurationError(RuntimeError):
     pass
+
+
+def _validate_embedding(embedding: list[float] | None) -> None:
+    """Reject malformed vectors before PostgREST/Postgres receives the request."""
+    if embedding is None:
+        return
+    if not isinstance(embedding, list) or len(embedding) != EMBEDDING_DIMENSIONS:
+        raise ValueError(f"Embedding must be a list of exactly {EMBEDDING_DIMENSIONS} numbers.")
+    for value in embedding:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError("Embedding values must be finite numbers.")
 
 
 class SupabaseExperienceMemory:
@@ -36,6 +50,7 @@ class SupabaseExperienceMemory:
         }
 
     async def store(self, item: EvidenceItem, *, tags: list[str] | None = None) -> dict[str, Any]:
+        _validate_embedding(item.embedding)
         payload = {
             "source_url": item.source_url,
             "source_domain": item.source_domain,
@@ -50,6 +65,7 @@ class SupabaseExperienceMemory:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.url}/rest/v1/verox_experiences",
+                params={"on_conflict": "content_hash"},
                 json=payload,
                 headers={**self.headers, "Prefer": "resolution=merge-duplicates,return=representation"},
             )
@@ -61,6 +77,7 @@ class SupabaseExperienceMemory:
                      embedding: list[float] | None = None) -> list[dict[str, Any]]:
         """Use vector RPC when an embedding and RPC are configured; otherwise lexical fallback."""
         safe_limit = max(1, min(int(limit), 20))
+        _validate_embedding(embedding)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             if embedding is not None:
                 rpc_name = os.getenv("VEROX_MEMORY_SEARCH_RPC", "match_verox_experiences")
