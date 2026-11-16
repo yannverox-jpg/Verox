@@ -138,6 +138,8 @@ class CognitiveGateway:
             raise ValueError("L'historique est limité aux 20 derniers messages.")
         cleaned: list[dict[str, str]] = []
         for item in history:
+            if not isinstance(item, dict):
+                raise ValueError("Historique invalide : chaque message doit être un objet.")
             role = item.get("role")
             content = item.get("content", "")
             if role not in {"user", "assistant"} or not isinstance(content, str) or len(content) > 12_000:
