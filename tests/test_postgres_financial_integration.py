@@ -66,7 +66,7 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
             conn.execute(
                 """INSERT INTO public.verox_treasury_accounts
                    (id, currency, available_balance, reserved_balance, status)
-                   VALUES (%s, 'USD', %s, 0, 'active')""",
+                   VALUES (%s::uuid, 'USD', %s, 0, 'active')""",
                 (account_id, balance),
             )
         return account_id
