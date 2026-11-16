@@ -1,6 +1,6 @@
 # Verox reservation lifecycle: state machine and invariants
 
-Status: design contract only. This document does not enable provider execution and does not alter any database or Supabase project.
+Status: lifecycle implementation added in migration `202611160004_verox_reservation_lifecycle.sql`; PostgreSQL CI verification pending. The migration does not enable provider execution and has not been applied to any Supabase project.
 
 ## 1. Separate order execution from reservation accounting
 
@@ -35,9 +35,9 @@ No direct transition from `captured` to `released`, or from `released` to `captu
 - A timeout after submission is ambiguous. Do not blindly resubmit and do not release funds until the provider can be queried or reconciliation establishes a safe outcome.
 - Outbox `published` means the consumer acknowledged an event only. It never advances order or reservation state by itself.
 
-## 4. Atomic RPC contract for the implementation phase
+## 4. Atomic RPC implementation
 
-Each future transition should be a narrowly scoped server-side RPC and run in one PostgreSQL transaction:
+The current implementation exposes `public.transition_verox_reservation(order_id, command, idempotency_key, evidence)` as a narrowly scoped server-side RPC. Each call runs in one PostgreSQL transaction:
 
 1. Lock the treasury account row and order row in a consistent, documented order to serialize all balance/state changes.
 2. Validate the current state and account/order/currency relationship.
@@ -76,8 +76,8 @@ Use a dedicated transition-command idempotency record or an equivalent constrain
 ## 7. Safe implementation sequence
 
 1. Review existing status constraints and privileges against this contract.
-2. Add a new migration with `reservation_status`, lifecycle command idempotency, and explicit audit/evidence fields; preserve the existing canonical tables.
-3. Implement capture/release/reconciliation RPCs without a live provider adapter.
-4. Add the integration tests above to the disposable PostgreSQL CI job.
-5. Review the SQL and test evidence; keep the PR in draft until all checks pass.
+2. [Implemented] Add `reservation_status`, a command idempotency table, bounded evidence fields, and an append-only ledger guard.
+3. [Implemented; CI pending] Add atomic release/capture/reconciliation transitions without a live provider adapter.
+4. [Implemented; CI pending] Add PostgreSQL integration coverage for lifecycle transitions, races, evidence gates, idempotency, and rollback.
+5. Verify the SQL and actual PostgreSQL CI results; keep the PR in draft until all checks pass.
 6. Only later, design a separately gated provider adapter and operational reconciliation process. No live financial execution is authorized by this document.
