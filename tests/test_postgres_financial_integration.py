@@ -234,7 +234,7 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
                 (order_id,),
             ).fetchone()
             outbox = conn.execute(
-                "SELECT count(*) AS n FROM public.verox_event_outbox WHERE aggregate_id=%s::uuid AND idempotency_key LIKE 'reservation:%'",
+                "SELECT count(*) AS n FROM public.verox_event_outbox WHERE aggregate_id=%s::uuid AND idempotency_key LIKE 'reservation:%%'",
                 (order_id,),
             ).fetchone()
             return {**account, **order, **counts, "lifecycle_outbox": outbox["n"]}
