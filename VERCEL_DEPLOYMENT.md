@@ -5,7 +5,7 @@
 - `index.py` is the recognized FastAPI entrypoint.
 - `POST /api/chat` streams Server-Sent Events through FastAPI `StreamingResponse`.
 - User messages are committed before model generation; assistant responses and interrupted/failed partial responses are persisted in PostgreSQL.
-- Conversation history and active global memory facts are reloaded from LordVerox on every request. No process memory is treated as durable.
+- Conversation history and active global memory facts are reloaded from LordVerox on every request. The agent can search memory and save a stable fact only when the user explicitly asks it to remember. No process memory is treated as durable.
 - `vercel.json` sets a 60-second maximum duration. This is a ceiling, not a guarantee; streaming improves time-to-first-byte but does not remove the function deadline.
 - The long-running worker and Playwright profile workflow in `main.py` is not imported or started by the Vercel entrypoint. It needs a separate durable worker before those tools can be offered through this API.
 
