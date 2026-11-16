@@ -83,9 +83,13 @@ alter table public.verox_event_outbox enable row level security;
 
 revoke all on public.verox_treasury_accounts, public.verox_orders,
   public.verox_treasury_ledger, public.verox_event_outbox from public, anon, authenticated;
-grant select, insert, update, delete on public.verox_treasury_accounts,
-  public.verox_orders, public.verox_treasury_ledger, public.verox_event_outbox to service_role;
-grant usage, select on all sequences in schema public to service_role;
+-- The service role can read through the API, but mutations go through narrowly scoped RPCs.
+-- This prevents accidental direct balance/ledger/order edits from bypassing invariants.
+revoke insert, update, delete, truncate, references, trigger on
+  public.verox_treasury_accounts, public.verox_orders,
+  public.verox_treasury_ledger, public.verox_event_outbox from service_role;
+grant select on public.verox_treasury_accounts, public.verox_orders,
+  public.verox_treasury_ledger, public.verox_event_outbox to service_role;
 
 -- Reserve funds and persist the order + ledger entry + outbox event in one transaction.
 -- Repeating the same key and same request returns the original order. Reusing a key
@@ -252,4 +256,164 @@ $function$;
 revoke all on function public.reserve_validated_order(uuid, text, numeric, text, text, text, text, jsonb)
   from public, anon, authenticated;
 grant execute on function public.reserve_validated_order(uuid, text, numeric, text, text, text, text, jsonb)
+  to service_role;
+
+
+-- Lease outbox events with SKIP LOCKED. Delivery is at-least-once: consumers must
+-- deduplicate by idempotency_key. A stale processing lease can be reclaimed safely.
+create or replace function public.claim_verox_outbox(
+  p_worker_id text,
+  p_batch_size integer default 10,
+  p_max_attempts integer default 10,
+  p_lease_seconds integer default 300
+)
+returns table (
+  event_id bigint,
+  event_type text,
+  aggregate_id uuid,
+  idempotency_key text,
+  payload jsonb,
+  attempts integer,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if p_worker_id is null or pg_catalog.length(pg_catalog.btrim(p_worker_id)) not between 1 and 120 then
+    raise exception using errcode = '22023', message = 'worker_id is required and bounded';
+  end if;
+  if p_batch_size is null or p_batch_size not between 1 and 100 then
+    raise exception using errcode = '22023', message = 'batch_size must be between 1 and 100';
+  end if;
+  if p_max_attempts is null or p_max_attempts not between 1 and 100 then
+    raise exception using errcode = '22023', message = 'max_attempts must be between 1 and 100';
+  end if;
+  if p_lease_seconds is null or p_lease_seconds not between 30 and 3600 then
+    raise exception using errcode = '22023', message = 'lease_seconds must be between 30 and 3600';
+  end if;
+
+  update public.verox_event_outbox o
+    set status = 'dead', locked_at = null, locked_by = null,
+        last_error = coalesce(o.last_error, 'Maximum delivery attempts reached'),
+        updated_at = pg_catalog.now()
+    where o.attempts >= p_max_attempts
+      and (o.status = 'pending'
+        or (o.status = 'processing'
+          and o.locked_at < pg_catalog.now() - pg_catalog.make_interval(secs => p_lease_seconds)));
+
+  return query
+  with candidates as (
+    select o.id
+      from public.verox_event_outbox o
+      where o.attempts < p_max_attempts
+        and o.available_at <= pg_catalog.now()
+        and (o.status = 'pending'
+          or (o.status = 'processing'
+            and o.locked_at < pg_catalog.now() - pg_catalog.make_interval(secs => p_lease_seconds)))
+      order by o.available_at, o.id
+      for update skip locked
+      limit p_batch_size
+  ),
+  claimed as (
+    update public.verox_event_outbox o
+      set status = 'processing',
+          attempts = o.attempts + 1,
+          locked_at = pg_catalog.now(),
+          locked_by = pg_catalog.btrim(p_worker_id),
+          updated_at = pg_catalog.now()
+      from candidates c
+      where o.id = c.id
+      returning o.id, o.event_type, o.aggregate_id, o.idempotency_key,
+                o.payload, o.attempts, o.created_at
+  )
+  select c.id, c.event_type, c.aggregate_id, c.idempotency_key,
+         c.payload, c.attempts, c.created_at
+    from claimed c
+    order by c.created_at, c.id;
+end;
+$function$;
+
+create or replace function public.ack_verox_outbox(
+  p_event_id bigint,
+  p_worker_id text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_updated integer;
+begin
+  if p_event_id is null or p_worker_id is null or pg_catalog.length(pg_catalog.btrim(p_worker_id)) not between 1 and 120 then
+    raise exception using errcode = '22023', message = 'event_id and worker_id are required';
+  end if;
+  update public.verox_event_outbox
+    set status = 'published', published_at = pg_catalog.now(),
+        locked_at = null, locked_by = null, last_error = null,
+        updated_at = pg_catalog.now()
+    where id = p_event_id and status = 'processing'
+      and locked_by = pg_catalog.btrim(p_worker_id);
+  get diagnostics v_updated = row_count;
+  return v_updated = 1;
+end;
+$function$;
+
+create or replace function public.fail_verox_outbox(
+  p_event_id bigint,
+  p_worker_id text,
+  p_error text,
+  p_retry_after_seconds integer default 30,
+  p_max_attempts integer default 10
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_status text;
+begin
+  if p_event_id is null or p_worker_id is null or pg_catalog.length(pg_catalog.btrim(p_worker_id)) not between 1 and 120 then
+    raise exception using errcode = '22023', message = 'event_id and worker_id are required';
+  end if;
+  if p_retry_after_seconds is null or p_retry_after_seconds not between 1 and 86400 then
+    raise exception using errcode = '22023', message = 'retry_after_seconds must be between 1 and 86400';
+  end if;
+  if p_max_attempts is null or p_max_attempts not between 1 and 100 then
+    raise exception using errcode = '22023', message = 'max_attempts must be between 1 and 100';
+  end if;
+
+  update public.verox_event_outbox
+    set status = case when attempts >= p_max_attempts then 'dead' else 'pending' end,
+        available_at = case when attempts >= p_max_attempts then available_at
+                            else pg_catalog.now() + pg_catalog.make_interval(secs => p_retry_after_seconds) end,
+        locked_at = null, locked_by = null,
+        last_error = pg_catalog.left(coalesce(p_error, 'unspecified delivery failure'), 2000),
+        updated_at = pg_catalog.now()
+    where id = p_event_id and status = 'processing'
+      and locked_by = pg_catalog.btrim(p_worker_id)
+    returning status into v_status;
+  return v_status;
+end;
+$function$;
+
+revoke all on function public.reserve_validated_order(uuid, text, numeric, text, text, text, text, jsonb)
+  from public, anon, authenticated;
+revoke all on function public.claim_verox_outbox(text, integer, integer, integer)
+  from public, anon, authenticated;
+revoke all on function public.ack_verox_outbox(bigint, text)
+  from public, anon, authenticated;
+revoke all on function public.fail_verox_outbox(bigint, text, text, integer, integer)
+  from public, anon, authenticated;
+
+grant execute on function public.reserve_validated_order(uuid, text, numeric, text, text, text, text, jsonb)
+  to service_role;
+grant execute on function public.claim_verox_outbox(text, integer, integer, integer)
+  to service_role;
+grant execute on function public.ack_verox_outbox(bigint, text)
+  to service_role;
+grant execute on function public.fail_verox_outbox(bigint, text, text, integer, integer)
   to service_role;
