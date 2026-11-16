@@ -134,8 +134,8 @@ begin
     where o.event_id = v_event_id;
   if found then
     if v_existing.request_hash <> v_request_hash
-       or v_existing.source <> v_source
-       or v_existing.external_reference <> v_external_reference then
+       or v_existing.source is distinct from v_source
+       or v_existing.external_reference is distinct from v_external_reference then
       raise exception using errcode = '22023',
         message = 'event_id already exists with a different request or external identity';
     end if;
@@ -153,7 +153,7 @@ begin
     from public.verox_orders o
     where o.source = v_source and o.external_reference = v_external_reference;
   if found then
-    if v_existing.request_hash <> v_request_hash or v_existing.event_id <> v_event_id then
+    if v_existing.request_hash <> v_request_hash or v_existing.event_id is distinct from v_event_id then
       raise exception using errcode = '22023',
         message = 'source/external_reference already exists with a different event or request';
     end if;
