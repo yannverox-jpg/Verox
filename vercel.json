@@ -9,6 +9,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://verox-juqt.onrender.com/api/:path*"
+    },
+    {
       "source": "/",
       "destination": "/nexus_dashboard.html"
     }
