@@ -131,14 +131,31 @@ begin
 
   select * into v_existing
     from public.verox_orders o
-    where o.event_id = v_event_id
-       or (o.source = v_source and o.external_reference = v_external_reference)
-    limit 1;
-
+    where o.event_id = v_event_id;
   if found then
-    if v_existing.request_hash <> v_request_hash then
+    if v_existing.request_hash <> v_request_hash
+       or v_existing.source <> v_source
+       or v_existing.external_reference <> v_external_reference then
       raise exception using errcode = '22023',
-        message = 'event identity already exists with a different request fingerprint';
+        message = 'event_id already exists with a different request or external identity';
+    end if;
+    return pg_catalog.jsonb_build_object(
+      'status', 'duplicate_ignored',
+      'order_id', v_existing.id,
+      'event_id', v_event_id,
+      'order_status', v_existing.status,
+      'execution_status', 'not_submitted',
+      'idempotent_replay', true
+    );
+  end if;
+
+  select * into v_existing
+    from public.verox_orders o
+    where o.source = v_source and o.external_reference = v_external_reference;
+  if found then
+    if v_existing.request_hash <> v_request_hash or v_existing.event_id <> v_event_id then
+      raise exception using errcode = '22023',
+        message = 'source/external_reference already exists with a different event or request';
     end if;
     return pg_catalog.jsonb_build_object(
       'status', 'duplicate_ignored',
@@ -171,13 +188,8 @@ begin
         updated_at = pg_catalog.now()
     where id = v_order_id;
 
-  update public.verox_treasury_ledger
-    set metadata = metadata || pg_catalog.jsonb_build_object(
-      'event_id', v_event_id,
-      'source', v_source,
-      'external_reference', v_external_reference
-    )
-    where order_id = v_order_id and entry_type = 'reserve';
+  -- The ledger entry remains immutable; its order_id links to the identity fields
+  -- persisted on verox_orders. Do not update the ledger after insertion.
 
   select a.available_balance into v_remaining_balance
     from public.verox_treasury_accounts a
