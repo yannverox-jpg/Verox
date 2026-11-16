@@ -43,7 +43,7 @@ def apply_migrations():
               IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
                 CREATE ROLE service_role NOLOGIN;
               END IF;
-            END
+            END;
             $roles$;
         """)
         conn.commit()
@@ -105,16 +105,16 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
     def account_state(self, account_id):
         with connect() as conn:
             account = conn.execute(
-                "SELECT available_balance, reserved_balance FROM public.verox_treasury_accounts WHERE id=%s",
+                "SELECT available_balance, reserved_balance FROM public.verox_treasury_accounts WHERE id=%s::uuid",
                 (account_id,),
             ).fetchone()
             counts = conn.execute(
                 """SELECT
-                     (SELECT count(*) FROM public.verox_orders WHERE account_id=%s) AS orders,
-                     (SELECT count(*) FROM public.verox_treasury_ledger WHERE account_id=%s) AS ledger,
+                     (SELECT count(*) FROM public.verox_orders WHERE account_id=%s::uuid) AS orders,
+                     (SELECT count(*) FROM public.verox_treasury_ledger WHERE account_id=%s::uuid) AS ledger,
                      (SELECT count(*) FROM public.verox_event_outbox o
                        JOIN public.verox_orders v ON v.id=o.aggregate_id
-                       WHERE v.account_id=%s AND o.event_type='verox.order.reserved') AS outbox""",
+                       WHERE v.account_id=%s::uuid AND o.event_type='verox.order.reserved') AS outbox""",
                 (account_id, account_id, account_id),
             ).fetchone()
             return {**account, **counts}
