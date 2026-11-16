@@ -9,6 +9,7 @@ on:
       - "core/cognition/**"
       - "tests/test_cognition_foundation.py"
       - "tests/test_gateway_worker.py"
+      - "tests/test_memory_persistence.py"
       - "supabase/migrations/*verox_experience_library.sql"
       - ".github/workflows/verox-cognition-tests.yml"
 
@@ -23,4 +24,4 @@ jobs:
       - name: Install runtime dependency
         run: python -m pip install "httpx>=0.27.0"
       - name: Run cognition foundation tests
-        run: python -m unittest tests.test_cognition_foundation tests.test_gateway_worker -v
+        run: python -m unittest tests.test_cognition_foundation tests.test_gateway_worker tests.test_memory_persistence -v
