@@ -3,6 +3,7 @@ import os
 import random
 import logging
 import json
+import hmac
 import argparse
 import sqlite3
 import re
@@ -969,7 +970,54 @@ def run_dashboard():
             return super().do_GET()
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/chat":
+            route = urlparse(self.path).path
+            if route == "/api/v1/cognitive/execute":
+                # Machine-to-machine endpoint: never expose provider keys to the browser.
+                expected_token = os.getenv("VEROX_COGNITIVE_API_TOKEN", "").strip()
+                if not expected_token:
+                    return self._json(503, {"error": "Passerelle cognitive désactivée : jeton serveur non configuré."})
+                supplied = self.headers.get("Authorization", "")
+                if not supplied.startswith("Bearer ") or not hmac.compare_digest(supplied[7:].strip(), expected_token):
+                    return self._json(401, {"error": "Authentification requise."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 40000:
+                        return self._json(400, {"error": "Taille de requête invalide."})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(body, dict):
+                        return self._json(400, {"error": "Un objet JSON est requis."})
+                    prompt = body.get("prompt")
+                    domain = body.get("domain")
+                    context_vision = body.get("context_vision")
+                    history = body.get("history")
+                    if not isinstance(prompt, str) or not prompt.strip():
+                        return self._json(400, {"error": "Le champ prompt est obligatoire."})
+                    if domain is not None and not isinstance(domain, str):
+                        return self._json(400, {"error": "Le champ domain doit être une chaîne."})
+                    if context_vision is not None and not isinstance(context_vision, str):
+                        return self._json(400, {"error": "Le champ context_vision doit être une chaîne."})
+                    if history is not None and not isinstance(history, list):
+                        return self._json(400, {"error": "Le champ history doit être une liste."})
+                    from core.cognition.gateway import (
+                        CognitiveGateway, GatewayConfigurationError, ProviderRequestError
+                    )
+                    try:
+                        result = asyncio.run(CognitiveGateway().route_and_execute(
+                            prompt=prompt, domain=domain, context_vision=context_vision, history=history
+                        ))
+                    except ValueError as exc:
+                        return self._json(400, {"error": str(exc)[:250]})
+                    except GatewayConfigurationError as exc:
+                        return self._json(503, {"error": str(exc)[:250]})
+                    except ProviderRequestError as exc:
+                        return self._json(502, {"error": str(exc)[:250]})
+                    return self._json(200, result)
+                except json.JSONDecodeError:
+                    return self._json(400, {"error": "JSON invalide."})
+                except Exception as exc:
+                    logger.exception("Échec de la passerelle cognitive")
+                    return self._json(500, {"error": "Erreur interne de la passerelle cognitive."})
+            if route != "/api/chat":
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
