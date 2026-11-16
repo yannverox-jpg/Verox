@@ -185,6 +185,7 @@ class CognitiveGateway:
                              "parts": [{"text": message["content"]}]})
         response = await client.post(
             f"{config.base_url}/models/{model}:generateContent",
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
             json={"systemInstruction": {"parts": [{"text": system}]}, "contents": contents,
                   "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048}},
         )
