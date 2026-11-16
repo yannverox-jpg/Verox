@@ -378,6 +378,28 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
             ).fetchone()["n"]
         self.assertEqual(command_count, 0)
 
+
+    def test_lifecycle_rpc_is_not_executable_by_anon_and_service_role_cannot_edit_ledger(self):
+        account_id, order_id = self.create_order(status="rejected")
+        with connect() as conn:
+            conn.execute("SET ROLE anon")
+            with self.assertRaises(psycopg.Error):
+                conn.execute(
+                    "SELECT public.transition_verox_reservation(%s::uuid, 'release', %s, '{}'::jsonb)",
+                    (order_id, "unauthorized_" + uuid.uuid4().hex),
+                )
+            conn.execute("RESET ROLE")
+            conn.execute("SET ROLE service_role")
+            with self.assertRaises(psycopg.Error):
+                conn.execute(
+                    "UPDATE public.verox_treasury_ledger SET amount=1 WHERE order_id=%s::uuid",
+                    (order_id,),
+                )
+            conn.execute("RESET ROLE")
+        state = self.lifecycle_state(account_id, order_id)
+        self.assertEqual(state["available_balance"], 90)
+        self.assertEqual(state["reserved_balance"], 10)
+
     def test_ledger_is_append_only(self):
         account_id, order_id = self.create_order()
         with self.assertRaises(psycopg.Error):
