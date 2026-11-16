@@ -1,21 +1,29 @@
-# Vercel migration status
+# Verox runtime migration for Vercel
 
-This repository is being prepared for Vercel. The former Render deployment manifest has been removed.
+## Runtime shape
 
-## Important runtime compatibility findings
+- `index.py` is the recognized FastAPI entrypoint.
+- `POST /api/chat` streams Server-Sent Events through FastAPI `StreamingResponse`.
+- User messages are committed before model generation; assistant responses and interrupted/failed partial responses are persisted in PostgreSQL.
+- Conversation history and active global memory facts are reloaded from LordVerox on every request. No process memory is treated as durable.
+- `vercel.json` sets a 60-second maximum duration. This is a ceiling, not a guarantee; streaming improves time-to-first-byte but does not remove the function deadline.
+- The long-running worker and Playwright profile workflow in `main.py` is not imported or started by the Vercel entrypoint. It needs a separate durable worker before those tools can be offered through this API.
 
-The current `main.py` starts a long-running worker loop (`run_worker`) and a threaded HTTP server (`ThreadingHTTPServer`) together. It also uses Playwright browsers and persistent browser profiles. These are not a safe drop-in fit for Vercel's request-scoped Python Functions.
+## Required Vercel environment variables
 
-The dashboard currently calls backend routes such as `/api/health`, `/api/extensions`, `/api/metrics`, `/api/tasks/{id}`, and `/api/chat`. A static-only Vercel deployment would not provide these routes and must not be treated as a complete deployment.
+- `POSTGRES_URL`: server-side PostgreSQL connection string for the **LordVerox** Supabase project. Use a connection string with SSL enabled; choose the direct or pooler endpoint according to the deployment's connection pattern.
+- `AI_GATEWAY_API_KEY`: Vercel AI Gateway key, or configure supported Vercel OIDC authentication for the runtime.
+- `VEROX_MODEL`: optional model ID; default is `anthropic/claude-sonnet-4-6`.
 
-## Required migration before production
+Never prefix secrets with `NEXT_PUBLIC_`, return them from health routes, or commit them. Provider keys may be added as server-side environment variables, but this request path routes through AI Gateway; verify provider BYOK configuration before relying on individual provider keys.
 
-1. Keep the dashboard as static frontend assets and configure its root route explicitly.
-2. Implement request-scoped Vercel Function handlers for the API routes; do not import or start the long-running `main.py` server from a function.
-3. Keep `SUPABASE_SERVICE_ROLE_KEY` server-side only. Never expose it to browser code or use a public-prefixed variable for it.
-4. Move the durable task worker out of the Vercel request lifecycle, for example to a Supabase Edge Function/queue or another separately managed worker. Do not assume a serverless function remains alive to poll `nexus_tasks`.
-5. Replace browser automation that depends on local persistent profiles with an explicitly supported remote/browser service or a separate worker.
-6. Add tests for every API route and verify schema compatibility against the intended Supabase project before deployment.
-7. Only then add `vercel.json`, connect the Vercel project, configure environment variables, and deploy.
+## PostgreSQL schema
 
-No Supabase schema or data was changed by this cleanup.
+The migration `supabase/migrations/202611160001_verox_agent_persistence.sql` was applied to the Supabase project **LordVerox**. It creates `verox_conversations`, `verox_messages`, and `verox_memory`; RLS is enabled and no anonymous policies are created. The runtime connects server-side with `POSTGRES_URL`; never send that URL to the browser.
+
+## Important limitations before deployment
+
+- The stream emits a start event immediately, then incremental text deltas. Streaming is not a guarantee of unlimited runtime; keep all model/tool work within 60 seconds.
+- Do not perform long-running browser automation inside a request-scoped function. Move it to a durable worker/queue or a supported remote browser service.
+- The dashboard consumes SSE. Test route contracts and the stream in a Vercel preview before production.
+- No deployment is performed by this change.
