@@ -988,24 +988,27 @@ def run_dashboard():
                         return self._json(400, {"error": "Un objet JSON est requis."})
                     prompt = body.get("prompt")
                     domain = body.get("domain")
+                    channel = body.get("channel", "auto")
                     context_vision = body.get("context_vision")
                     history = body.get("history")
                     if not isinstance(prompt, str) or not prompt.strip():
                         return self._json(400, {"error": "Le champ prompt est obligatoire."})
                     if domain is not None and not isinstance(domain, str):
                         return self._json(400, {"error": "Le champ domain doit être une chaîne."})
+                    if not isinstance(channel, str):
+                        return self._json(400, {"error": "Le champ channel doit être une chaîne."})
                     if context_vision is not None and not isinstance(context_vision, str):
                         return self._json(400, {"error": "Le champ context_vision doit être une chaîne."})
                     if history is not None and not isinstance(history, list):
                         return self._json(400, {"error": "Le champ history doit être une liste."})
-                    from core.cognition.gateway import (
-                        CognitiveGateway, GatewayConfigurationError, ProviderRequestError
-                    )
+                    from core.cognition.channels import execute_channel, ChannelConfigurationError
+                    from core.cognition.gateway import GatewayConfigurationError, ProviderRequestError
                     try:
-                        result = asyncio.run(CognitiveGateway().route_and_execute(
-                            prompt=prompt, domain=domain, context_vision=context_vision, history=history
+                        result = asyncio.run(execute_channel(
+                            prompt=prompt, channel=channel, domain=domain,
+                            context_vision=context_vision, history=history
                         ))
-                    except ValueError as exc:
+                    except (ValueError, ChannelConfigurationError) as exc:
                         return self._json(400, {"error": str(exc)[:250]})
                     except GatewayConfigurationError as exc:
                         return self._json(503, {"error": str(exc)[:250]})
