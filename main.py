@@ -713,7 +713,7 @@ class CognitiveBrain:
                     "evidence": fallback_answer
                 }]
 
-        # 6. Sauvegarde sur Supabase (si configuré sur Render)
+        # 6. Sauvegarde sur Supabase (configuration fournie par l'environnement d'exécution)
         await self.save_to_supabase(user_query, unique_evidence)
 
         # 7. Restitution finale : preuves des connecteurs ou réponse de secours explicitement identifiée
