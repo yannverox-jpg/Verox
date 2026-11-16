@@ -48,6 +48,28 @@ class TreasuryTests(unittest.TestCase):
         self.assertEqual(result["reserve_amount"], "100.00")
         self.assertEqual(result["execution"], "not_performed")
 
+    def test_minimum_reserve_ratio_caps_allocation(self):
+        result = plan_allocation(
+            [self.event("confirmed", "100.00")],
+            policy=AllocationPolicy(
+                reserve_ratio=Decimal("0.80"),
+                max_allocation_ratio=Decimal("0.50"),
+            ),
+        )
+        self.assertEqual(result["proposed_allocation"], "20.00")
+        self.assertEqual(result["reserve_amount"], "80.00")
+
+    def test_maximum_allocation_ratio_can_be_stricter_than_reserve(self):
+        result = plan_allocation(
+            [self.event("confirmed", "100.00")],
+            policy=AllocationPolicy(
+                reserve_ratio=Decimal("0.20"),
+                max_allocation_ratio=Decimal("0.10"),
+            ),
+        )
+        self.assertEqual(result["proposed_allocation"], "10.00")
+        self.assertEqual(result["reserve_amount"], "90.00")
+
     def test_unconfirmed_revenue_is_not_allocatable(self):
         result = plan_allocation([self.event("1", "500.00", confirmed=False)],
                                  policy=AllocationPolicy(Decimal("1"), Decimal("0.5")))
