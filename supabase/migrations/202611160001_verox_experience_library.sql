@@ -1,7 +1,7 @@
 -- Verox live experience library. Apply in the intended Verox Supabase project only.
 -- This migration does not alter legacy Nexus tables or financial balances.
-create extension if not exists pgcrypto;
-create extension if not exists vector;
+create extension if not exists pgcrypto with schema extensions;
+create extension if not exists vector with schema extensions;
 
 create table if not exists public.verox_experiences (
   id uuid primary key default gen_random_uuid(),
@@ -14,7 +14,7 @@ create table if not exists public.verox_experiences (
   trust text not null default 'unverified'
     check (trust in ('unverified', 'community', 'official', 'human_verified')),
   tags text[] not null default '{}',
-  embedding vector(768),
+  embedding extensions.vector(768),
   created_at timestamptz not null default now()
 );
 
@@ -32,7 +32,7 @@ revoke all on public.verox_experiences from anon, authenticated;
 grant select, insert, update, delete on public.verox_experiences to service_role;
 
 create or replace function public.match_verox_experiences(
-  query_embedding vector(768),
+  query_embedding extensions.vector(768),
   match_count int default 5
 )
 returns table (
@@ -57,5 +57,5 @@ as $$
   limit greatest(1, least(match_count, 20));
 $$;
 
-revoke all on function public.match_verox_experiences(vector, int) from public, anon, authenticated;
+revoke all on function public.match_verox_experiences(extensions.vector, int) from public, anon, authenticated;
 grant execute on function public.match_verox_experiences(vector, int) to service_role;
