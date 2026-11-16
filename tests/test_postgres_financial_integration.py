@@ -93,9 +93,9 @@ class PostgresFinancialIntegrationTests(unittest.TestCase):
         with connect() as conn:
             row = conn.execute(
                 """SELECT public.commit_validated_bet_order(
-                     %(p_event_id)s, %(p_source)s, %(p_external_reference)s,
-                     %(p_account_id)s, %(p_currency)s, %(p_stake)s,
-                     %(p_provider)s, %(p_market_key)s, %(p_selection_key)s,
+                     %(p_event_id)s::text, %(p_source)s::text, %(p_external_reference)s::text,
+                     %(p_account_id)s::uuid, %(p_currency)s::text, %(p_stake)s::numeric,
+                     %(p_provider)s::text, %(p_market_key)s::text, %(p_selection_key)s::text,
                      %(p_order_payload)s::jsonb
                    ) AS result""",
                 {**params, "p_order_payload": psycopg.types.json.Jsonb(params["p_order_payload"])},
