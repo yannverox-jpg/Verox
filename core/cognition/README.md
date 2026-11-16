@@ -78,3 +78,12 @@ Supabase project and the worker has been tested with the configured feeds.
 - Outbox claim/ack/fail RPCs use row locking, worker leases, retry scheduling, and a dead-letter status. Delivery is at-least-once, so consumers must deduplicate using the event idempotency key. An acknowledged outbox event means only that the event was consumed; it does not mean an external order was accepted or executed.
 - **Not yet production-enabled:** this migration has not been applied to a database, and no live market feed, order dispatcher, provider connector, funding workflow, capture/release settlement workflow, or concurrent PostgreSQL integration test is included. Do not expose a live execution path until those parts and the reconciliation process are implemented and verified.
 
+## Financial event identity and ingestion boundary
+
+- Migration `202611160003_verox_financial_event_identity.sql` extends the canonical `verox_orders` table with stable upstream event identity. It deliberately reuses `verox_treasury_ledger` and `verox_event_outbox`; it does not introduce parallel financial tables.
+- `commit_validated_bet_order` uses transaction-scoped advisory locks for event/source-reference identity, while `reserve_validated_order` locks the treasury account row to serialize balance reservations. Unique indexes remain the final identity guard.
+- The RPC fingerprints the normalized request. Replaying the same event and same request returns the existing order; reusing the event identity for a different request is rejected. Its `reserved` result explicitly reports `execution_status = not_submitted`.
+- `core/streaming/market_events.py` is a side-effect-free ingestion contract. It requires stable event/source/reference identifiers, a timezone-aware event timestamp, a JSON object payload, and a 32 KiB payload limit. It does not connect to a live feed or submit orders.
+- Unit tests cover normalization, missing identifiers, timezone handling, NaN rejection, payload bounds, and fail-closed market rules.
+- **Still required before production rollout:** execute the SQL migration in an isolated PostgreSQL test database; add real concurrent RPC tests for same-key replay, conflicting fingerprints, duplicate source references, and simultaneous balance reservations; implement capture/release/reversal settlement and reconciliation; then add a separately controlled provider dispatcher. The current work is not a live betting/trading integration.
+
