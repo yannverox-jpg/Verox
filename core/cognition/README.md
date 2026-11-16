@@ -36,7 +36,7 @@ Migration `verox_experience_library` was applied and verified on the `LordVerox`
 
 ## Current boundary
 
-These modules are foundations, not yet wired to the existing production HTTP API, frontend, authentication, quotas, or a scheduled worker. Do not expose the gateway publicly until an authenticated API endpoint, rate limiting, and request budgets are in place. The Supabase migration has been applied to LordVerox only; no other project is implied.
+These modules are foundations. The authenticated-token cognitive endpoint now supports explicit channel selection, but it is not a complete user-authentication, rate-limiting, quota, or approval system. The RSS worker is opt-in and is not scheduled automatically. Do not expose the gateway publicly until an authenticated API endpoint, rate limiting, and request budgets are in place. The Supabase migration has been applied to LordVerox only; no other project is implied.
 
 
 ## HTTP API integration
@@ -50,6 +50,7 @@ Example JSON body:
 
 ```json
 {
+  "channel": "auto",
   "domain": "micro_tasks",
   "prompt": "Résume ce texte en cinq points.",
   "context_vision": "Privilégier la précision et les solutions gratuites."
