@@ -1,423 +1,115 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verox — CognitiveBrain</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root {
-            --bg-dark: #090d16;
-            --panel-bg: #111827;
-            --border-color: #1f2937;
-            --accent-green: #10b981;
-            --accent-blue: #3b82f6;
-            --text-main: #f9fafb;
-            --text-muted: #9ca3af;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-
-        body {
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* --- TIROIR LATÉRAL DES PLUG-INS --- */
-        aside {
-            width: 260px;
-            background-color: var(--panel-bg);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .sidebar-header {
-            padding: 20px;
-            font-size: 1rem;
-            font-weight: bold;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: var(--accent-blue);
-        }
-
-        .menu-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px;
-        }
-
-        .menu-category {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin: 15px 0 5px 10px;
-        }
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            color: var(--text-main);
-            border-radius: 6px;
-            margin-bottom: 4px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .menu-item:hover {
-            background-color: var(--border-color);
-        }
-
-        .menu-item i { width: 18px; color: var(--text-muted); }
-
-        /* --- ZONE CENTRALE : PRÉVISUALISATION NO-CODE (DASHBOARD NEXUS) --- */
-        .preview-section {
-            flex: 1.2;
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            background-color: #0b0f19;
-        }
-
-        .preview-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background-color: var(--panel-bg);
-        }
-
-        .preview-grid {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 15px;
-            align-content: start;
-        }
-
-        .app-card {
-            background-color: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 15px;
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.2s;
-        }
-
-        .app-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--accent-blue);
-        }
-
-        .app-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .app-title { font-size: 0.9rem; font-weight: 600; }
-        .live-badge {
-            font-size: 0.65rem;
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--accent-green);
-            padding: 2px 6px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .dot { width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5px infinite; }
-
-        .app-metric { font-size: 1.2rem; font-weight: bold; margin-bottom: 5px; color: #fff; }
-        .app-sub { font-size: 0.75rem; color: var(--text-muted); }
-
-        /* --- ZONE DROITE : CHAT AVEC LE CERVEAU --- */
-        .chat-section {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-color: var(--bg-dark);
-        }
-
-        .chat-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border-color);
-            background-color: var(--panel-bg);
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .chat-messages {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .message {
-            max-width: 85%;
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            line-height: 1.4;
-        }
-
-        .message.nexus {
-            background-color: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            align-self: flex-start;
-        }
-
-        .message.user {
-            background-color: var(--accent-blue);
-            color: #fff;
-            align-self: flex-end;
-        }
-
-        .chat-input-area {
-            padding: 15px;
-            border-top: 1px solid var(--border-color);
-            background-color: var(--panel-bg);
-            display: flex;
-            gap: 10px;
-        }
-
-        .chat-input-area input {
-            flex: 1;
-            background: var(--bg-dark);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 10px;
-            color: #fff;
-            outline: none;
-            font-size: 0.85rem;
-        }
-
-        .chat-input-area input:focus { border-color: var(--accent-blue); }
-
-        .chat-input-area button {
-            background: var(--accent-blue);
-            color: #fff;
-            border: none;
-            padding: 0 15px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-
-        .metric-card { min-height: 210px; }
-        .donut { width:116px;height:116px;border-radius:50%;margin:14px auto 4px;display:grid;place-items:center;background:conic-gradient(var(--border-color) 0 100%); }
-        .donut::before { content:"";width:78px;height:78px;border-radius:50%;background:var(--panel-bg);grid-area:1/1; }
-        .donut span { grid-area:1/1;z-index:1;font-size:.75rem;color:var(--text-muted); }
-        .bar-chart,.summary-table { display:flex;flex-direction:column;gap:10px;margin-top:12px; }
-        .bar-row { display:grid;grid-template-columns:minmax(74px,1fr) 2fr 24px;gap:8px;align-items:center;font-size:.72rem; }
-        .bar-label { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted); }
-        .bar-track { height:8px;background:var(--border-color);border-radius:5px;overflow:hidden; }
-        .bar-fill { height:100%;background:linear-gradient(90deg,var(--accent-blue),var(--accent-green));border-radius:5px; }
-        .bar-value { text-align:right; }
-        .summary-row { display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border-color);padding:7px 0;font-size:.78rem; }
-        .summary-row span { color:var(--text-muted); }
-        .chart-empty { color:var(--text-muted);font-size:.78rem;line-height:1.5;padding:12px 0; }
-        @media (max-width:900px) { body { overflow:auto;height:auto;min-height:100vh;flex-direction:column; } aside { width:100%;max-height:280px; } .preview-section,.chat-section { min-height:380px; } }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.4; }
-            100% { opacity: 1; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1020">
+<title>Verox — Bureau cognitif</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+:root{color-scheme:dark;--bg:#090d17;--panel:#101827;--panel2:#141f31;--line:#253249;--text:#edf3ff;--muted:#8d9bb2;--blue:#6c8cff;--cyan:#43d9c5;--green:#42d392;--amber:#f4bd62;--red:#ff7777;--radius:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;height:100vh;overflow:hidden}
+button,input{font:inherit}button{cursor:pointer;color:inherit}.app{height:100vh;display:grid;grid-template-columns:248px minmax(340px,42%) minmax(360px,1fr);min-width:0}
+.sidebar{background:#0d1422;border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0;transition:width .2s}.brand{height:68px;display:flex;align-items:center;gap:12px;padding:0 17px;border-bottom:1px solid var(--line);font-weight:750;font-size:16px;white-space:nowrap}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#6c8cff,#42d9c5);color:#07111b}.sidebar-toggle{margin-left:auto;border:0;background:transparent;color:var(--muted);padding:7px;border-radius:8px}.nav{padding:14px 10px;overflow:auto;flex:1}.nav-label{font-size:10px;letter-spacing:.13em;color:#6e7d95;text-transform:uppercase;padding:14px 10px 7px}.nav-btn{width:100%;display:flex;align-items:center;gap:12px;padding:11px 12px;margin:2px 0;border:1px solid transparent;border-radius:10px;background:transparent;text-align:left;color:#aab8cc;white-space:nowrap}.nav-btn i{width:18px;text-align:center;font-size:15px}.nav-btn:hover,.nav-btn.active{background:#19253a;color:#fff;border-color:#2a3b59}.nav-btn.active i{color:var(--cyan)}.sidebar-foot{padding:13px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber);margin-right:7px}
+.workspace{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line);background:#0c1220}.topbar{height:68px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 20px;border-bottom:1px solid var(--line)}.eyebrow{color:var(--muted);font-size:11px}.topbar h1{font-size:17px;margin:2px 0 0}.icon-btn{border:1px solid var(--line);background:var(--panel);border-radius:9px;width:35px;height:35px}.history{padding:16px 16px 8px;overflow:auto;flex:1}.section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.section-head h2,.pane-title{font-size:13px;margin:0;font-weight:700}.muted{color:var(--muted)}.history-list{display:flex;flex-direction:column;gap:6px}.history-item{border:1px solid transparent;background:transparent;color:#aab8cc;text-align:left;padding:9px 10px;border-radius:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-item:hover,.history-item.active{background:#172237;border-color:#2a3b59;color:var(--text)}.history-empty{font-size:12px;color:var(--muted);padding:10px 0 15px}.chat-stream{display:flex;flex-direction:column;gap:12px;padding:12px 16px 16px;border-top:1px solid var(--line);max-height:54%;overflow:auto}.chat-heading{display:flex;align-items:center;gap:9px;font-weight:700}.brain-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:#1b2b47;color:var(--cyan)}.messages{display:flex;flex-direction:column;gap:10px}.message{max-width:95%;padding:10px 12px;border:1px solid var(--line);background:var(--panel);border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user{align-self:flex-end;background:#24345b;border-color:#344a79}.message.assistant{align-self:flex-start}.composer{display:flex;gap:8px;padding:9px;background:#111a2a;border:1px solid #2a3952;border-radius:12px}.composer input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--text)}.send{border:0;border-radius:9px;background:var(--blue);width:38px;height:36px}.hint{font-size:10px;color:#71809a}.visual{min-width:0;display:flex;flex-direction:column;background:radial-gradient(ellipse at top right,#14213b 0%,var(--bg) 50%);overflow:hidden}.visual-head{height:68px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 22px;border-bottom:1px solid var(--line)}.visual-head h2{font-size:15px;margin:0}.live-pill{font-size:10px;padding:5px 8px;border:1px solid #315747;background:#11281f;color:#7be1b2;border-radius:99px}.visual-content{padding:22px;overflow:auto;flex:1}.welcome{margin-bottom:20px}.welcome h2{font-size:23px;letter-spacing:-.03em;margin:0 0 6px}.welcome p{color:var(--muted);margin:0;max-width:620px}.stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.stat-card,.panel{background:linear-gradient(160deg,#141f31,#0f1726);border:1px solid var(--line);border-radius:var(--radius);padding:15px;min-width:0}.stat-label{font-size:11px;color:var(--muted)}.stat-value{font-size:22px;font-weight:750;margin:7px 0 2px;letter-spacing:-.03em}.stat-note{font-size:10px;color:var(--muted)}.panel{margin-bottom:14px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel-head h3{font-size:13px;margin:0}.mini-tag{font-size:10px;color:var(--muted);border:1px solid var(--line);padding:4px 7px;border-radius:7px}.app-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.app-tile{padding:13px;border:1px solid var(--line);border-radius:11px;background:#0e1727}.app-tile strong{display:block;font-size:12px;margin:7px 0 3px}.app-tile p{font-size:11px;color:var(--muted);margin:0}.tile-icon{color:var(--cyan)}.empty-data{font-size:12px;line-height:1.6;color:var(--muted);padding:13px;border:1px dashed #34435c;border-radius:10px}.page{display:none}.page.active{display:block}.metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.metric-card{min-height:205px}.pie-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.pie{width:124px;height:124px;border-radius:50%;background:#202c40;position:relative;flex-shrink:0}.pie:after{content:"";position:absolute;inset:29px;border-radius:50%;background:#111a2a;border:1px solid var(--line)}.legend{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--muted)}.legend-row{display:flex;align-items:center;gap:7px}.swatch{width:8px;height:8px;border-radius:3px;display:inline-block}.bars{height:160px;display:flex;align-items:flex-end;gap:10px;padding:12px 5px 0;border-bottom:1px solid var(--line)}.bar-col{height:100%;flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px}.bar{width:min(28px,70%);border-radius:5px 5px 0 0;background:linear-gradient(180deg,var(--cyan),var(--blue));min-height:0}.bar-label{font-size:10px;color:var(--muted)}.sidebar.collapsed{width:68px}.app:has(.sidebar.collapsed){grid-template-columns:68px minmax(340px,42%) minmax(360px,1fr)}.sidebar.collapsed .brand-name,.sidebar.collapsed .nav-label,.sidebar.collapsed .nav-text,.sidebar.collapsed .sidebar-foot{display:none}.sidebar.collapsed .brand{padding:0 16px}.sidebar.collapsed .sidebar-toggle{position:absolute;left:42px;top:17px;background:#0d1422}.sidebar.collapsed .nav{padding:14px 8px}.sidebar.collapsed .nav-btn{justify-content:center;padding:12px 0}.sidebar.collapsed .nav-btn i{width:auto}.sidebar.collapsed .nav-btn{font-size:0}.sidebar.collapsed .nav-btn i{font-size:16px}.mobile-menu{display:none}
+@media(max-width:1100px){.app{grid-template-columns:220px minmax(300px,42%) minmax(320px,1fr)}.app:has(.sidebar.collapsed){grid-template-columns:68px minmax(300px,42%) minmax(320px,1fr)}.visual-content{padding:16px}.stat-grid{grid-template-columns:1fr 1fr}.stat-card:last-child{grid-column:span 2}}
+@media(max-width:800px){body{height:auto;min-height:100vh;overflow:auto}.app,.app:has(.sidebar.collapsed){height:auto;min-height:100vh;display:flex;flex-direction:column}.sidebar,.sidebar.collapsed{width:100%;min-height:auto}.brand{height:58px}.sidebar-toggle{position:static!important;margin-left:auto!important}.sidebar.collapsed .brand-name{display:inline}.nav{display:flex;overflow-x:auto;padding:8px;gap:4px}.nav-label,.sidebar-foot{display:none!important}.nav-btn,.sidebar.collapsed .nav-btn{width:auto;flex:0 0 auto;padding:9px 11px;font-size:12px;justify-content:flex-start}.nav-btn i,.sidebar.collapsed .nav-btn i{width:16px;font-size:13px}.sidebar.collapsed .nav-text{display:inline}.workspace{min-height:520px;border-right:0;border-bottom:1px solid var(--line)}.visual{min-height:650px}.history{max-height:180px}.chat-stream{max-height:none}.visual-head,.topbar{height:58px}.metric-grid,.app-list{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}.stat-card:last-child{grid-column:auto}}
+</style>
 </head>
 <body>
-
-    <!-- 1. TIROIR LATÉRAL DES CONNECTEURS / PLUGS -->
-    <aside>
-        <div class="sidebar-header">
-            <i class="fa-solid fa-plug-circle-bolt"></i>
-            <span>Plug-ins & Connecteurs</span>
-        </div>
-        <div class="menu-list" id="extension-drawer" aria-label="Extensions CognitiveBrain"></div>
-    </aside>
-
-    <!-- 2. PREVISUALISATION NO-CODE (DASHBOARD LIVE NEXUS) -->
-    <section class="preview-section">
-        <div class="preview-header">
-            <h2><i class="fa-solid fa-network-wired" style="color: var(--accent-blue);"></i> Verox — CognitiveBrain</h2>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">Indicateurs mesurés</span>
-        </div>
-        <div class="preview-grid">
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Taux de réussite</span></div><div class="app-metric" id="success-rate">—%</div><div class="donut" id="success-donut" aria-label="Taux de réussite"><span id="success-total">0 tâches</span></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Interactions par activité</span></div><div id="interaction-bars" class="bar-chart"><div class="chart-empty">Les données apparaîtront après les premières exécutions.</div></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Résultats d'exécution</span></div><div id="execution-summary" class="summary-table"><div class="chart-empty">Aucune mesure disponible.</div></div></div>
-            <div class="app-card metric-card"><div class="app-card-header"><span class="app-title">Revenus confirmés</span></div><div class="app-metric" id="confirmed-revenue">Non mesuré</div><div class="app-sub">Seules les recettes réellement enregistrées seront affichées.</div></div>
-        </div>
-    </section>
-
-    <!-- 3. CHAT AVEC LE CERVEAU NEXUS -->
-    <section class="chat-section">
-        <div class="chat-header">
-            <i class="fa-solid fa-brain" style="color: var(--accent-blue);"></i>
-            <span>Discuter avec CognitiveBrain</span>
-        </div>
-
-        <div class="chat-messages" id="chat-box">
-            <div class="message nexus">CognitiveBrain traite les tâches autorisées, utilise les connecteurs disponibles et mesure les résultats vérifiables.</div>
-        </div>
-        <div class="chat-input-area">
-            <input type="text" id="user-input" placeholder="Donne une tâche à CognitiveBrain…" onkeypress="handleKey(event)">
-            <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
-    </section>
-
-    <script>
-        async function loadExtensions() {
-            const drawer = document.getElementById("extension-drawer");
-            try {
-                const response = await fetch("/api/extensions", {cache:"no-store"});
-                if (!response.ok) throw new Error("Catalogue indisponible");
-                const catalog = await response.json();
-                const groups = new Map();
-                (catalog.items || []).forEach(item => {
-                    const group = item.group || "Autres extensions";
-                    if (!groups.has(group)) groups.set(group, []);
-                    groups.get(group).push(item);
-                });
-                drawer.replaceChildren();
-                groups.forEach((items, groupName) => {
-                    const heading = document.createElement("div");
-                    heading.className = "menu-category";
-                    heading.textContent = groupName;
-                    drawer.appendChild(heading);
-                    items.forEach(item => {
-                        const row = document.createElement("div");
-                        row.className = "menu-item";
-                        const icon = document.createElement("i");
-                        icon.className = item.icon || "fa-solid fa-puzzle-piece";
-                        const label = document.createElement("span");
-                        label.textContent = item.label;
-                        row.append(icon, label);
-                        row.title = item.protocol || item.category || "";
-                        drawer.appendChild(row);
-                    });
-                });
-            } catch (_) {
-                drawer.replaceChildren();
-                const row = document.createElement("div");
-                row.className = "chart-empty";
-                row.textContent = "Le catalogue des extensions n'est pas disponible.";
-                drawer.appendChild(row);
-            }
-        }
-
-        function addMessage(kind, text) {
-            const box = document.getElementById("chat-box");
-            const node = document.createElement("div");
-            node.className = "message " + kind;
-            node.innerText = text;
-            box.appendChild(node);
-            box.scrollTop = box.scrollHeight;
-            return node;
-        }
-        async function watchCommand(commandId, messageNode) {
-            const started = Date.now();
-            while (Date.now() - started < 180000) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                try {
-                    const response = await fetch("/api/tasks/" + encodeURIComponent(commandId), {cache: "no-store"});
-                    const row = await response.json();
-                    if (!response.ok) throw new Error(row.error || "État de tâche indisponible");
-                    if (row.status === "succeeded") {
-                        const result = row.result || {};
-                        const evidence = Array.isArray(result.evidence) ? result.evidence : [];
-                        const answer = result.answer || result.summary || "";
-                        messageNode.innerText = answer + (evidence.length ? (answer ? "\n\n" : "") + evidence.map((item, i) => (i + 1) + ". [" + (item.connector || "CognitiveBrain") + "] " + (item.title || "Résultat") + "\n" + (item.evidence || "")).join("\n\n") : (answer ? "" : "Tâche terminée, aucun résultat exploitable."));
-                        refreshMetrics(); return;
-                    }
-                    if (row.status === "failed") { messageNode.innerText = row.error || (row.result && row.result.error) || "Échec d’exécution du cerveau."; refreshMetrics(); return; }
-                    messageNode.innerText = row.status === "running" ? "Traitement de la tâche…" : "Tâche en file d'exécution…";
-                } catch (error) { messageNode.innerText = "Suivi impossible : " + error.message; return; }
-            }
-            messageNode.innerText = "Délai de suivi dépassé. La tâche reste enregistrée dans la file du cerveau.";
-        }
-        async function sendMessage() {
-            const input = document.getElementById("user-input");
-            const query = input.value.trim();
-            if (!query) return;
-            input.value = "";
-            addMessage("user", query);
-            const resultNode = addMessage("nexus", "Transmission de la tâche à CognitiveBrain…");
-            try {
-                const response = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});
-                const task = await response.json();
-                if (!response.ok) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
-                if (task.answer) {
-                    resultNode.innerText = task.answer;
-                    return;
-                }
-                if (!task.id) throw new Error(task.error || "Le backend n’a pas accepté la tâche.");
-                await watchCommand(task.id, resultNode);
-            } catch (error) { resultNode.innerText = "Transmission impossible : " + error.message; }
-        }
-        function handleKey(event) { if (event.key === "Enter") sendMessage(); }
-        function renderMetrics(data) {
-            const tasks = data.tasks || {};
-            const total = Number(tasks.total || 0), succeeded = Number(tasks.succeeded || 0), failed = Number(tasks.failed || 0);
-            const rate = total ? Math.round(succeeded * 100 / total) : 0;
-            document.getElementById("success-rate").innerText = total ? rate + "%" : "—%";
-            document.getElementById("success-total").innerText = total + " tâches";
-            document.getElementById("success-donut").style.background = "conic-gradient(var(--accent-green) " + rate + "%, var(--border-color) " + rate + "% 100%)";
-            const bars = document.getElementById("interaction-bars"), types = Object.entries(data.by_task_type || {}).sort((a,b)=>b[1]-a[1]).slice(0,8);
-            bars.innerHTML = "";
-            if (!types.length) bars.innerHTML = '<div class="chart-empty">Les données apparaîtront après les premières exécutions.</div>';
-            else {
-                const max = Math.max(1, ...types.map(x => Number(x[1])));
-                types.forEach(([name,value]) => {
-                    const row=document.createElement("div"); row.className="bar-row";
-                    const label=document.createElement("span"); label.className="bar-label"; label.textContent=name;
-                    const track=document.createElement("div"); track.className="bar-track";
-                    const fill=document.createElement("div"); fill.className="bar-fill"; fill.style.width=Math.max(2,Number(value)*100/max)+"%";
-                    track.appendChild(fill);
-                    const count=document.createElement("span"); count.className="bar-value"; count.textContent=String(value);
-                    row.append(label,track,count); bars.appendChild(row);
-                });
-            }
-            const summary=document.getElementById("execution-summary"); summary.innerHTML="";
-            [["Total",total],["Réussies",succeeded],["Échouées",failed],["En attente / en cours",Number(tasks.pending||0)+Number(tasks.running||0)]].forEach(([label,value])=>{
-                const row=document.createElement("div");row.className="summary-row";
-                const name=document.createElement("span");name.textContent=label;
-                const count=document.createElement("strong");count.textContent=String(value);
-                row.append(name,count);summary.appendChild(row);
-            });
-            document.getElementById("confirmed-revenue").innerText = data.confirmed_revenue == null ? "Non mesuré" : new Intl.NumberFormat("fr-FR",{style:"currency",currency:data.currency||"EUR"}).format(data.confirmed_revenue);
-        }
-        async function refreshMetrics() {
-            try { const response=await fetch("/api/metrics",{cache:"no-store"}); if(response.ok) renderMetrics(await response.json()); } catch (_) {}
-        }
-        loadExtensions();
-        refreshMetrics(); setInterval(refreshMetrics,15000);
-    </script>
+<div class="app">
+<aside class="sidebar" id="sidebar">
+ <div class="brand"><span class="brand-mark"><i class="fa-solid fa-brain"></i></span><span class="brand-name">VEROX</span><button class="sidebar-toggle" id="sidebar-toggle" aria-label="Replier la barre latérale" title="Replier / déplier"><i class="fa-solid fa-angles-left"></i></button></div>
+ <nav class="nav" aria-label="Navigation principale">
+  <div class="nav-label">Bureau</div>
+  <button class="nav-btn active" data-page="dashboard"><i class="fa-solid fa-table-columns"></i><span class="nav-text">Dashboard</span></button>
+  <button class="nav-btn" data-page="cognitive"><i class="fa-solid fa-brain"></i><span class="nav-text">Cognitive Brain</span></button>
+  <button class="nav-btn" data-page="applications"><i class="fa-solid fa-cubes"></i><span class="nav-text">Applications</span></button>
+  <button class="nav-btn" data-page="revenue"><i class="fa-solid fa-wallet"></i><span class="nav-text">Revenus</span></button>
+  <button class="nav-btn" data-page="automation"><i class="fa-solid fa-gears"></i><span class="nav-text">Automatisations</span></button>
+  <div class="nav-label">Intelligence</div>
+  <button class="nav-btn" data-page="connectors"><i class="fa-solid fa-plug"></i><span class="nav-text">Plugins & connecteurs</span></button>
+  <button class="nav-btn" data-page="models"><i class="fa-solid fa-microchip"></i><span class="nav-text">IA & modèles</span></button>
+  <button class="nav-btn" data-page="development"><i class="fa-solid fa-code"></i><span class="nav-text">Développement</span></button>
+  <button class="nav-btn" data-page="resources"><i class="fa-solid fa-box-archive"></i><span class="nav-text">Ressources</span></button>
+  <div class="nav-label">Contrôle</div>
+  <button class="nav-btn" data-page="search"><i class="fa-solid fa-magnifying-glass"></i><span class="nav-text">Recherche</span></button>
+  <button class="nav-btn" data-page="security"><i class="fa-solid fa-shield-halved"></i><span class="nav-text">Sécurité</span></button>
+ </nav>
+ <div class="sidebar-foot"><span class="status-dot"></span><span id="connection-status">Vérification des services…</span></div>
+</aside>
+<section class="workspace">
+ <header class="topbar"><div><div class="eyebrow">ESPACE DE TRAVAIL</div><h1 id="workspace-title">Chat IA</h1></div><button class="icon-btn" id="new-chat" title="Nouvelle conversation" aria-label="Nouvelle conversation"><i class="fa-solid fa-plus"></i></button></header>
+ <section class="history">
+  <div class="section-head"><h2>Historique du chat</h2><span class="mini-tag">Session</span></div>
+  <div class="history-list" id="history-list"><div class="history-empty">Les conversations de cette session apparaîtront ici.</div></div>
+ </section>
+ <section class="chat-stream">
+  <div class="chat-heading"><span class="brain-icon"><i class="fa-solid fa-brain"></i></span><span>Assistant opérationnel</span><span class="mini-tag" style="margin-left:auto">Actions + réponses</span></div>
+  <div class="messages" id="chat-box"><div class="message assistant">Décris une modification ou une tâche. Je transmets la demande au moteur Verox et affiche les résultats vérifiables. Les opérations sensibles doivent être autorisées.</div></div>
+  <form class="composer" id="chat-form"><input id="user-input" autocomplete="off" placeholder="Demande une action sur Verox…" aria-label="Message à l'assistant"><button class="send" type="submit" aria-label="Envoyer"><i class="fa-solid fa-arrow-up"></i></button></form>
+  <div class="hint">Le chat peut lancer les tâches autorisées ; l'exécution dépend des connecteurs configurés.</div>
+ </section>
+</section>
+<main class="visual">
+ <header class="visual-head"><h2 id="visual-title"><i class="fa-solid fa-display"></i> Visualisation du bureau</h2><span class="live-pill"><i class="fa-solid fa-circle-check"></i> Données vérifiées</span></header>
+ <div class="visual-content">
+  <section class="page active" id="page-dashboard">
+   <div class="welcome"><div class="eyebrow">BUREAU OPÉRATIONNEL</div><h2>Votre environnement cognitif</h2><p>Pilote les applications depuis le chat et consulte leur état dans cette zone de visualisation.</p></div>
+   <div class="stat-grid">
+    <div class="stat-card"><div class="stat-label">Tâches exécutées</div><div class="stat-value" id="task-total">—</div><div class="stat-note">Depuis les données disponibles</div></div>
+    <div class="stat-card"><div class="stat-label">Taux de réussite</div><div class="stat-value" id="success-rate">—</div><div class="stat-note" id="success-note">Aucune mesure chargée</div></div>
+    <div class="stat-card"><div class="stat-label">Revenus confirmés</div><div class="stat-value" id="confirmed-revenue">Non mesuré</div><div class="stat-note">Aucune valeur financière inventée</div></div>
+   </div>
+   <div class="panel"><div class="panel-head"><h3><i class="fa-solid fa-wallet"></i> Revenus</h3><button class="mini-tag nav-shortcut" data-page="revenue">Ouvrir le rapport <i class="fa-solid fa-arrow-right"></i></button></div><div class="empty-data">Les revenus seront affichés uniquement lorsqu'une source financière réelle et vérifiable sera connectée.</div></div>
+   <div class="panel"><div class="panel-head"><h3><i class="fa-solid fa-gears"></i> Automatisations</h3><button class="mini-tag nav-shortcut" data-page="automation">Voir les exécutions <i class="fa-solid fa-arrow-right"></i></button></div><div class="app-list" id="automation-summary"><div class="empty-data">Chargement des tâches et de leur état…</div></div></div>
+   <div class="panel"><div class="panel-head"><h3><i class="fa-solid fa-window-maximize"></i> Applications</h3><button class="mini-tag nav-shortcut" data-page="applications">Explorer <i class="fa-solid fa-arrow-right"></i></button></div><div class="app-list" id="application-summary"><div class="empty-data">Chargement du catalogue des extensions…</div></div></div>
+  </section>
+  <section class="page" id="page-cognitive">
+   <div class="welcome"><div class="eyebrow">OBSERVABILITÉ</div><h2>Cognitive Brain</h2><p>Métriques et télémétrie séparées du dashboard principal. Les graphiques s'appuient sur les données disponibles ; les mesures absentes restent explicitement non mesurées.</p></div>
+   <div class="stat-grid"><div class="stat-card"><div class="stat-label">Tâches observées</div><div class="stat-value" id="metric-task-total">—</div><div class="stat-note">Échantillon renvoyé par le backend</div></div><div class="stat-card"><div class="stat-label">Événements</div><div class="stat-value" id="metric-event-total">—</div><div class="stat-note">Événements d'exécution enregistrés</div></div><div class="stat-card"><div class="stat-label">Bénéfice hebdomadaire</div><div class="stat-value">Non mesuré</div><div class="stat-note">Pas de registre financier relié</div></div></div>
+   <div class="metric-grid">
+    <div class="panel metric-card"><div class="panel-head"><h3>Répartition de l'activité</h3><span class="mini-tag">Tâches réelles</span></div><div id="activity-pie" class="pie-wrap"><div class="empty-data">Chargement des données d'activité…</div></div><p class="hint">Le schéma actuel ne relie pas encore chaque tâche à un identifiant d'application. La répartition est donc par type de tâche, pas une attribution d'application supposée.</p></div>
+    <div class="panel metric-card"><div class="panel-head"><h3>Bénéfices nets par semaine</h3><span class="mini-tag">EUR</span></div><div class="empty-data">Graphique indisponible : aucune table de revenus ou de transactions n'est actuellement reliée à ce rapport. Aucun montant fictif ne sera tracé.</div></div>
+   </div>
+   <div class="panel"><div class="panel-head"><h3>Activité par application</h3><span class="mini-tag">Données requises</span></div><div id="per-app-metrics" class="app-list"><div class="empty-data">Pour afficher un rapport distinct par application, le backend doit enregistrer un application_id sur chaque tâche. Ce champ n'existe pas dans le schéma actuel.</div></div></div>
+  </section>
+  <section class="page" id="page-applications"><div class="welcome"><div class="eyebrow">ENVIRONNEMENT</div><h2>Applications</h2><p>Catalogue déclaré des capacités et intégrations Verox.</p></div><div class="app-list" id="all-applications"><div class="empty-data">Chargement…</div></div></section>
+  <section class="page" id="page-revenue"><div class="welcome"><div class="eyebrow">PERFORMANCE FINANCIÈRE</div><h2>Revenus</h2><p>Les montants doivent provenir d'un registre réel et confirmé.</p></div><div class="stat-grid"><div class="stat-card"><div class="stat-label">Revenus confirmés</div><div class="stat-value" id="revenue-page-total">Non mesuré</div><div class="stat-note">Source financière non configurée</div></div><div class="stat-card"><div class="stat-label">Bénéfice net</div><div class="stat-value">Non mesuré</div><div class="stat-note">Nécessite recettes et coûts réels</div></div></div><div class="panel"><div class="empty-data">Aucun chiffre d'affaires ni bénéfice n'est calculé à partir du nombre de tâches. Connecter un registre financier avant d'afficher des résultats.</div></div></section>
+  <section class="page" id="page-automation"><div class="welcome"><div class="eyebrow">EXÉCUTION</div><h2>Automatisations</h2><p>État des tâches enregistrées dans le backend.</p></div><div class="stat-grid"><div class="stat-card"><div class="stat-label">En attente / en cours</div><div class="stat-value" id="pending-total">—</div></div><div class="stat-card"><div class="stat-label">Réussies</div><div class="stat-value" id="automation-succeeded">—</div></div><div class="stat-card"><div class="stat-label">Échouées</div><div class="stat-value" id="automation-failed">—</div></div></div><div class="panel"><div class="panel-head"><h3>Volume par type de tâche</h3><span class="mini-tag">Mesure réelle</span></div><div id="task-type-bars" class="bars"></div></div></section>
+  <section class="page" id="page-connectors"><div class="welcome"><div class="eyebrow">EXTENSIBILITÉ</div><h2>Plugins & connecteurs</h2><p>Le catalogue décrit les capacités disponibles ; une inscription ne signifie pas que le fournisseur est connecté.</p></div><div class="app-list" id="connectors-list"><div class="empty-data">Chargement du catalogue…</div></div></section>
+  <section class="page" id="page-models"><div class="welcome"><div class="eyebrow">INTELLIGENCE</div><h2>IA & modèles</h2><p>État des modèles et fournisseurs configurés.</p></div><div class="panel"><div class="empty-data" id="model-status">Vérification de la configuration côté serveur…</div></div></section>
+  <section class="page" id="page-development"><div class="welcome"><div class="eyebrow">CONSTRUCTION</div><h2>Développement</h2><p>Espace de travail pour les applications, leur code et leurs changements.</p></div><div class="app-list"><div class="app-tile"><i class="fa-solid fa-code tile-icon"></i><strong>Dépôt source</strong><p>Le code de référence est maintenu dans GitHub.</p></div><div class="app-tile"><i class="fa-solid fa-vial tile-icon"></i><strong>Vérifications</strong><p>Les changements doivent être testés avant déploiement.</p></div></div></section>
+  <section class="page" id="page-resources"><div class="welcome"><div class="eyebrow">BIBLIOTHÈQUE</div><h2>Ressources</h2><p>Outils et ressources accessibles à Verox.</p></div><div class="panel"><div class="empty-data">Le catalogue des connecteurs présente les ressources déclarées. Leur disponibilité dépend de la configuration effective.</div></div></section>
+  <section class="page" id="page-search"><div class="welcome"><div class="eyebrow">EXPLORATION</div><h2>Recherche</h2><p>Demande une recherche au chat opérationnel ; les sources et résultats doivent être explicités.</p></div><button class="nav-btn nav-shortcut" data-page="dashboard"><i class="fa-solid fa-message"></i><span class="nav-text">Revenir au chat IA</span></button></section>
+  <section class="page" id="page-security"><div class="welcome"><div class="eyebrow">PROTECTION</div><h2>Sécurité</h2><p>État de la configuration et des dépendances côté serveur.</p></div><div class="panel"><div class="empty-data" id="security-status">État de sécurité non encore vérifié. Les secrets ne sont jamais affichés dans cette interface.</div></div></section>
+ </div>
+</main>
+</div>
+<script>
+const chatBox=document.getElementById("chat-box"),historyList=document.getElementById("history-list");
+const conversations=[];let activeConversation=null,metricsCache=null,catalogCache=null;
+const colors=["#43d9c5","#6c8cff","#f4bd62","#c58bff","#ff7777","#4da8ff","#8dd46b","#ef8fc4"];
+function safeText(value){return String(value??"");}
+function addMessage(role,text){const node=document.createElement("div");node.className="message "+(role==="user"?"user":"assistant");node.textContent=text;chatBox.appendChild(node);chatBox.scrollTop=chatBox.scrollHeight;return node;}
+function startConversation(){activeConversation={id:Date.now(),title:"Nouvelle conversation",messages:[]};conversations.unshift(activeConversation);chatBox.replaceChildren();addMessage("assistant","Décris une modification ou une tâche. Je transmets la demande au moteur Verox et affiche les résultats vérifiables.");renderHistory();}
+function renderHistory(){historyList.replaceChildren();if(!conversations.length){const empty=document.createElement("div");empty.className="history-empty";empty.textContent="Les conversations de cette session apparaîtront ici.";historyList.appendChild(empty);return;}conversations.forEach(c=>{const b=document.createElement("button");b.className="history-item"+(c===activeConversation?" active":"");b.textContent=c.title;b.title=c.title;b.onclick=()=>{activeConversation=c;chatBox.replaceChildren();c.messages.forEach(m=>addMessage(m.role,m.text));renderHistory();};historyList.appendChild(b);});}
+function recordMessage(role,text){if(!activeConversation)startConversation();activeConversation.messages.push({role,text});if(activeConversation.messages.length===2&&role==="user")activeConversation.title=text.slice(0,48);renderHistory();}
+async function watchTask(id,node){const start=Date.now();while(Date.now()-start<180000){await new Promise(r=>setTimeout(r,1500));try{const response=await fetch("/api/tasks/"+encodeURIComponent(id),{cache:"no-store"});const row=await response.json();if(!response.ok)throw new Error(row.error||"État indisponible");if(row.status==="succeeded"){const result=row.result||{},evidence=Array.isArray(result.evidence)?result.evidence:[];const answer=result.answer||result.summary||"";const text=answer+(evidence.length?"\n\n"+evidence.map((x,i)=>(i+1)+". ["+(x.connector||"Verox")+"] "+(x.title||"Résultat")+"\n"+(x.evidence||"")).join("\n\n"):"")||"Tâche terminée, aucun résultat exploitable.";node.textContent=text;recordMessage("assistant",text);refreshMetrics();return;}if(row.status==="failed"){const text=row.error||(row.result&&row.result.error)||"Échec d’exécution.";node.textContent=text;recordMessage("assistant",text);refreshMetrics();return;}node.textContent=row.status==="running"?"Exécution de la tâche…":"Tâche en attente dans la file…";}catch(e){node.textContent="Suivi impossible : "+e.message;return;}}node.textContent="Délai de suivi dépassé. La tâche reste enregistrée dans le backend.";}
+async function sendMessage(textOverride){const input=document.getElementById("user-input"),query=(textOverride??input.value).trim();if(!query)return;input.value="";if(!activeConversation)startConversation();addMessage("user",query);recordMessage("user",query);const result=addMessage("assistant","Transmission de la demande à Verox…");try{const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});const task=await response.json();if(!response.ok)throw new Error(task.error||"La demande a été refusée par le backend.");if(task.answer){result.textContent=task.answer;recordMessage("assistant",task.answer);return;}if(!task.id)throw new Error("Le backend n'a pas retourné d'identifiant de tâche.");await watchTask(task.id,result);}catch(e){const message="Transmission impossible : "+e.message;result.textContent=message;recordMessage("assistant",message);}}
+document.getElementById("chat-form").addEventListener("submit",e=>{e.preventDefault();sendMessage();});
+document.getElementById("new-chat").addEventListener("click",startConversation);
+document.getElementById("sidebar-toggle").addEventListener("click",()=>{const s=document.getElementById("sidebar");s.classList.toggle("collapsed");document.querySelector("#sidebar-toggle i").className=s.classList.contains("collapsed")?"fa-solid fa-angles-right":"fa-solid fa-angles-left";});
+function showPage(page){document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id==="page-"+page));document.querySelectorAll(".nav-btn[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));const titles={dashboard:"Dashboard",cognitive:"Cognitive Brain",applications:"Applications",revenue:"Revenus",automation:"Automatisations",connectors:"Plugins & connecteurs",models:"IA & modèles",development:"Développement",resources:"Ressources",search:"Recherche",security:"Sécurité"};document.getElementById("visual-title").textContent=titles[page]||"Visualisation";document.getElementById("workspace-title").textContent=page==="cognitive"?"Chat IA · Cognitive Brain":"Chat IA";if(page==="cognitive")refreshMetrics();}
+document.querySelectorAll("[data-page]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
+function renderApplications(items){const hosts=["application-summary","all-applications","connectors-list"];hosts.forEach(id=>{const root=document.getElementById(id);if(!root)return;root.replaceChildren();});const all=document.getElementById("all-applications"),home=document.getElementById("application-summary"),conn=document.getElementById("connectors-list");if(!items.length){[all,home,conn].forEach(root=>{const e=document.createElement("div");e.className="empty-data";e.textContent="Le catalogue ne contient aucune entrée.";root.appendChild(e);});return;}items.forEach(item=>{const card=document.createElement("div");card.className="app-tile";const icon=document.createElement("i");icon.className=(item.icon||"fa-solid fa-puzzle-piece")+" tile-icon";const title=document.createElement("strong");title.textContent=item.label||item.id||"Extension";const desc=document.createElement("p");desc.textContent=(item.group||item.category||"Extension")+" · "+(item.lifecycle||"état inconnu")+" — déclaration du catalogue, pas preuve de connexion.";card.append(icon,title,desc);all.appendChild(card);if(conn)conn.appendChild(card.cloneNode(true));if(home.children.length<4)home.appendChild(card.cloneNode(true));});}
+function renderAutomation(data){const tasks=data.tasks||{},root=document.getElementById("automation-summary");root.replaceChildren();[["Réussies",tasks.succeeded||0,"fa-circle-check"],["Échouées",tasks.failed||0,"fa-circle-xmark"],["En attente / en cours",(tasks.pending||0)+(tasks.running||0),"fa-hourglass-half"]].forEach(([label,value,icon])=>{const tile=document.createElement("div");tile.className="app-tile";const i=document.createElement("i");i.className="fa-solid "+icon+" tile-icon";const title=document.createElement("strong");title.textContent=label+": "+value;const p=document.createElement("p");p.textContent="Tâches observées par le backend";tile.append(i,title,p);root.appendChild(tile);});const bars=document.getElementById("task-type-bars");bars.replaceChildren();const types=Object.entries(data.by_task_type||{}).sort((a,b)=>b[1]-a[1]).slice(0,7),max=Math.max(1,...types.map(x=>Number(x[1])));if(!types.length){const empty=document.createElement("div");empty.className="empty-data";empty.textContent="Aucune activité enregistrée.";bars.appendChild(empty);return;}types.forEach(([name,value])=>{const col=document.createElement("div");col.className="bar-col";const bar=document.createElement("div");bar.className="bar";bar.style.height=(Number(value)/max*100)+"%";bar.title=name+": "+value;const label=document.createElement("div");label.className="bar-label";label.textContent=name.length>10?name.slice(0,10)+"…":name;col.append(bar,label);bars.appendChild(col);});}
+function renderActivityPie(data){const root=document.getElementById("activity-pie");root.replaceChildren();const types=Object.entries(data.by_task_type||{}).filter(x=>Number(x[1])>0).sort((a,b)=>b[1]-a[1]).slice(0,8);if(!types.length){const empty=document.createElement("div");empty.className="empty-data";empty.textContent="Aucune activité à représenter pour le moment.";root.appendChild(empty);return;}const total=types.reduce((sum,x)=>sum+Number(x[1]),0);let offset=0;const stops=[];types.forEach(([name,value],i)=>{const start=offset;offset+=Number(value)/total*100;stops.push(colors[i%colors.length]+" "+start+"% "+offset+"%");});const pie=document.createElement("div");pie.className="pie";pie.style.background="conic-gradient("+stops.join(",")+")";pie.setAttribute("role","img");pie.setAttribute("aria-label","Répartition réelle des tâches par type");const legend=document.createElement("div");legend.className="legend";types.forEach(([name,value],i)=>{const row=document.createElement("div");row.className="legend-row";const sw=document.createElement("span");sw.className="swatch";sw.style.background=colors[i%colors.length];const label=document.createElement("span");label.textContent=name+" · "+value+" ("+Math.round(Number(value)/total*100)+"%)";row.append(sw,label);legend.appendChild(row);});root.append(pie,legend);}
+function renderMetrics(data){metricsCache=data;const t=data.tasks||{},total=Number(t.total||0),succeeded=Number(t.succeeded||0),failed=Number(t.failed||0),pending=Number(t.pending||0)+Number(t.running||0);document.getElementById("task-total").textContent=total;document.getElementById("success-rate").textContent=total?Math.round(succeeded*100/total)+"%":"—";document.getElementById("success-note").textContent=total?succeeded+" réussies · "+failed+" échouées":"Aucune mesure disponible";document.getElementById("confirmed-revenue").textContent=data.confirmed_revenue==null?"Non mesuré":new Intl.NumberFormat("fr-FR",{style:"currency",currency:data.currency||"EUR"}).format(data.confirmed_revenue);document.getElementById("revenue-page-total").textContent=document.getElementById("confirmed-revenue").textContent;document.getElementById("metric-task-total").textContent=total;document.getElementById("metric-event-total").textContent=Number(data.events_total||0);document.getElementById("pending-total").textContent=pending;document.getElementById("automation-succeeded").textContent=succeeded;document.getElementById("automation-failed").textContent=failed;renderAutomation(data);renderActivityPie(data);}
+async function refreshMetrics(){try{const r=await fetch("/api/metrics",{cache:"no-store"});if(!r.ok)throw new Error("Backend indisponible");renderMetrics(await r.json());}catch(e){document.getElementById("connection-status").textContent="Métriques indisponibles";document.getElementById("security-status").textContent="Impossible de vérifier le backend : "+e.message;}}
+async function loadCatalog(){try{const r=await fetch("/api/extensions",{cache:"no-store"});if(!r.ok)throw new Error("Catalogue indisponible");catalogCache=await r.json();renderApplications(catalogCache.items||[]);}catch(e){document.getElementById("connection-status").textContent="Catalogue indisponible";}}
+async function checkHealth(){try{const r=await fetch("/api/health",{cache:"no-store"});const d=await r.json();document.getElementById("connection-status").textContent=d.ok?"Backend et base connectés":"Configuration à vérifier";document.getElementById("security-status").textContent=d.ok?"Backend et base Supabase joignables. Les valeurs secrètes restent masquées.":"Vérification impossible : "+(d.error||"service indisponible");document.getElementById("model-status").textContent="Secours Gemini : "+(d.gemini_fallback_configured?"clé configurée (valeur masquée)":"non configuré")+" · Catalogue : "+(d.extension_count??"inconnu")+" entrées.";}catch(_){document.getElementById("connection-status").textContent="Backend indisponible";}}
+startConversation();loadCatalog();refreshMetrics();checkHealth();setInterval(refreshMetrics,15000);setInterval(checkHealth,30000);
+</script>
 </body>
 </html>
