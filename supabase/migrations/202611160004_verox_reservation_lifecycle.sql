@@ -73,7 +73,7 @@ BEGIN
   IF p_order_id IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'order_id is required';
   END IF;
-  IF v_command NOT IN ('release', 'capture', 'mark_reconciliation', 'reconcile_release', 'reconcile_capture') THEN
+  IF v_command IS NULL OR v_command NOT IN ('release', 'capture', 'mark_reconciliation', 'reconcile_release', 'reconcile_capture') THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'unsupported reservation command';
   END IF;
   IF v_key IS NULL OR pg_catalog.length(v_key) NOT BETWEEN 8 AND 200 THEN
@@ -151,7 +151,7 @@ BEGIN
       IF v_order.reservation_status <> 'reconciliation_required'
          OR coalesce(v_evidence->>'reviewed_by', '') = ''
          OR coalesce(v_evidence->>'evidence_reference', '') = ''
-         OR v_evidence->>'provider_outcome' <> 'not_executed' THEN
+         OR v_evidence->>'provider_outcome' IS DISTINCT FROM 'not_executed' THEN
         RAISE EXCEPTION USING ERRCODE = '55000',
           MESSAGE = 'reconciliation release requires reviewer, evidence reference and provider_outcome=not_executed';
       END IF;
@@ -183,7 +183,7 @@ BEGIN
     IF v_command = 'capture' THEN
       IF v_order.reservation_status <> 'reserved'
          OR v_order.status <> 'confirmed'
-         OR v_evidence->>'provider_verified' <> 'true'
+         OR v_evidence->>'provider_verified' IS DISTINCT FROM 'true'
          OR coalesce(v_evidence->>'settlement_reference', '') = '' THEN
         RAISE EXCEPTION USING ERRCODE = '55000',
           MESSAGE = 'capture requires confirmed order, provider_verified=true and settlement_reference';
@@ -192,7 +192,7 @@ BEGIN
       IF v_order.reservation_status <> 'reconciliation_required'
          OR coalesce(v_evidence->>'reviewed_by', '') = ''
          OR coalesce(v_evidence->>'evidence_reference', '') = ''
-         OR v_evidence->>'provider_outcome' <> 'executed'
+         OR v_evidence->>'provider_outcome' IS DISTINCT FROM 'executed'
          OR v_evidence->>'provider_verified' <> 'true'
          OR coalesce(v_evidence->>'settlement_reference', '') = '' THEN
         RAISE EXCEPTION USING ERRCODE = '55000',
