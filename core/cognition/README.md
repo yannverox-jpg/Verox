@@ -35,3 +35,33 @@ Review and apply `supabase/migrations/202611160001_verox_experience_library.sql`
 ## Current boundary
 
 These modules are foundations, not yet wired to the existing production HTTP API, frontend, authentication, quotas, or a scheduled worker. Do not expose the gateway publicly until an authenticated API endpoint, rate limiting, and request budgets are in place. The Supabase migration has not been applied automatically.
+
+
+## HTTP API integration
+
+The existing `main.py --server` HTTP server now exposes `POST /api/v1/cognitive/execute`.
+The endpoint is disabled unless `VEROX_COGNITIVE_API_TOKEN` is configured on the server.
+Call it only from a trusted server-to-server client using `Authorization: Bearer <token>`;
+do not put this token in browser JavaScript, HTML, or a public Vercel variable.
+
+Example JSON body:
+
+```json
+{
+  "domain": "micro_tasks",
+  "prompt": "Résume ce texte en cinq points.",
+  "context_vision": "Privilégier la précision et les solutions gratuites."
+}
+```
+
+Supported domains include `trading`, `finance`, `micro_tasks`, `automation`,
+`business`, `mining`, `ecommerce`, `web`, and `general`. The response includes
+the selected role, provider/model, routing rationale, and generated content. The
+endpoint does not execute external actions.
+
+The existing `/api/chat` route and its task queue are left unchanged. Before exposing
+this endpoint through a public frontend, add a trusted server-side proxy, user
+authentication, rate limiting, and usage budgets. Configure the provider API keys
+only as server-side secrets. The RSS worker is not scheduled automatically; do not
+schedule ingestion until the migration has been reviewed and applied to the intended
+Supabase project and the worker has been tested with the configured feeds.
