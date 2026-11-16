@@ -68,3 +68,22 @@ authentication, rate limiting, and usage budgets. Configure the provider API key
 only as server-side secrets. The RSS worker is not scheduled automatically; do not
 schedule ingestion until the migration has been reviewed and applied to the intended
 Supabase project and the worker has been tested with the configured feeds.
+
+## Transactional order reservation and market-rule evaluation
+
+- `rules_engine.py` evaluates deterministic conditions against a timestamped observation. Missing, null, malformed, or non-finite numeric data yields `unknown`; missing odds are never silently converted to zero. A goal-time rule must use the goal event's own minute/timestamp, not the observation's current minute.
+- A rule result of `candidate` is an analysis result only. Every result has `executable=False`; this module cannot submit orders or authorize external actions.
+- Migration `202611160002_verox_transactional_order_outbox.sql` defines treasury accounts, an append-only-by-permission ledger, reserved orders, and a transactional outbox. `reserve_validated_order` atomically checks and reserves available balance, fingerprints the request, and inserts the order, ledger entry, and `verox.order.reserved` event.
+- Repeating an idempotency key with the same request returns the original order; reusing it for a different request is rejected. Account-row locking serializes balance reservations. Direct writes to the financial tables are revoked from API roles; the trusted server role uses scoped RPCs.
+- Outbox claim/ack/fail RPCs use row locking, worker leases, retry scheduling, and a dead-letter status. Delivery is at-least-once, so consumers must deduplicate using the event idempotency key. An acknowledged outbox event means only that the event was consumed; it does not mean an external order was accepted or executed.
+- **Not yet production-enabled:** this migration has not been applied to a database, and no live market feed, order dispatcher, provider connector, funding workflow, capture/release settlement workflow, or concurrent PostgreSQL integration test is included. Do not expose a live execution path until those parts and the reconciliation process are implemented and verified.
+
+## Financial event identity and ingestion boundary
+
+- Migration `202611160003_verox_financial_event_identity.sql` extends the canonical `verox_orders` table with stable upstream event identity. It deliberately reuses `verox_treasury_ledger` and `verox_event_outbox`; it does not introduce parallel financial tables.
+- `commit_validated_bet_order` uses transaction-scoped advisory locks for event/source-reference identity, while `reserve_validated_order` locks the treasury account row to serialize balance reservations. Unique indexes remain the final identity guard.
+- The RPC fingerprints the normalized request. Replaying the same event and same request returns the existing order; reusing the event identity for a different request is rejected. Its `reserved` result explicitly reports `execution_status = not_submitted`.
+- `core/streaming/market_events.py` is a side-effect-free ingestion contract. It requires stable event/source/reference identifiers, a timezone-aware event timestamp, a JSON object payload, and a 32 KiB payload limit. It does not connect to a live feed or submit orders.
+- Unit tests cover normalization, missing identifiers, timezone handling, NaN rejection, payload bounds, and fail-closed market rules.
+- **Still required before production rollout:** execute the SQL migration in an isolated PostgreSQL test database; add real concurrent RPC tests for same-key replay, conflicting fingerprints, duplicate source references, and simultaneous balance reservations; implement capture/release/reversal settlement and reconciliation; then add a separately controlled provider dispatcher. The current work is not a live betting/trading integration.
+

@@ -1,17 +1,29 @@
 name: Verox cognition foundation tests
+# Lifecycle migrations and tests are validated against an ephemeral PostgreSQL 16 service.
 
 on:
   push:
     branches:
       - feat/live-cognition-foundation
+      - feat/transactional-outbox-foundation
   pull_request:
     paths:
       - "core/cognition/**"
+      - "core/streaming/**"
+      - "core/orchestration/**"
+      - "workers/execution/**"
       - "tests/test_cognition_foundation.py"
       - "tests/test_gateway_worker.py"
       - "tests/test_memory_persistence.py"
       - "tests/test_channels_treasury.py"
+      - "tests/test_rules_engine.py"
+      - "tests/test_market_event_normalizer.py"
+      - "tests/test_orchestration_pipeline.py"
+      - "tests/test_postgres_financial_integration.py"
       - "supabase/migrations/*verox_experience_library.sql"
+      - "supabase/migrations/*verox_transactional_order_outbox.sql"
+      - "supabase/migrations/*verox_financial_event_identity.sql"
+      - "supabase/migrations/*verox_reservation_lifecycle.sql"
       - ".github/workflows/verox-cognition-tests.yml"
 
 jobs:
@@ -25,4 +37,32 @@ jobs:
       - name: Install runtime dependency
         run: python -m pip install "httpx>=0.27.0"
       - name: Run cognition foundation tests
-        run: python -m unittest tests.test_cognition_foundation tests.test_gateway_worker tests.test_memory_persistence tests.test_channels_treasury -v
+        run: python -m unittest tests.test_cognition_foundation tests.test_gateway_worker tests.test_memory_persistence tests.test_channels_treasury tests.test_rules_engine tests.test_market_event_normalizer tests.test_orchestration_pipeline -v
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: verox_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d verox_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      VEROX_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/verox_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL test driver
+        run: python -m pip install "psycopg[binary]>=3.2,<4"
+      - name: Apply canonical migrations and test transaction safety
+        run: python -m unittest tests.test_postgres_financial_integration -v
