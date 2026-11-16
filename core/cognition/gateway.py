@@ -36,8 +36,8 @@ class ProviderConfig:
 PROVIDERS: dict[AgentRole, ProviderConfig] = {
     AgentRole.FINANCE_RESEARCH: ProviderConfig("gemini", "https://generativelanguage.googleapis.com/v1beta", "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-2.5-flash"),
     AgentRole.MICRO_TASKS: ProviderConfig("openai", "https://api.openai.com/v1", "OPENAI_API_KEY", "OPENAI_MODEL", "gpt-4.1-mini"),
-    AgentRole.BUSINESS_RESEARCH: ProviderConfig("xai", "https://api.x.ai/v1", "GROK_API_KEY", "GROK_MODEL", "grok-3-mini"),
-    AgentRole.COMMERCE_RESEARCH: ProviderConfig("anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "CLAUDE_MODEL", "claude-3-7-sonnet-latest"),
+    AgentRole.BUSINESS_RESEARCH: ProviderConfig("xai", "https://api.x.ai/v1", "GROK_API_KEY", "GROK_MODEL", "grok-4-1-fast"),
+    AgentRole.COMMERCE_RESEARCH: ProviderConfig("anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "CLAUDE_MODEL", "claude-sonnet-4-5"),
     AgentRole.WEB_RESEARCH: ProviderConfig("openai", "https://api.openai.com/v1", "OPENAI_API_KEY", "OPENAI_MODEL", "gpt-4.1-mini"),
     AgentRole.GENERAL: ProviderConfig("openai", "https://api.openai.com/v1", "OPENAI_API_KEY", "OPENAI_MODEL", "gpt-4.1-mini"),
 }
@@ -185,7 +185,6 @@ class CognitiveGateway:
                              "parts": [{"text": message["content"]}]})
         response = await client.post(
             f"{config.base_url}/models/{model}:generateContent",
-            params={"key": key},
             json={"systemInstruction": {"parts": [{"text": system}]}, "contents": contents,
                   "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048}},
         )
