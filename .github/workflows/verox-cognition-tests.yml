@@ -1,4 +1,5 @@
 name: Verox cognition foundation tests
+# Lifecycle migrations and tests are validated against an ephemeral PostgreSQL 16 service.
 
 on:
   push:
