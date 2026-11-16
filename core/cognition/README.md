@@ -5,6 +5,8 @@
 - `evidence.py`: normalized evidence records, SHA-256 deduplication and trust labels.
 - `memory.py`: server-side Supabase experience storage/retrieval. Vector search requires real 768-dimensional embeddings; without them, retrieval is lexical.
 - `worker.py`: opt-in RSS/Atom ingestion from configured HTTPS feeds, with size/item limits and provenance. It does not crawl arbitrary sites or bypass access controls.
+- `channels.py`: explicit `auto`, `solo` (Gemini finance analysis), and `accompanied` (parallel Claude commerce + Grok business analysis) channels. It returns analysis only and never executes external actions.
+- `treasury.py`: Decimal-based, conservative paper-ledger allocation planner. Unconfirmed revenue is excluded and the default allocation to speculative activity is 0%; it never moves funds.
 - `feedback.py`: bounded preference tuning from explicit outcome scores.
 
 ## Server-side configuration
@@ -26,15 +28,15 @@ Ingestion:
 
 ## Routing and safety
 
-Default routing is Gemini for finance research, OpenAI for micro-tasks/general/web research, xAI for business research, and Claude for commerce research. Model names can change in environment variables. A domain can be supplied explicitly; otherwise the deterministic router selects a role. Calls return model text and routing metadata only. The gateway does not execute financial or other external actions. Transactions, purchases, publishing, destructive changes, and transfers require a separate authenticated approval/execution layer.
+Default routing is Gemini for finance research, OpenAI for micro-tasks/general/web research, xAI for business research, and Claude for commerce research. Model names can change in environment variables. A domain can be supplied explicitly; otherwise the deterministic router selects a role. The explicit `solo` channel pins analysis to Gemini; `accompanied` requests Claude and Grok analyses in parallel and returns them separately so disagreements remain visible. Calls return model text and routing metadata only. The gateway does not execute financial or other external actions. Transactions, purchases, publishing, destructive changes, and transfers require a separate authenticated approval/execution layer.
 
 ## Database
 
-Review and apply `supabase/migrations/202611160001_verox_experience_library.sql` in the intended Verox Supabase project. It creates a separate experience table and does not alter legacy task queues. The default vector column is 768 dimensions; configure a real embedding provider to emit exactly 768 dimensions before vector retrieval is used.
+Migration `verox_experience_library` was applied and verified on the `LordVerox` Supabase project on 2026-11-16. It creates a separate experience table and does not alter legacy task queues. Before applying to any other project, inspect its extension schema and migration history. The default vector column is 768 dimensions; configure a real embedding provider to emit exactly 768 dimensions before vector retrieval is used.
 
 ## Current boundary
 
-These modules are foundations, not yet wired to the existing production HTTP API, frontend, authentication, quotas, or a scheduled worker. Do not expose the gateway publicly until an authenticated API endpoint, rate limiting, and request budgets are in place. The Supabase migration has not been applied automatically.
+These modules are foundations, not yet wired to the existing production HTTP API, frontend, authentication, quotas, or a scheduled worker. Do not expose the gateway publicly until an authenticated API endpoint, rate limiting, and request budgets are in place. The Supabase migration has been applied to LordVerox only; no other project is implied.
 
 
 ## HTTP API integration
