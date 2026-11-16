@@ -134,8 +134,9 @@ begin
   if v_currency !~ '^[A-Z]{3}$' then
     raise exception using errcode = '22023', message = 'currency must be a three-letter uppercase code';
   end if;
-  if p_stake is null or p_stake <= 0 or p_stake <> pg_catalog.round(p_stake, 6) then
-    raise exception using errcode = '22023', message = 'stake must be positive and have at most six decimal places';
+  if p_stake is null or p_stake::text in ('NaN', 'Infinity', '-Infinity')
+     or p_stake <= 0 or p_stake <> pg_catalog.round(p_stake, 6) then
+    raise exception using errcode = '22023', message = 'stake must be finite, positive and have at most six decimal places';
   end if;
   if v_key is null or pg_catalog.length(v_key) < 8 or pg_catalog.length(v_key) > 200 then
     raise exception using errcode = '22023', message = 'idempotency_key length must be between 8 and 200';
@@ -147,6 +148,9 @@ begin
   end if;
   if pg_catalog.jsonb_typeof(v_payload) <> 'object' then
     raise exception using errcode = '22023', message = 'payload must be a JSON object';
+  end if;
+  if pg_catalog.octet_length(pg_catalog.convert_to(v_payload::text, 'UTF8')) > 32768 then
+    raise exception using errcode = '22023', message = 'payload exceeds the 32 KiB limit';
   end if;
 
   v_request_hash := extensions.digest(
