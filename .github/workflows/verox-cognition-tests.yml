@@ -22,6 +22,7 @@ on:
       - "supabase/migrations/*verox_experience_library.sql"
       - "supabase/migrations/*verox_transactional_order_outbox.sql"
       - "supabase/migrations/*verox_financial_event_identity.sql"
+      - "supabase/migrations/*verox_reservation_lifecycle.sql"
       - ".github/workflows/verox-cognition-tests.yml"
 
 jobs:
