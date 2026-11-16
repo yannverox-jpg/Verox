@@ -313,8 +313,8 @@ begin
           or (o.status = 'processing'
             and o.locked_at < pg_catalog.now() - pg_catalog.make_interval(secs => p_lease_seconds)))
       order by o.available_at, o.id
-      for update skip locked
       limit p_batch_size
+      for update skip locked
   ),
   claimed as (
     update public.verox_event_outbox o
