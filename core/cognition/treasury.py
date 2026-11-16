@@ -74,7 +74,13 @@ def plan_allocation(
         if event.confirmed:
             confirmed_total += event.amount
 
-    allocatable = confirmed_total * active_policy.max_allocation_ratio
+    # The maximum allocation cap and the minimum reserve are independent
+    # constraints; the stricter one governs the amount that can be proposed.
+    reserve_limited_ratio = Decimal("1") - active_policy.reserve_ratio
+    effective_allocation_ratio = min(
+        active_policy.max_allocation_ratio, reserve_limited_ratio
+    )
+    allocatable = confirmed_total * effective_allocation_ratio
     reserve = confirmed_total - allocatable
     return {
         "currency": target_currency,
