@@ -25,6 +25,7 @@ async def execute_channel(
     *,
     prompt: str,
     channel: str = "auto",
+    domain: str | None = None,
     context_vision: str | None = None,
     history: list[dict[str, str]] | None = None,
     gateway: CognitiveGateway | None = None,
@@ -43,7 +44,7 @@ async def execute_channel(
     brain = gateway or CognitiveGateway()
     if selected is CognitionChannel.AUTO:
         return await brain.route_and_execute(
-            prompt=prompt, context_vision=context_vision, history=history
+            prompt=prompt, domain=domain, context_vision=context_vision, history=history
         )
 
     if selected is CognitionChannel.SOLO:
