@@ -125,6 +125,53 @@ async def _save_assistant_message(
     await conn.commit()
 
 
+
+@ai.tool
+async def search_persistent_memory(query: str) -> str:
+    """Search persistent Verox memory when the user asks to recall or reuse earlier facts."""
+    clean_query = query.strip()[:160]
+    if not clean_query:
+        return "Aucun terme de recherche fourni."
+    conn = await _connect()
+    async with conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """SELECT memory_key, content, importance FROM public.verox_memory
+                   WHERE active = TRUE AND (memory_key ILIKE %s OR content::text ILIKE %s)
+                   ORDER BY importance DESC, updated_at DESC LIMIT 5""",
+                (f"%{clean_query}%", f"%{clean_query}%"),
+            )
+            rows = await cur.fetchall()
+    return json.dumps(rows, ensure_ascii=False, default=str) if rows else "Aucun souvenir correspondant."
+
+
+@ai.tool
+async def remember_persistent_fact(memory_key: str, content: str, importance: int = 3) -> str:
+    """Save a stable fact only when the user explicitly asks Verox to remember or save it."""
+    key = memory_key.strip()[:120]
+    value = content.strip()[:1600]
+    rank = max(1, min(5, int(importance)))
+    if not key or not value:
+        return "Souvenir non enregistré : la clé et le contenu sont requis."
+    conn = await _connect()
+    async with conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """INSERT INTO public.verox_memory (memory_key, content, importance, source, active)
+                   VALUES (%s, %s::jsonb, %s, 'agent', TRUE)
+                   ON CONFLICT (memory_key) DO UPDATE SET
+                     content = EXCLUDED.content,
+                     importance = EXCLUDED.importance,
+                     source = EXCLUDED.source,
+                     active = TRUE,
+                     updated_at = now()""",
+                (key, json.dumps(value, ensure_ascii=False), rank),
+            )
+        await conn.commit()
+    return f"Souvenir enregistré : {key}"
+
+
+
 def _sse(payload: dict[str, Any], event: str = "message") -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -246,7 +293,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         yield _sse({"type": "start", "conversation_id": conversation_id, "model": MODEL_NAME}, "start")
         try:
             model = ai.get_model(MODEL_NAME)
-            agent = ai.Agent()
+            agent = ai.Agent(tools=[search_persistent_memory, remember_persistent_fact])
             async with agent.run(model, messages) as stream:
                 async for event in stream:
                     if isinstance(event, ai.events.TextDelta):
