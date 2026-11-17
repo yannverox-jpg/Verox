@@ -876,7 +876,36 @@ def run_dashboard():
             self.end_headers()
             self.wfile.write(body)
 
+        def _operational_authorized(self):
+            expected = os.getenv("VEROX_COGNITIVE_API_TOKEN", "").strip()
+            if not expected:
+                self._json(503, {"status": "disabled", "error": "VEROX_COGNITIVE_API_TOKEN non configuré côté serveur."})
+                return False
+            supplied = self.headers.get("Authorization", "")
+            if not supplied.startswith("Bearer ") or not hmac.compare_digest(supplied[7:].strip(), expected):
+                self._json(401, {"status": "unauthorized", "error": "Authentification requise."})
+                return False
+            return True
+
         def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/verox/status/health":
+                from core.cognition.read_only_operations import list_extensions
+                extensions = list_extensions()
+                return self._json(200, {
+                    "status": "available",
+                    "backend": "existing_dashboard_handler",
+                    "mode": "strict_read_only",
+                    "extensions_pending_review": sum(1 for item in extensions if item.get("status") == "pending_review"),
+                    "real_platform_connections_verified": False,
+                    "financial_balances_configured": False
+                })
+            if parsed.path == "/api/verox/finances/balances":
+                from core.cognition.read_only_operations import financial_balances_status
+                return self._json(200, financial_balances_status())
+            if parsed.path == "/api/verox/extensions":
+                from core.cognition.read_only_operations import list_extensions
+                return self._json(200, {"status": "success", "items": list_extensions()})
             parsed = urlparse(self.path)
             if parsed.path == "/api/health":
                 try:
@@ -971,6 +1000,78 @@ def run_dashboard():
 
         def do_POST(self):
             route = urlparse(self.path).path
+            if route in ("/api/verox/observe/target", "/api/verox/extensions/propose", "/api/verox/blitz/start"):
+                if not self._operational_authorized():
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 20000:
+                        return self._json(400, {"status": "invalid_request", "error": "Taille de requête invalide."})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(body, dict):
+                        return self._json(400, {"status": "invalid_request", "error": "Un objet JSON est requis."})
+                except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+                    return self._json(400, {"status": "invalid_request", "error": "JSON invalide."})
+
+                from core.cognition.read_only_operations import (
+                    ReadOnlyOperationError, inspect_public_target, propose_extension,
+                )
+                if route == "/api/verox/extensions/propose":
+                    try:
+                        result = propose_extension(body.get("plugin_manifest"))
+                        return self._json(201, result)
+                    except ReadOnlyOperationError as exc:
+                        return self._json(400, {"status": "rejected", "error": str(exc)})
+                    except FileExistsError:
+                        return self._json(409, {"status": "conflict", "error": "Identifiant d'extension déjà utilisé."})
+                    except Exception:
+                        logger.exception("Échec de proposition d'extension")
+                        return self._json(500, {"status": "error", "error": "Impossible d'enregistrer la proposition."})
+
+                if route == "/api/verox/observe/target":
+                    try:
+                        result = inspect_public_target(
+                            target_name=body.get("target_name"),
+                            target_url=body.get("target_url"),
+                            category=body.get("category"),
+                        )
+                        status = 200 if result.get("status") == "observed" else 502
+                        return self._json(status, result)
+                    except ReadOnlyOperationError as exc:
+                        return self._json(400, {"status": "rejected", "error": str(exc)})
+                    except Exception:
+                        logger.exception("Échec d'observation de cible")
+                        return self._json(500, {"status": "error", "error": "Échec interne de l'observation."})
+
+                targets = body.get("targets")
+                if not isinstance(targets, list) or not targets or len(targets) > 5:
+                    return self._json(400, {"status": "invalid_request", "error": "Fournir entre 1 et 5 cibles."})
+                results = []
+                for target in targets:
+                    if not isinstance(target, dict):
+                        results.append({"status": "rejected", "error": "target_must_be_object"})
+                        continue
+                    try:
+                        results.append(inspect_public_target(
+                            target_name=target.get("name") or target.get("target_name"),
+                            target_url=target.get("url") or target.get("target_url"),
+                            category=target.get("category"),
+                        ))
+                    except ReadOnlyOperationError as exc:
+                        results.append({"status": "rejected", "target_name": str(target.get("name") or target.get("target_name") or "")[:120],
+                                        "error": str(exc)})
+                    except Exception:
+                        logger.exception("Échec d'une cible du blitz")
+                        results.append({"status": "failed_observation", "error": "internal_observation_error"})
+                return self._json(200, {
+                    "status": "completed" if all(item.get("status") == "observed" for item in results) else "completed_with_errors",
+                    "mode": "read_only",
+                    "observation_type": "real_observation",
+                    "financial_actions_executed": False,
+                    "targets_processed": len(results),
+                    "results": results
+                })
+
             if route == "/api/v1/cognitive/execute":
                 # Machine-to-machine endpoint: never expose provider keys to the browser.
                 expected_token = os.getenv("VEROX_COGNITIVE_API_TOKEN", "").strip()
