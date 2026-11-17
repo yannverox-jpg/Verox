@@ -18,6 +18,7 @@ The Sandbox is an offline-first research area for historical sports, horse-racin
 - Chronologically split historical forecasts into earlier evaluation data and a later held-out segment.
 - Reject duplicate event/strategy forecasts and forecasts timestamped at or after settlement.
 - Keep a virtual-only in-memory ledger for paper simulations.
+- Persist timestamped pre-match odds snapshots in a local SQLite historical library (`sandbox/history_db.py`), with timezone-aware cutoff queries and duplicate-snapshot protection.
 
 ## Decision and validation principles
 
@@ -35,11 +36,11 @@ The Sandbox is an offline-first research area for historical sports, horse-racin
 From the repository root:
 
 ```bash
-python -m unittest sandbox.test_engine sandbox.test_backtesting -v
+python -m unittest sandbox.test_engine sandbox.test_backtesting sandbox.test_history_db -v
 ```
 
 The tests use Python's standard library and require no database or network access.
 
 ## Not implemented yet
 
-Live streaming, official results ingestion, platform connectors, historical data licensing, football event/tactical feeds, horse-racing feeds, market depth/order-flow feeds, latency capture, parallel job scheduling, persistent Sandbox storage and the brain-to-Sandbox reporting adapter remain future work. A dependency such as Playwright does not by itself mean a connector exists.
+Live streaming, official results ingestion, platform connectors, historical data licensing, football event/tactical feeds, horse-racing feeds, market depth/order-flow feeds, latency capture, parallel job scheduling, live streaming, official results ingestion, platform connectors, historical data licensing, football event/tactical feeds, horse-racing feeds, market depth/order-flow feeds, latency capture, parallel job scheduling and the brain-to-Sandbox reporting adapter remain future work. SQLite history is local persistence only; it does not collect data. A dependency such as Playwright does not by itself mean a connector exists.
