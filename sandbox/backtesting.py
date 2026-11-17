@@ -117,6 +117,15 @@ def walk_forward_evaluate(
     split_at = int(len(items) * fraction)
     if split_at < 1 or len(items) - split_at < minimum_test_size:
         raise ValueError("not enough forecasts for the requested chronological split")
+    # Keep forecasts with identical timestamps on the same side of the boundary.
+    # Otherwise an arbitrary list order could split one observation batch across train/test.
+    while split_at < len(items) and (
+        _parse_time(items[split_at - 1].predicted_at, "predicted_at")
+        == _parse_time(items[split_at].predicted_at, "predicted_at")
+    ):
+        split_at += 1
+    if split_at >= len(items) or len(items) - split_at < minimum_test_size:
+        raise ValueError("not enough distinct timestamp groups for the requested chronological split")
     train = items[:split_at]
     test = items[split_at:]
     return {
