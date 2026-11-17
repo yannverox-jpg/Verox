@@ -1,5 +1,6 @@
 """Verox Sandbox: isolated, offline-first research and paper-simulation tools."""
 
+from .backtesting import HistoricalForecast, evaluate_forecasts, walk_forward_evaluate
 from .engine import (
     MarketObservation,
     OddsObservation,
@@ -10,10 +11,13 @@ from .engine import (
 )
 
 __all__ = [
+    "HistoricalForecast",
     "MarketObservation",
     "OddsObservation",
     "PaperLedger",
     "compare_platform_odds",
     "evaluate_binary_market",
+    "evaluate_forecasts",
     "summarize_binary_forecasts",
+    "walk_forward_evaluate",
 ]
