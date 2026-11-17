@@ -24,4 +24,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run offline Sandbox unit tests
-        run: python -m unittest sandbox.test_engine sandbox.test_backtesting sandbox.test_history_db sandbox.test_ingestion sandbox.test_orchestrator sandbox.test_resilience_protocol sandbox.test_autonomous_boot sandbox.test_real_world_modules -v
+        run: python -m unittest sandbox.test_engine sandbox.test_backtesting sandbox.test_history_db sandbox.test_ingestion sandbox.test_orchestrator sandbox.test_resilience_protocol sandbox.test_autonomous_boot sandbox.test_real_world_modules sandbox.extensions.test_plugin_loader -v
