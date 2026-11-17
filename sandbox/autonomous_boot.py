@@ -12,6 +12,7 @@ from dataclasses import dataclass, asdict
 from typing import Any
 
 from sandbox.resilience_protocol import unbreakable_execution
+from sandbox.extensions.plugin_loader import ReadOnlyExtensionRegistry
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,9 @@ class VeroxAutonomousBootloader:
             else:
                 normalized.append(result)
         elapsed = round(time.monotonic() - self.start_time, 3)
+        # Extension manifests are declarative JSON; boot never executes generated Python.
+        extension_registry = ReadOnlyExtensionRegistry()
+        extension_results = extension_registry.load_all()
         return {
             "status": "completed_with_errors" if any(r["status"] == "FAILED" for r in normalized) else "completed",
             "mode": "OFFLINE_PAPER_ONLY",
@@ -105,6 +109,13 @@ class VeroxAutonomousBootloader:
                 "minimum_reserve": self.config.minimum_paper_reserve,
             },
             "workers": normalized,
+            "extensions": {
+                "loaded": sum(1 for item in extension_results if item.get("status") == "loaded"),
+                "rejected": sum(1 for item in extension_results if item.get("status") == "rejected"),
+                "items": extension_results,
+                "execution_mode": "DECLARATIVE_READ_ONLY",
+                "network_access_performed": False,
+            },
         }
 
 
