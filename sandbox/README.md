@@ -1,14 +1,15 @@
 # Verox Sandbox
 
-The Sandbox is an offline-first research area for historical sports, horse-racing and market observations. Its implementation currently provides pure Python analysis and backtesting primitives; it does not connect to betting operators, brokers, streaming vendors, Supabase or real-money accounts.
+The Sandbox is an offline-first research area for historical sports, horse-racing and market observations. Its implementation provides pure Python analysis, backtesting, local SQLite history and paper-only orchestration. It does not connect to betting operators, brokers, streaming vendors, Supabase or real-money accounts.
 
 ## Safety and separation
 
 - `PaperLedger` accepts only the `VIRTUAL` currency and maintains an in-memory simulated balance.
-- Duplicate ledger entry identifiers are rejected, and a simulated stake cannot overdraw the virtual balance.
-- There is no method to submit a real bet, broker order, payment or withdrawal.
+- Duplicate ledger entry identifiers are rejected, and a simulated stake cannot overdraw the virtual balance or breach the configured reserve buffer.
+- `sandbox/orchestrator.py` validates decision timestamps and historical odds, checks a combined-odds cap, then records a virtual paper stake.
+- The orchestrator deliberately does not read real balances, open platform URLs, use stealth automation, submit real bets, broker orders, payments or withdrawals.
 - These primitives do not read or write Supabase. Bulk computation should happen in workers outside the database; a separately reviewed adapter can later persist approved summaries.
-- A simulated result is not a guarantee of real-world profit.
+- A simulated result is not a guarantee of real-world profit. Historical odds are not live quotes.
 
 ## Current capabilities
 
@@ -20,6 +21,7 @@ The Sandbox is an offline-first research area for historical sports, horse-racin
 - Keep a virtual-only in-memory ledger for paper simulations.
 - Persist timestamped pre-match odds snapshots in a local SQLite historical library (`sandbox/history_db.py`), with timezone-aware cutoff queries and duplicate-snapshot protection.
 - Validate incoming payloads before database writes (`sandbox/ingestion.py`), normalize timestamps to UTC, and compute implied probabilities and overround from decimal odds.
+- Run a structured decision through the offline-only orchestrator (`sandbox/orchestrator.py`) and return an auditable paper-simulation result.
 
 ## Decision and validation principles
 
@@ -37,7 +39,7 @@ The Sandbox is an offline-first research area for historical sports, horse-racin
 From the repository root:
 
 ```bash
-python -m unittest sandbox.test_engine sandbox.test_backtesting sandbox.test_history_db sandbox.test_ingestion -v
+python -m unittest sandbox.test_engine sandbox.test_backtesting sandbox.test_history_db sandbox.test_ingestion sandbox.test_orchestrator -v
 ```
 
 The tests use Python's standard library and require no database or network access.
