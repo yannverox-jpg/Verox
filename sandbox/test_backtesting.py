@@ -8,13 +8,13 @@ from sandbox.backtesting import (
 )
 
 
-def forecast(day, probability, outcome, version="v1", settled_day=None):
+def forecast(day, probability, outcome, version="v1", settled_day=None, predicted_hour=10):
     settled_day = settled_day or day + 1
     return HistoricalForecast(
         event_id=f"event-{day}",
         probability=probability,
         outcome=outcome,
-        predicted_at=f"2026-01-{day:02d}T10:00:00+00:00",
+        predicted_at=f"2026-01-{day:02d}T{predicted_hour:02d}:00:00+00:00",
         settled_at=f"2026-01-{settled_day:02d}T20:00:00+00:00",
         strategy_version=version,
     )
@@ -23,7 +23,7 @@ def forecast(day, probability, outcome, version="v1", settled_day=None):
 class BacktestingTests(unittest.TestCase):
     def test_forecast_must_precede_settlement(self):
         with self.assertRaises(ValueError):
-            forecast(1, 0.8, True, settled_day=1)
+            forecast(1, 0.8, True, settled_day=1, predicted_hour=21)
 
     def test_evaluation_scores_settled_forecasts(self):
         result = evaluate_forecasts([
