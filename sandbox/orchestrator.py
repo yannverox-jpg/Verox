@@ -11,6 +11,13 @@ from typing import Any, Dict, List
 from sandbox.engine import PaperLedger
 from sandbox.history_db import HistoricalLibraryDB
 
+from sandbox.osint_discoverer import OsintDiscoverer
+from sandbox.connectors.api_reader import APIReadOnlyReader
+from sandbox.connectors.playwright_reader import PlaywrightReadOnlyReader
+from sandbox.connectors.normalizer import normalize_observation
+from sandbox.replication_engine import ReplicationEngine
+from sandbox.financial_ledger import FinancialReconciliationLedger
+
 
 class VeroxOrchestrator:
     """Validate a combined decision against historical evidence and simulate it."""
@@ -29,6 +36,76 @@ class VeroxOrchestrator:
         self.db = HistoricalLibraryDB(db_path=db_path)
         self.ledger = PaperLedger(initial_balance=paper_balance)
         self.min_balance_buffer = min_balance_buffer
+
+    def inspect_read_only_target(
+        self,
+        *,
+        target_name: str,
+        target_url: str,
+        category: str,
+        access_method: str = "playwright",
+        selectors: Dict[str, str] | None = None,
+        api_endpoint: str | None = None,
+        api_token_env: str | None = None,
+        financial_fields: Dict[str, str] | None = None,
+        currency: str | None = None,
+    ) -> Dict[str, Any]:
+        """Discover a candidate, observe it through an approved read-only adapter, and return evidence.
+
+        This does not log in, bypass access controls, submit forms, or move funds.
+        API mode requires an explicitly documented GET endpoint. Browser mode only
+        reads the current page and supplied selectors from a public/already-authorized
+        session. Missing financial fields are never silently converted to zero.
+        """
+        discoverer = OsintDiscoverer()
+        report = discoverer.analyze_target(target_name, target_url, category)
+        if report["status"] != "inspected" or not report.get("http_status") or report["http_status"] >= 400:
+            return {"status": "discovery_failed", "discovery": report, "observation": None}
+
+        if access_method == "api":
+            if not api_endpoint:
+                raise ValueError("api_endpoint is required for API access")
+            reader = APIReadOnlyReader(target_name, target_url, bearer_token_env=api_token_env)
+        elif access_method == "playwright":
+            reader = PlaywrightReadOnlyReader(target_name, target_url, headless=True)
+        else:
+            raise ValueError("access_method must be 'api' or 'playwright'")
+
+        try:
+            if not reader.connect():
+                return {"status": "connection_failed", "discovery": report, "observation": None}
+            if access_method == "api":
+                raw = reader.fetch_state(endpoint=api_endpoint)
+            else:
+                raw = reader.fetch_state(selectors=selectors)
+            normalized = normalize_observation(target_name, raw, category=category)
+            packet = None
+            if category in {"sports", "horse_racing", "trading"}:
+                packet = ReplicationEngine().ingest_real_market_data(target_name, normalized)
+            financial_record = None
+            if financial_fields:
+                data = normalized.get("data", {})
+                values = {field: data.get(selector) for field, selector in financial_fields.items()}
+                required = {"announced", "confirmed", "available"}
+                if not required.issubset(values) or any(values.get(k) is None for k in required):
+                    raise ValueError("financial_fields must map announced, confirmed, and available to observed values")
+                if not currency:
+                    raise ValueError("currency is required when recording a platform financial observation")
+                financial_record = FinancialReconciliationLedger().update_platform_state(
+                    target_name, values["announced"], values["confirmed"], values["available"],
+                    currency=currency, source=normalized["source_type"],
+                    observed_at=normalized["observed_at"], evidence={"source_url": normalized["source_url"]},
+                )
+            return {
+                "status": "observed",
+                "discovery": report,
+                "observation": normalized,
+                "sandbox_packet": packet,
+                "financial_observation": financial_record,
+                "real_action_performed": False,
+            }
+        finally:
+            reader.disconnect()
 
     @staticmethod
     def _required_text(value: Any, field: str) -> str:
