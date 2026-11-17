@@ -131,6 +131,33 @@ body{background:radial-gradient(ellipse at 50% -20%,#172943 0%,#080d16 56%);font
   <section class="page" id="page-cognitive">
    <div class="welcome"><div class="eyebrow">OBSERVABILITÉ</div><h2>Cognitive Brain</h2><p>Métriques et télémétrie séparées du dashboard principal. Les graphiques s'appuient sur les données disponibles ; les mesures absentes restent explicitement non mesurées.</p></div>
    <div class="stat-grid"><div class="stat-card"><div class="stat-label">Tâches observées</div><div class="stat-value" id="metric-task-total">—</div><div class="stat-note">Échantillon renvoyé par le backend</div></div><div class="stat-card"><div class="stat-label">Événements</div><div class="stat-value" id="metric-event-total">—</div><div class="stat-note">Événements d'exécution enregistrés</div></div><div class="stat-card"><div class="stat-label">Bénéfice hebdomadaire</div><div class="stat-value">Non mesuré</div><div class="stat-note">Pas de registre financier relié</div></div></div>
+   <div class="panel" style="margin-top:18px">
+    <div class="panel-head"><h3>Investigation en lecture seule</h3><span class="mini-tag">Aucune action financière</span></div>
+    <p class="hint">Les opérations POST exigent le jeton serveur VEROX_COGNITIVE_API_TOKEN. Le jeton saisi reste uniquement en mémoire dans cette page et n'est pas sauvegardé.</p>
+    <label for="ops-token">Jeton d'autorisation opérationnelle</label>
+    <input id="ops-token" type="password" autocomplete="off" placeholder="Bearer token configuré côté serveur" style="display:block;width:100%;margin:8px 0 14px;padding:10px;border-radius:8px">
+    <form id="op-observe-form">
+     <div class="metric-grid">
+      <div><label for="op-target-name">Nom de la cible</label><input id="op-target-name" required maxlength="120" value="Cible publique" style="display:block;width:100%;margin:8px 0;padding:10px;border-radius:8px"></div>
+      <div><label for="op-target-url">URL HTTPS publique</label><input id="op-target-url" type="url" required placeholder="https://example.com" style="display:block;width:100%;margin:8px 0;padding:10px;border-radius:8px"></div>
+     </div>
+     <label for="op-target-category">Catégorie</label>
+     <select id="op-target-category" style="display:block;width:100%;margin:8px 0 12px;padding:10px;border-radius:8px">
+      <option value="general">Général</option><option value="ecommerce">Commerce électronique</option><option value="crypto">Crypto</option><option value="microtasks">Microtâches</option><option value="services">Services</option><option value="sports">Sports</option><option value="horse_racing">Courses hippiques</option><option value="trading">Trading</option>
+     </select>
+     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mini-tag" type="submit">Observer la cible</button><button class="mini-tag" id="op-blitz-one" type="button">Blitz sur cette cible</button><button class="mini-tag" id="op-refresh-balances" type="button">Rafraîchir soldes</button><button class="mini-tag" id="op-refresh-status" type="button">État du système</button></div>
+    </form>
+    <div style="margin-top:14px"><label for="op-blitz-json">Cibles du blitz (JSON, maximum 5)</label><textarea id="op-blitz-json" rows="4" spellcheck="false" style="display:block;width:100%;margin:8px 0;padding:10px;border-radius:8px;font-family:monospace" placeholder='[{"name":"Public feed","url":"https://example.com","category":"general"}]'>[]</textarea><button class="mini-tag" id="op-blitz-run" type="button">Lancer le blitz JSON</button></div>
+    <div style="margin-top:14px"><label for="op-extension-json">Proposition d'extension (JSON déclaratif, désactivé par défaut)</label><textarea id="op-extension-json" rows="5" spellcheck="false" style="display:block;width:100%;margin:8px 0;padding:10px;border-radius:8px;font-family:monospace">{
+  "id": "public_metadata_reader",
+  "name": "Public Metadata Reader",
+  "category": "general",
+  "kind": "api_json",
+  "base_url": "https://example.com",
+  "endpoint": "/api/status"
+}</textarea><button class="mini-tag" id="op-propose-extension" type="button">Proposer l'extension</button></div>
+    <pre id="op-result" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;margin-top:14px;padding:12px;border-radius:8px;background:rgba(0,0,0,.18)">Prêt. Aucune cible n'a encore été contactée.</pre>
+   </div>
    <div class="metric-grid">
     <div class="panel metric-card"><div class="panel-head"><h3>Répartition de l'activité</h3><span class="mini-tag">Tâches réelles</span></div><div id="activity-pie" class="pie-wrap"><div class="empty-data">Chargement des données d'activité…</div></div><p class="hint">Le schéma actuel ne relie pas encore chaque tâche à un identifiant d'application. La répartition est donc par type de tâche, pas une attribution d'application supposée.</p></div>
     <div class="panel metric-card"><div class="panel-head"><h3>Bénéfices nets par semaine</h3><span class="mini-tag">EUR</span></div><div class="empty-data">Graphique indisponible : aucune table de revenus ou de transactions n'est actuellement reliée à ce rapport. Aucun montant fictif ne sera tracé.</div></div>
@@ -187,6 +214,24 @@ function renderMetrics(data){metricsCache=data;const t=data.tasks||{},total=Numb
 async function refreshMetrics(){try{const r=await fetch("/api/metrics",{cache:"no-store"});if(!r.ok)throw new Error("Backend indisponible");renderMetrics(await r.json());}catch(e){document.getElementById("connection-status").textContent="Métriques indisponibles";document.getElementById("security-status").textContent="Impossible de vérifier le backend : "+e.message;}}
 async function loadCatalog(){try{const r=await fetch("/api/extensions",{cache:"no-store"});if(!r.ok)throw new Error("Catalogue indisponible");catalogCache=await r.json();renderApplications(catalogCache.items||[]);}catch(e){document.getElementById("connection-status").textContent="Catalogue indisponible";}}
 async function checkHealth(){try{const r=await fetch("/api/health",{cache:"no-store"});const d=await r.json();document.getElementById("connection-status").textContent=d.ok?"Backend et base connectés":"Configuration à vérifier";document.getElementById("security-status").textContent=d.ok?"Backend et base Supabase joignables. Les valeurs secrètes restent masquées.":"Vérification impossible : "+(d.error||"service indisponible");document.getElementById("model-status").textContent="Secours Gemini : "+(d.gemini_fallback_configured?"clé configurée (valeur masquée)":"non configuré")+" · Catalogue : "+(d.extension_count??"inconnu")+" entrées.";}catch(_){document.getElementById("connection-status").textContent="Backend indisponible";}}
+async function operationalRequest(path,method="GET",body=null){
+ const headers={"Accept":"application/json"};
+ if(body!==null)headers["Content-Type"]="application/json";
+ const token=document.getElementById("ops-token").value.trim();
+ if(method!=="GET"&&token)headers["Authorization"]="Bearer "+token;
+ const response=await fetch(path,{method,headers,body:body===null?undefined:JSON.stringify(body),cache:"no-store"});
+ const data=await response.json().catch(()=>({error:"Réponse JSON invalide"}));
+ if(!response.ok)throw new Error((data.error||data.detail||"HTTP "+response.status)+" (HTTP "+response.status+")");
+ return data;
+}
+function showOperationalResult(data){document.getElementById("op-result").textContent=JSON.stringify(data,null,2);}
+function currentTarget(){return {name:document.getElementById("op-target-name").value.trim(),url:document.getElementById("op-target-url").value.trim(),category:document.getElementById("op-target-category").value};}
+document.getElementById("op-observe-form").addEventListener("submit",async e=>{e.preventDefault();try{showOperationalResult(await operationalRequest("/api/verox/observe/target","POST",{target_name:currentTarget().name,target_url:currentTarget().url,category:currentTarget().category}));}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
+document.getElementById("op-blitz-one").addEventListener("click",async()=>{try{showOperationalResult(await operationalRequest("/api/verox/blitz/start","POST",{targets:[currentTarget()]}));}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
+document.getElementById("op-blitz-run").addEventListener("click",async()=>{try{const targets=JSON.parse(document.getElementById("op-blitz-json").value);showOperationalResult(await operationalRequest("/api/verox/blitz/start","POST",{targets}));}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
+document.getElementById("op-refresh-balances").addEventListener("click",async()=>{try{showOperationalResult(await operationalRequest("/api/verox/finances/balances"));}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
+document.getElementById("op-refresh-status").addEventListener("click",async()=>{try{const results=await Promise.all([operationalRequest("/api/verox/status/health"),operationalRequest("/api/verox/extensions")]);showOperationalResult({health:results[0],extensions:results[1]});}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
+document.getElementById("op-propose-extension").addEventListener("click",async()=>{try{const plugin_manifest=JSON.parse(document.getElementById("op-extension-json").value);showOperationalResult(await operationalRequest("/api/verox/extensions/propose","POST",{plugin_manifest}));}catch(err){showOperationalResult({status:"request_failed",error:err.message});}});
 startConversation();loadCatalog();refreshMetrics();checkHealth();setInterval(refreshMetrics,15000);setInterval(checkHealth,30000);
 </script>
 </body>
