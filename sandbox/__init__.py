@@ -3,6 +3,7 @@
 from .backtesting import HistoricalForecast, evaluate_forecasts, walk_forward_evaluate
 from .history_db import HistoricalLibraryDB
 from .ingestion import DataIngestionEngine
+from .orchestrator import VeroxOrchestrator
 from .engine import (
     MarketObservation,
     OddsObservation,
@@ -19,6 +20,7 @@ __all__ = [
     "MarketObservation",
     "OddsObservation",
     "PaperLedger",
+    "VeroxOrchestrator",
     "compare_platform_odds",
     "evaluate_binary_market",
     "evaluate_forecasts",
