@@ -46,7 +46,7 @@ class HistoricalLibraryDBTests(unittest.TestCase):
     def test_timezone_offsets_are_compared_as_instants(self):
         self.add_snapshot("offset", "2026-06-01T17:00:00+01:00")
         result = self.db.get_valid_odds_at_time("match-1", "2026-06-01T16:30:00Z")
-        self.assertIsNone(result)
+        self.assertEqual(result["snapshot_id"], "offset")
 
     def test_updating_event_preserves_snapshots(self):
         self.add_snapshot("first", "2026-06-01T16:00:00Z")
