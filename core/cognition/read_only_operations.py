@@ -176,6 +176,7 @@ def validate_extension_manifest(raw: dict[str, Any]) -> dict[str, Any]:
     # Validate destination now, but do not contact it during proposal.
     if parsed.port not in (None, 443) or parsed.hostname.lower() in {"localhost", "localhost.localdomain"}:
         raise ReadOnlyOperationError("invalid_extension_host")
+    _public_hostname(parsed.hostname)
     endpoint = raw.get("endpoint")
     selectors = raw.get("selectors")
     if kind == "api_json" and (
