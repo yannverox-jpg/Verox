@@ -1035,7 +1035,12 @@ def run_dashboard():
                 try:
                     url, headers = self._supabase()
                 except RuntimeError:
-                    # Mode de démarrage dégradé : Gemini peut répondre pendant que Supabase est configuré.
+                    # Un type de tâche spécialisé ne doit jamais être exécuté par un autre fournisseur en mode dégradé.
+                    if task_type not in {"cognitive_chat", "chat", "general_chat"}:
+                        return self._json(503, {
+                            "error": "Les tâches spécialisées nécessitent le worker Supabase; aucune substitution de fournisseur n'a été effectuée.",
+                            "task_type": task_type,
+                        })
                     fallback = asyncio.run(CognitiveBrain().ask_gemini(query, []))
                     if fallback:
                         return self._json(200, {"answer": fallback, "mode": "gemini_fallback"})
