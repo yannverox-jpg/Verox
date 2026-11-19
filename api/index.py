@@ -44,13 +44,13 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/api/health":
-            gateway_ready = _configured("AI_GATEWAY_API_KEY") and _configured("VEROX_AI_GATEWAY_MODEL")
+            gateway_ready = (_configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN")) and _configured("VEROX_AI_GATEWAY_MODEL")
             supabase_configured = _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY")
             _json(self, 200, {
                 "ok": gateway_ready,
                 "service": "verox-vercel-brain",
                 "runtime": "vercel",
-                "ai_gateway_configured": _configured("AI_GATEWAY_API_KEY"),
+                "ai_gateway_configured": _configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN"),
                 "model_configured": _configured("VEROX_AI_GATEWAY_MODEL"),
                 "supabase_configured": supabase_configured,
                 "database_verified": False,
@@ -95,7 +95,7 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 400, {"error": "JSON invalide."})
             return
 
-        api_key = os.getenv("AI_GATEWAY_API_KEY", "").strip()
+        api_key = (os.getenv("AI_GATEWAY_API_KEY") or os.getenv("VERCEL_OIDC_TOKEN") or "").strip()
         model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
         if not api_key or not model:
             _json(self, 503, {
