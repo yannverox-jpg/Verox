@@ -7,6 +7,7 @@ import argparse
 import sqlite3
 import re
 import uuid
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -787,6 +788,8 @@ async def run_worker():
                 response = await client.get(
                     f"{supabase_url}/rest/v1/nexus_tasks",
                     params={"select": "id,task_key,task_type,payload,status", "status": "eq.queued",
+                            "payload->>source": "eq.verox_dashboard",
+                            "payload->>user_initiated": "eq.true",
                             "order": "scheduled_at.asc", "limit": "1"},
                     headers=headers
                 )
@@ -796,6 +799,11 @@ async def run_worker():
                     await asyncio.sleep(2)
                     continue
                 task = rows[0]
+                payload_guard = task.get("payload") or {}
+                if payload_guard.get("source") != "verox_dashboard" or payload_guard.get("user_initiated") is not True:
+                    logger.warning("Tâche ignorée : absence de déclenchement explicite depuis le chat Verox.")
+                    await asyncio.sleep(2)
+                    continue
                 task_id = task["id"]
                 claim = await client.patch(
                     f"{supabase_url}/rest/v1/nexus_tasks",
@@ -901,7 +909,35 @@ def run_dashboard():
     from urllib.parse import urlparse
     import uuid
 
+    # Les écritures de tâches sont réservées au formulaire de chat du front Verox.
+    # Le contrôle Origin protège contre les soumissions cross-site ; ce n’est pas une authentification utilisateur.
+    allowed_origins = {
+        "https://verox-eight.vercel.app",
+        "https://verox-verox-s-projects.vercel.app",
+        "https://verox-git-main-verox-s-projects.vercel.app",
+    }
+    allowed_origins.update(
+        origin.strip().rstrip("/")
+        for origin in os.getenv("VEROX_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    )
+    chat_attempts = {}
+
     class DashboardHandler(SimpleHTTPRequestHandler):
+        def _authorize_chat(self):
+            origin = self.headers.get("Origin", "").rstrip("/")
+            if origin not in allowed_origins:
+                return 403, "Origine non autorisée pour le chat Verox."
+            if self.headers.get("X-Verox-Chat-Intent") != "user":
+                return 403, "Les écritures sont réservées aux demandes explicites du chat."
+            now = time.monotonic()
+            client_ip = self.client_address[0]
+            recent = [stamp for stamp in chat_attempts.get(client_ip, []) if now - stamp < 60]
+            if len(recent) >= 12:
+                return 429, "Limite de 12 demandes de chat par minute atteinte."
+            recent.append(now)
+            chat_attempts[client_ip] = recent
+            return 200, ""
         def _supabase(self):
             url = os.getenv("SUPABASE_URL", "").rstrip("/")
             key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -1018,6 +1054,9 @@ def run_dashboard():
         def do_POST(self):
             if urlparse(self.path).path != "/api/chat":
                 return self._json(404, {"error": "Route inconnue"})
+            auth_status, auth_error = self._authorize_chat()
+            if auth_status != 200:
+                return self._json(auth_status, {"error": auth_error})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 1 or length > 20000:
@@ -1049,7 +1088,7 @@ def run_dashboard():
                     return self._json(503, {"error": "Supabase n'est pas configuré et Gemini n'est pas disponible."})
                 task = {"task_key": task_key, "task_type": task_type,
                         "status": "queued", "payload": {"text": query, "email": email,
-                        "source": "verox_dashboard"}}
+                        "source": "verox_dashboard", "user_initiated": True}}
                 with httpx.Client(timeout=10.0) as client:
                     response = client.post(url + "/rest/v1/nexus_tasks",
                         json=task, headers={**headers, "Prefer": "return=representation"})
