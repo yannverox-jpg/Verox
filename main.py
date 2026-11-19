@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
-from verox_brain.dispatch import resolve_route, UnknownTaskType
+from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -940,6 +940,9 @@ def run_dashboard():
                         "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
                         "error": str(exc)[:250]
                     })
+            if parsed.path == "/api/agents":
+                agents = [route_status(task_type) for task_type in sorted(ROUTES)]
+                return self._json(200, {"agents": agents, "count": len(agents)})
             if parsed.path == "/api/extensions":
                 try:
                     catalog_path = Path(__file__).resolve().parent / "integrations" / "catalog.json"
@@ -1020,8 +1023,14 @@ def run_dashboard():
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 query = str(body.get("text", "")).strip()
                 email = str(body.get("email", "")).strip()
+                task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
                 if not query:
                     return self._json(400, {"error": "Le message est vide"})
+                if task_type not in {"cognitive_chat", "chat", "general_chat"}:
+                    try:
+                        resolve_route(task_type)
+                    except UnknownTaskType as exc:
+                        return self._json(400, {"error": str(exc), "available_task_types": sorted(ROUTES)})
                 task_key = str(uuid.uuid4())
                 try:
                     url, headers = self._supabase()
@@ -1031,7 +1040,7 @@ def run_dashboard():
                     if fallback:
                         return self._json(200, {"answer": fallback, "mode": "gemini_fallback"})
                     return self._json(503, {"error": "Supabase n'est pas configuré et Gemini n'est pas disponible."})
-                task = {"task_key": task_key, "task_type": "cognitive_chat",
+                task = {"task_key": task_key, "task_type": task_type,
                         "status": "queued", "payload": {"text": query, "email": email,
                         "source": "verox_dashboard"}}
                 with httpx.Client(timeout=10.0) as client:
