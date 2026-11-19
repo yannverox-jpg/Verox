@@ -1,0 +1,27 @@
+name: Vercel Brain Runtime Checks
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "vercel.json"
+      - ".github/workflows/vercel-brain-runtime.yml"
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "vercel.json"
+      - ".github/workflows/vercel-brain-runtime.yml"
+
+jobs:
+  validate-vercel-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate Python syntax
+        run: python -m py_compile api/index.py
+      - name: Validate Vercel configuration
+        run: python -m json.tool vercel.json > /dev/null
