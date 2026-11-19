@@ -54,7 +54,7 @@ class handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/api/health":
             gateway_ready = bool(_gateway_token(self)) and _configured("VEROX_AI_GATEWAY_MODEL")
-            supabase_configured = _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY")
+            supabase_configured = _configured("SUPABASE_URL") and _configured("SUPABASE_ANON_KEY")
             _json(self, 200, {
                 "ok": gateway_ready,
                 "service": "verox-vercel-brain",
@@ -70,7 +70,7 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/extensions":
             _json(self, 200, {"items": [
                 {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_configuration"},
-                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY") else "needs_configuration"},
+                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if _configured("SUPABASE_URL") and _configured("SUPABASE_ANON_KEY") else "needs_configuration"},
                 {"id": "durable_workflows", "label": "Vercel Workflows", "group": "Exécution en arrière-plan", "lifecycle": "not_configured"},
             ]})
             return
