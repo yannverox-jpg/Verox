@@ -60,7 +60,7 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/extensions":
             _json(self, 200, {"items": [
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _configured("AI_GATEWAY_API_KEY") else "needs_configuration"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if (_configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN")) else "needs_configuration"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY") else "needs_configuration"},
                 {"id": "durable_workflows", "label": "Vercel Workflows", "group": "Exécution en arrière-plan", "lifecycle": "not_configured"},
             ]})
