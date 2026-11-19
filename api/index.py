@@ -36,6 +36,15 @@ def _configured(name: str) -> bool:
     return bool(os.getenv(name, "").strip())
 
 
+def _gateway_token(request: BaseHTTPRequestHandler) -> str:
+    # Vercel injects the OIDC token as a request header at runtime.
+    return (
+        os.getenv("AI_GATEWAY_API_KEY", "").strip()
+        or request.headers.get("x-vercel-oidc-token", "").strip()
+        or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
+    )
+
+
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Avoid logging request bodies, prompts, or secrets.
@@ -44,13 +53,13 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/api/health":
-            gateway_ready = (_configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN")) and _configured("VEROX_AI_GATEWAY_MODEL")
+            gateway_ready = bool(_gateway_token(self)) and _configured("VEROX_AI_GATEWAY_MODEL")
             supabase_configured = _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY")
             _json(self, 200, {
                 "ok": gateway_ready,
                 "service": "verox-vercel-brain",
                 "runtime": "vercel",
-                "ai_gateway_configured": _configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN"),
+                "ai_gateway_configured": bool(_gateway_token(self)),
                 "model_configured": _configured("VEROX_AI_GATEWAY_MODEL"),
                 "supabase_configured": supabase_configured,
                 "database_verified": False,
@@ -60,7 +69,7 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/extensions":
             _json(self, 200, {"items": [
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if (_configured("AI_GATEWAY_API_KEY") or _configured("VERCEL_OIDC_TOKEN")) else "needs_configuration"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_configuration"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if _configured("SUPABASE_URL") and _configured("SUPABASE_SERVICE_ROLE_KEY") else "needs_configuration"},
                 {"id": "durable_workflows", "label": "Vercel Workflows", "group": "Exécution en arrière-plan", "lifecycle": "not_configured"},
             ]})
@@ -95,7 +104,7 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 400, {"error": "JSON invalide."})
             return
 
-        api_key = (os.getenv("AI_GATEWAY_API_KEY") or os.getenv("VERCEL_OIDC_TOKEN") or "").strip()
+        api_key = _gateway_token(self)
         model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
         if not api_key or not model:
             _json(self, 503, {
