@@ -16,6 +16,7 @@ import httpx
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
 from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
+from verox_brain.write_policy import is_chat_initiated_task, is_allowed_chat_origin
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -800,7 +801,7 @@ async def run_worker():
                     continue
                 task = rows[0]
                 payload_guard = task.get("payload") or {}
-                if payload_guard.get("source") != "verox_dashboard" or payload_guard.get("user_initiated") is not True:
+                if not is_chat_initiated_task(payload_guard):
                     logger.warning("Tâche ignorée : absence de déclenchement explicite depuis le chat Verox.")
                     await asyncio.sleep(2)
                     continue
@@ -926,7 +927,7 @@ def run_dashboard():
     class DashboardHandler(SimpleHTTPRequestHandler):
         def _authorize_chat(self):
             origin = self.headers.get("Origin", "").rstrip("/")
-            if origin not in allowed_origins:
+            if not is_allowed_chat_origin(origin, allowed_origins):
                 return 403, "Origine non autorisée pour le chat Verox."
             if self.headers.get("X-Verox-Chat-Intent") != "user":
                 return 403, "Les écritures sont réservées aux demandes explicites du chat."
