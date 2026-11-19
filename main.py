@@ -6,6 +6,7 @@ import json
 import argparse
 import sqlite3
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -13,6 +14,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
+from verox_brain.dispatch import resolve_route, UnknownTaskType
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -266,9 +268,17 @@ class ConnectorHub:
 
 
 
-    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "") -> List[Dict[str, Any]]:
+    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "", provider_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         results = []
-        provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
+        provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/"), ("Grok Web", "https://grok.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
+        provider_names = {"claude": "Claude Web", "gpt": "GPT Web", "chatgpt": "GPT Web", "gemini": "Gemini Web", "grok": "Grok Web"}
+        if provider_filter:
+            target = provider_names.get(provider_filter.strip().lower())
+            if not target:
+                raise ValueError(f"Fournisseur web non pris en charge: {provider_filter}")
+            provider_sets = {name: [(label, url) for label, url in providers if label == target]
+                             for name, providers in provider_sets.items()}
+            provider_sets = {name: providers for name, providers in provider_sets.items() if providers}
         headless = os.getenv("VEROX_BROWSER_HEADLESS", "true").lower() != "false"
         profile_root = Path(os.getenv("VEROX_BROWSER_PROFILE_DIR", str(Path.home() / ".verox_browser_profiles")))
         profile_root.mkdir(parents=True, exist_ok=True)
@@ -652,7 +662,7 @@ class CognitiveBrain:
             except Exception:
                 logger.exception("[Supabase] Échec de l'archivage dans nexus_memory.")
 
-    async def run(self, user_query: str, user_email: str = ""):
+    async def run(self, user_query: str, user_email: str = "", provider_filter: Optional[str] = None):
         strategy_id, strategy_description = self.drive.choose_strategy(user_query)
         self.store.remember("user_request", user_query, {"strategy": strategy_id, "description": strategy_description})
         print("\n" + "="*65)
@@ -690,7 +700,7 @@ class CognitiveBrain:
             web_results = await self.hub.fetch_stealth_web_interfaces(user_query)
             raw_evidence.extend(web_results)
 
-        raw_evidence.extend(await self.hub.fetch_web_llm_interfaces(user_query, user_email))
+        raw_evidence.extend(await self.hub.fetch_web_llm_interfaces(user_query, user_email, provider_filter=provider_filter))
 
         # 4. Filtrage et dédoublonnage strict
         unique_evidence = []
@@ -799,9 +809,30 @@ async def run_worker():
                     payload = task.get("payload") or {}
                     query = str(payload.get("text") or payload.get("query") or "").strip()
                     email = str(payload.get("email") or "").strip()
+                    task_type = str(task.get("task_type") or "cognitive_chat").strip().lower()
                     if not query:
                         raise ValueError("Le champ payload.text ou payload.query est requis.")
-                    evidence = await brain.run(query, email)
+                    route = None
+                    provider_filter = None
+                    if task_type not in {"cognitive_chat", "chat", "general_chat"}:
+                        route = resolve_route(task_type)
+                        if route.connector in {"grok", "gemini", "claude", "gpt"}:
+                            provider_filter = route.provider
+                        elif route.role != "brain_coordination":
+                            raise RuntimeError(
+                                f"Connecteur requis non intégré au worker: {route.connector}. "
+                                "La tâche est arrêtée plutôt que simulée."
+                            )
+                    evidence = await brain.run(query, email, provider_filter=provider_filter)
+                    if route and provider_filter and not any(
+                        provider_filter.lower() in str(item.get("connector", "")).lower()
+                        and "résultat web" in str(item.get("title", "")).lower()
+                        for item in (evidence or [])
+                    ):
+                        raise RuntimeError(
+                            f"Le fournisseur {route.provider} n'a pas retourné de résultat vérifiable. "
+                            "Vérifier la session Playwright et relancer la tâche."
+                        )
                     # Le chat doit recevoir une réponse rédigée, pas uniquement une liste de preuves.
                     # Si le cycle a déjà produit la réponse Gemini de secours, on la réutilise.
                     gemini_fallback = next(
@@ -814,7 +845,10 @@ async def run_worker():
                         answer = await brain.ask_gemini(query, evidence or [])
                     result = {
                         "answer": answer or "",
-                        "provider": "gemini" if answer else "connectors",
+                        "provider": (route.provider if route and provider_filter else ("gemini" if answer else "connectors")),
+                        "task_type": task_type,
+                        "routed_role": route.role if route else "general_cognitive_chat",
+                        "route_connector": route.connector if route else None,
                         "evidence": evidence or [],
                         "evidence_count": len(evidence or []),
                     }
