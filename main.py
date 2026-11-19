@@ -841,6 +841,14 @@ async def run_worker():
                     )
                     if gemini_fallback:
                         answer = str(gemini_fallback.get("evidence") or "").strip()
+                    elif provider_filter:
+                        provider_result = next(
+                            (item for item in (evidence or [])
+                             if provider_filter.lower() in str(item.get("connector", "")).lower()
+                             and "résultat web" in str(item.get("title", "")).lower()),
+                            None,
+                        )
+                        answer = str(provider_result.get("evidence") or "").strip() if provider_result else ""
                     else:
                         answer = await brain.ask_gemini(query, evidence or [])
                     result = {
