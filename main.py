@@ -284,7 +284,9 @@ class ConnectorHub:
         profile_root.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as p:
             for browser_name in ("chrome", "firefox"):
-                providers = provider_sets[browser_name]
+                providers = provider_sets.get(browser_name, [])
+                if not providers:
+                    continue
                 browser = None
                 try:
                     browser = await (p.chromium.launch(channel="chrome", headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
