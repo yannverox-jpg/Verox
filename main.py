@@ -289,7 +289,7 @@ class ConnectorHub:
                     continue
                 browser = None
                 try:
-                    browser = await (p.chromium.launch(channel="chrome", headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
+                    browser = await (p.chromium.launch(headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
                     for provider, url in providers:
                         if self.session_manager:
                             profile = self.session_manager.profile_for(provider)
