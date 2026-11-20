@@ -132,7 +132,8 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
     except Exception as exc:
         # Never persist upstream bodies, prompts, or credentials.
         try:
-            _rpc("fail", task_id, error=f"Échec du traitement IA ({type(exc).__name__}).")
+            _rpc("fail", task_id=task_id, error=f"Échec du traitement IA ({type(exc).__name__}).")
+            return "failed"
         except Exception:
             pass
 
