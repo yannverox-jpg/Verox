@@ -18,12 +18,25 @@ from vercel.queue import send as queue_send
 MAX_BODY_BYTES = 32_000
 QUEUE_TOPIC = "verox-agent-tasks"
 TASK_TYPES = {"analysis", "research", "chat", "code_review"}
-SYSTEM_PROMPT = (
-    "Tu es Verox, assistant d'analyse fiable. Réponds en français si l'utilisateur écrit en français. "
-    "Distingue faits, hypothèses et recommandations. Protège les données privées. Ne prétends jamais "
-    "avoir effectué une action externe. Toute dépense, transaction, publication ou action destructive "
-    "exige une validation humaine explicite."
+BASE_SYSTEM_PROMPT = (
+    "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
+    "Distingue les faits vérifiés, les hypothèses et les recommandations. Protège les données privées. Ne prétends jamais "
+    "avoir effectué une action externe sans preuve vérifiable. Toute dépense, transaction, pari, ordre de trading, "
+    "publication externe ou action destructive exige une validation humaine explicite."
 )
+
+
+def _load_brain_roadmap() -> str:
+    """Load the repository-owned operating principles into the brain's system prompt."""
+    from pathlib import Path
+    roadmap_path = Path(__file__).resolve().parents[1] / "docs" / "brain-roadmap.md"
+    try:
+        return roadmap_path.read_text(encoding="utf-8")[:16000]
+    except OSError:
+        return ""
+
+
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\\n\\nFeuille de route et règles opérationnelles de Verox :\\n" + _load_brain_roadmap()
 
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
