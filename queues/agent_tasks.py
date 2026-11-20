@@ -70,6 +70,15 @@ async def process_agent_task(message: dict) -> None:
                 raise ValueError("Empty model response")
         rpc("complete", task_id, result={"answer": answer, "provider": "vercel-ai-gateway", "model": model})
     except Exception as exc:
-        # Do not expose upstream exception text or credentials in persisted errors.
-        rpc("fail", task_id, error=f"Échec du traitement IA ({type(exc).__name__}).")
+        # Retry transient failures with durable queue redelivery; persist only a generic error.
+        try:
+            current = rpc("get", task_id)
+            attempts = int(current.get("attempts", 1))
+            if attempts >= 3:
+                rpc("fail", task_id, error=f"Échec du traitement IA après {attempts} tentatives.")
+                return
+            rpc("retry", task_id, error=f"Tentative {attempts} échouée.")
+        except Exception:
+            # Preserve queue redelivery if task state itself is temporarily unreachable.
+            raise
         raise
