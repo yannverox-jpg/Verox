@@ -5,7 +5,6 @@ No credentials, account scraping, betting, trading, or purchases are performed h
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 DOMAINS = {
@@ -92,3 +91,16 @@ def list_sources(*, domain: str | None = None, query: str | None = None) -> dict
         "sources": rows,
         "disclaimer": "Catalogue de sources candidates. Aucun connecteur, compte, flux temps réel ou paiement n'est réputé actif sans test distinct.",
     }
+
+
+def get_source(source_id: str) -> dict[str, Any] | None:
+    """Return one registered source; never accept caller-supplied URLs."""
+    needle = (source_id or "").strip().casefold()
+    for row in _ROWS:
+        if row[0] == needle:
+            source = dict(zip(("id", "name", "domain", "kind", "url", "access", "notes"), row))
+            source["connection_status"] = "NON_CONFIGURÉE"
+            source["integration_mode"] = "catalog_only"
+            source["verified_live"] = False
+            return source
+    return None
