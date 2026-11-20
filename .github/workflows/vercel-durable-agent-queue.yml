@@ -38,7 +38,7 @@ jobs:
           import tomllib
           with open("pyproject.toml", "rb") as f:
               cfg = tomllib.load(f)
-          assert cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"] == "queues.agent_tasks:process_agent_task"
+          assert cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"] == "verox_queue_worker"
           assert any(x.startswith("vercel-queue==") for x in cfg["project"]["dependencies"])
           PY
       - name: Install test dependency
