@@ -191,25 +191,21 @@ class handler(BaseHTTPRequestHandler):
         if len(prompt) > 20_000:
             _json(self, 413, {"error": "Le message dépasse la limite de 20 000 caractères."})
             return
-        api_key = _gateway_token(self)
-        model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
-        if not api_key or not model:
-            _json(self, 503, {"error": "Le modèle gratuit n'est pas configuré; aucun fournisseur payant de secours ne sera appelé."})
-            return
         try:
-            with httpx.Client(timeout=45.0) as client:
-                response = client.post(
-                    "https://ai-gateway.vercel.sh/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 1200},
-                )
-                response.raise_for_status()
-                data = response.json()
-                answer = data["choices"][0]["message"]["content"]
-                if not isinstance(answer, str) or not answer.strip():
-                    raise ValueError("empty response")
-            _json(self, 200, {"answer": answer, "provider": "vercel-ai-gateway", "model": model, "status": "completed"})
+            task = _rpc(
+                "create",
+                task_type="chat",
+                payload={"text": prompt, "_client_ip": _client_ip(self),
+                         "source": "verox_dashboard", "user_initiated": "true"},
+            )
+            task_id = str(task["id"])
+            message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+            _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id,
+                              "status_url": f"/api/tasks/{task_id}"})
         except httpx.HTTPStatusError as exc:
-            _json(self, 502, {"error": f"AI Gateway a répondu HTTP {exc.response.status_code}. Aucun résultat simulé n'a été retourné."})
-        except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError):
-            _json(self, 502, {"error": "Échec de l'appel au modèle configuré. Aucun résultat simulé n'a été retourné."})
+            if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
+                _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
+            else:
+                _json(self, 503, {"error": "Le stockage ou la file de tâches est indisponible."})
+        except Exception:
+            _json(self, 503, {"error": "Le stockage ou la file de tâches est indisponible."})
