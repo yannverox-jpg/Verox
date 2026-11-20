@@ -130,6 +130,14 @@ def _published(item: ET.Element) -> str | None:
             return raw[:80]
 
 
+def _keyword_matches(keyword: str, text: str) -> bool:
+    # Short tokens such as "AI" need word boundaries to avoid matching inside
+    # unrelated words like "paid" or "certain".
+    if len(keyword) <= 3 and keyword.isalnum():
+        return re.search(r"\\b" + re.escape(keyword) + r"\\b", text) is not None
+    return keyword in text
+
+
 def parse_feed(feed: Feed, body: bytes) -> list[Opportunity]:
     """Parse RSS or Atom without executing or rendering feed content."""
     try:
@@ -148,7 +156,7 @@ def parse_feed(feed: Feed, body: bytes) -> list[Opportunity]:
         if not title or not link:
             continue
         searchable = f"{title} {summary}".lower()
-        matched = tuple(keyword for keyword in feed.keywords if keyword in searchable)
+        matched = tuple(keyword for keyword in feed.keywords if _keyword_matches(keyword, searchable))
         # This is a transparent triage score, not a probability of making money.
         score = min(100, len(matched) * 18 + (12 if any(
             term in searchable for term in ("request for proposal", "rfp", "integration",
