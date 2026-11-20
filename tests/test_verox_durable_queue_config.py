@@ -42,10 +42,6 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn("grant execute on function public.verox_task_api", migration)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FreeModelClientTests(unittest.TestCase):
     def test_no_provider_key_fails_closed(self):
         from unittest.mock import patch
@@ -59,8 +55,29 @@ class FreeModelClientTests(unittest.TestCase):
         self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3.8-flash")
 
     def test_no_paid_fallback_in_client(self):
-        from pathlib import Path
         source = (ROOT / "verox_brain/model_client.py").read_text()
         self.assertIn("GEMINI_API_KEY", source)
         self.assertIn("AI_GATEWAY_API_KEY", source)
         self.assertNotIn("VERCEL_OIDC_TOKEN", source)
+
+    def test_gemini_response_is_parsed_without_network(self):
+        from unittest.mock import MagicMock, patch
+        from verox_brain.model_client import generate_text
+        response = MagicMock()
+        response.json.return_value = {"candidates": [{"content": {"parts": [{"text": "Réponse de test"}]}}]}
+        response.raise_for_status.return_value = None
+        client = MagicMock()
+        client.__enter__.return_value = client
+        client.__exit__.return_value = None
+        client.post.return_value = response
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-only-not-a-real-key", "GEMINI_MODEL": "gemini-3.8-flash", "AI_GATEWAY_API_KEY": ""}, clear=False):
+            with patch("verox_brain.model_client.httpx.Client", return_value=client):
+                answer, provider, model = generate_text("test prompt", "system")
+        self.assertEqual(answer, "Réponse de test")
+        self.assertEqual(provider, "google-gemini-api-free-tier")
+        self.assertEqual(model, "gemini-3.8-flash")
+        self.assertTrue(client.post.call_args.kwargs["headers"]["x-goog-api-key"].startswith("test-only"))
+
+
+if __name__ == "__main__":
+    unittest.main()
