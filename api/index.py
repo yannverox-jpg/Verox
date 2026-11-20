@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 import httpx
+
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
@@ -97,33 +99,14 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
         started = _rpc("start", task_id=task_id)
         if started.get("accepted") is not True:
             return "claimed_by_queue"
-        token = _gateway_token(request)
-        model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
-        if not token or not model:
-            _rpc("fail", task_id=task_id, error="Authentification AI Gateway ou modèle gratuit non configuré.")
-            return "failed_no_gateway"
-        with httpx.Client(timeout=45.0) as client:
-            response = client.post(
-                "https://ai-gateway.vercel.sh/v1/chat/completions",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 1200,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            answer = data["choices"][0]["message"]["content"]
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError("empty model response")
+        try:
+            answer, provider, model = generate_text(prompt, SYSTEM_PROMPT)
+        except (ModelConfigurationError, ModelRequestError) as exc:
+            _rpc("fail", task_id=task_id, error=str(exc)[:500])
+            return "failed_provider"
         _rpc("complete", task_id=task_id, result={
             "answer": answer,
-            "provider": "vercel-ai-gateway",
+            "provider": provider,
             "model": model,
             "execution_mode": "inline_fallback",
             "task_type": task_type,
@@ -162,7 +145,7 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/api/health":
-            gateway_ready = bool(_gateway_token(self)) and _configured("VEROX_AI_GATEWAY_MODEL")
+            model_ready = _configured("GEMINI_API_KEY") or (_configured("AI_GATEWAY_API_KEY") and _configured("VEROX_AI_GATEWAY_MODEL"))
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))
             database_verified = False
             if supabase_configured:
@@ -172,9 +155,10 @@ class handler(BaseHTTPRequestHandler):
                 except Exception:
                     database_verified = False
             _json(self, 200, {
-                "ok": gateway_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
-                "ai_gateway_configured": bool(_gateway_token(self)),
-                "model_configured": _configured("VEROX_AI_GATEWAY_MODEL"),
+                "ok": model_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
+                "gemini_configured": _configured("GEMINI_API_KEY"),
+                "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),
+                "model_configured": model_ready,
                 "supabase_configured": supabase_configured, "database_verified": database_verified,
                 "background_workflows": "queue_delivery_unverified_inline_fallback",
                 "message": "La connectivité à la base est testée; le traitement de tâches doit encore être validé de bout en bout."
@@ -182,7 +166,8 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/extensions":
             _json(self, 200, {"items": [
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_configuration"},
+                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _configured("GEMINI_API_KEY") else "needs_free_api_key"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _configured("AI_GATEWAY_API_KEY") else "blocked_by_credit_card_verification"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration"},
                 {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured"},
             ]})
