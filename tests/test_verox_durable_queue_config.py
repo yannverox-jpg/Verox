@@ -22,6 +22,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn('TASK_TYPES = {"analysis", "research", "chat", "code_review"}', api)
         self.assertIn("MAX_BODY_BYTES = 32_000", api)
         self.assertIn('_rpc("start", task_id=task_id)', api)
+        self.assertIn('_rpc("complete", task_id=task_id, result={', api)
 
     def test_worker_retries_and_bounds_concurrency(self):
         worker = (ROOT / "queues/agent_tasks.py").read_text()

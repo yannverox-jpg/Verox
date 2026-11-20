@@ -87,7 +87,7 @@ def _read_json(request: BaseHTTPRequestHandler) -> dict:
     return value
 
 
-def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task_type: str, prompt: str) -> None:
+def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task_type: str, prompt: str) -> str:
     """Complete a task in the request if push delivery has not claimed it yet.
 
     The queued worker and this fallback compete on the same atomic queued->running
@@ -96,12 +96,12 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
     try:
         started = _rpc("start", task_id=task_id)
         if started.get("accepted") is not True:
-            return
+            return "claimed_by_queue"
         token = _gateway_token(request)
         model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
         if not token or not model:
             _rpc("fail", task_id=task_id, error="Authentification AI Gateway ou modèle gratuit non configuré.")
-            return
+            return "failed_no_gateway"
         with httpx.Client(timeout=45.0) as client:
             response = client.post(
                 "https://ai-gateway.vercel.sh/v1/chat/completions",
@@ -121,13 +121,14 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
             answer = data["choices"][0]["message"]["content"]
             if not isinstance(answer, str) or not answer.strip():
                 raise ValueError("empty model response")
-        _rpc("complete", task_id, result={
+        _rpc("complete", task_id=task_id, result={
             "answer": answer,
             "provider": "vercel-ai-gateway",
             "model": model,
             "execution_mode": "inline_fallback",
             "task_type": task_type,
         })
+        return "completed_inline"
     except Exception as exc:
         # Never persist upstream bodies, prompts, or credentials.
         try:
@@ -251,9 +252,9 @@ class handler(BaseHTTPRequestHandler):
             )
             task_id = str(task["id"])
             message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
-            _process_inline_fallback(self, task_id, "chat", prompt)
+            execution_mode = _process_inline_fallback(self, task_id, "chat", prompt)
             _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id,
-                              "status_url": f"/api/tasks/{task_id}"})
+                              "execution_mode": execution_mode, "status_url": f"/api/tasks/{task_id}"})
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                 _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
