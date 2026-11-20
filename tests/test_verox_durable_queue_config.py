@@ -12,6 +12,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
             cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"],
             "verox_queue_worker:process_agent_task",
         )
+        self.assertNotIn("uv", cfg.get("tool", {}))
 
     def test_queue_sdk_is_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text()
