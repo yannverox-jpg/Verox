@@ -1,6 +1,6 @@
 """Isolated, read-only Playwright worker for registered public sources.
 
-Run in a separate worker/container, never in the user's personal browser:
+Run in a separate worker/container:
 python -m verox_brain.browser_worker --once
 
 Download jobs are intentionally held for approval until a reviewed allowlist
@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
+from verox_brain.research_pipeline import complete_research_run
 from verox_brain.source_registry import get_source
 
 POLL_SECONDS = 4
@@ -45,24 +46,24 @@ class BrowserWorker:
             raise DataPlaneError(f"Browser job store failed ({type(exc).__name__}).") from None
 
     def claim_next(self):
-        jobs = self._rest("GET", "verox_browser_jobs", params={"select":"id,task_type,source_id,policy_mode,input,requested_capabilities","status":"eq.queued","order":"created_at.asc","limit":"10"}) or []
+        jobs = self._rest("GET", "verox_browser_jobs", params={"select":"id,task_type,source_id,policy_mode,input,requested_capabilities", "status":"eq.queued", "order":"created_at.asc", "limit":"10"}) or []
         for job in jobs:
             if not isinstance(job, dict) or not job.get("id"): continue
-            claimed = self._rest("PATCH", "verox_browser_jobs", params={"id":f"eq.{job['id']}","status":"eq.queued"}, body={"status":"running","started_at":_now(),"audit":{"worker":"verox-playwright-readonly-v1","claimed_at":_now()}})
+            claimed = self._rest("PATCH", "verox_browser_jobs", params={"id":f"eq.{job['id']}", "status":"eq.queued"}, body={"status":"running", "started_at":_now(), "audit":{"worker":"verox-playwright-readonly-v1", "claimed_at":_now()}})
             if claimed: return claimed[0]
         return None
 
     def _finish(self, job_id, status, *, audit, error=None, artifacts=None):
-        self._rest("PATCH", "verox_browser_jobs", params={"id":f"eq.{job_id}"}, body={"status":status,"completed_at":_now(),"audit":audit,"artifact_refs":artifacts or [],"error":error})
+        self._rest("PATCH", "verox_browser_jobs", params={"id":f"eq.{job_id}"}, body={"status":status, "completed_at":_now(), "audit":audit, "artifact_refs":artifacts or [], "error":error})
 
     def run_job(self, job):
         job_id, task_type, source_id = str(job.get("id","")), str(job.get("task_type","")), str(job.get("source_id") or "")
         source = get_source(source_id)
         if task_type not in ALLOWED_JOB_TYPES:
             status = "needs_approval" if task_type == "download_public_file" else "failed"
-            self._finish(job_id, status, error="job_type_not_allowlisted", audit={"policy":"read_only","decision":"denied"})
-            return {"status":"denied","reason":"job_type_not_allowlisted"}
-        if not source or source.get("access") not in {"web","public_web","web_or_api"}:
+            self._finish(job_id, status, error="job_type_not_allowlisted", audit={"policy":"read_only", "decision":"denied"})
+            return {"status":"denied", "reason":"job_type_not_allowlisted"}
+        if not source or source.get("access") not in {"web", "public_web", "web_or_api"}:
             self._finish(job_id,"failed",error="source_not_public_allowlisted",audit={"policy":"read_only","decision":"denied"})
             return {"status":"denied","reason":"source_not_public_allowlisted"}
         target_url = str((job.get("input") or {}).get("url") or source["url"])
@@ -95,9 +96,14 @@ class BrowserWorker:
                 content_type = response.headers.get("content-type","") if response else ""
                 context.close()
                 browser.close()
-            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1"})
-            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":_now(),"text_chars":len(text)},artifacts=[{"type":"observation",**evidence}])
-            return {"status":"succeeded","observation":evidence}
+            captured_at = _now()
+            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at})
+            run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
+            analysis = None
+            if run_id:
+                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,captured_at=captured_at)
+            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
+            return {"status":"succeeded","observation":evidence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
             safe_error = str(exc)[:120] if isinstance(exc, ValueError) else "navigation_timeout"
             self._finish(job_id,"failed",error=safe_error,audit={"policy":"read_only","decision":"failed"})
@@ -129,5 +135,4 @@ def main():
     if args.once: print(json.dumps(worker.run_once(),ensure_ascii=False))
     else: worker.run_forever()
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
