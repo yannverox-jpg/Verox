@@ -1,0 +1,67 @@
+name: Verox Production Queue Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verox-production-queue-smoke.yml"
+
+jobs:
+  end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wait for production deployment
+        run: sleep 35
+      - name: Submit a harmless test task
+        id: submit
+        shell: bash
+        run: |
+          for attempt in $(seq 1 8); do
+            code=$(curl -sS --max-time 20 -o /tmp/verox-submit.json -w '%{http_code}' \
+              -X POST 'https://verox-brain.vercel.app/api/chat' \
+              -H 'Content-Type: application/json' \
+              --data '{"text":"Verox production smoke test. Réponds brièvement que le traitement asynchrone fonctionne. Ne réalise aucune action externe."}') || code=000
+            if [ "$code" = "202" ]; then
+              task_id=$(jq -r '.id // empty' /tmp/verox-submit.json)
+              if [ -n "$task_id" ]; then
+                echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
+                echo "Task accepted by production API."
+                exit 0
+              fi
+            fi
+            echo "Attempt $attempt: production API not yet serving the queue route (HTTP $code)."
+            sleep 10
+          done
+          cat /tmp/verox-submit.json || true
+          exit 1
+      - name: Poll persisted task result
+        env:
+          TASK_ID: ${{ steps.submit.outputs.task_id }}
+        shell: bash
+        run: |
+          for attempt in $(seq 1 24); do
+            code=$(curl -sS --max-time 15 -o /tmp/verox-task.json -w '%{http_code}' \
+              "https://verox-brain.vercel.app/api/tasks/$TASK_ID") || code=000
+            if [ "$code" = "200" ]; then
+              status=$(jq -r '.status // empty' /tmp/verox-task.json)
+              if [ "$status" = "succeeded" ]; then
+                answer=$(jq -r '.result.answer // empty' /tmp/verox-task.json)
+                test -n "$answer"
+                echo "Production queue completed a task and persisted its model response."
+                exit 0
+              fi
+              if [ "$status" = "failed" ]; then
+                echo "Task failed: $(jq -r '.error // "unknown error"' /tmp/verox-task.json)"
+                exit 1
+              fi
+              echo "Task state: $status"
+            else
+              echo "Task poll HTTP $code"
+            fi
+            sleep 5
+          done
+          cat /tmp/verox-task.json || true
+          echo "Timed out waiting for a durable result."
+          exit 1
