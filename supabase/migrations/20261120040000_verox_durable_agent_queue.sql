@@ -39,6 +39,10 @@ begin
 
   if p_action = 'create' then
     if p_task_type is null or length(p_task_type) > 80 then raise exception 'invalid task type'; end if;
+    if p_payload->>'source' is distinct from 'verox_dashboard'
+       or p_payload->>'user_initiated' is distinct from 'true' then
+      raise exception 'explicit frontend initiation required';
+    end if;
     v_client_ip := coalesce(p_payload->>'_client_ip', 'unknown');
     if v_client_ip = 'unknown' or length(v_client_ip) > 64 then raise exception 'client identity unavailable'; end if;
     if (select count(*) from public.nexus_tasks where payload->>'_client_ip' = v_client_ip and created_at > now() - interval '1 hour') >= 20 then
