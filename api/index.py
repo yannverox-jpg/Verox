@@ -133,7 +133,18 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
         # Never persist upstream bodies, prompts, or credentials.
         try:
             if isinstance(exc, httpx.HTTPStatusError):
-                safe_error = f"AI Gateway HTTP {exc.response.status_code}"
+                code = str(exc.response.status_code)
+                detail = ""
+                try:
+                    body = exc.response.json()
+                    err = body.get("error", {}) if isinstance(body, dict) else {}
+                    err_type = str(err.get("type", "") or err.get("code", ""))
+                    raw_message = str(err.get("message", ""))
+                    safe_message = re.sub(r"[^A-Za-z0-9 _.,:;()/+-]", "", raw_message)[:180]
+                    detail = " ".join(part for part in (err_type, safe_message) if part)
+                except (ValueError, TypeError, AttributeError):
+                    detail = ""
+                safe_error = f"AI Gateway HTTP {code}" + (f": {detail}" if detail else "")
             else:
                 safe_error = f"Échec du traitement IA ({type(exc).__name__})."
             _rpc("fail", task_id=task_id, error=safe_error)
