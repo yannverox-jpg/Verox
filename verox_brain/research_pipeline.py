@@ -35,6 +35,7 @@ def complete_research_run(
     source_url: str,
     page_title: str,
     page_text: str,
+    observation_id: str | None = None,
     captured_at: str | None = None,
 ) -> dict[str, Any]:
     """Analyze collected text when a model is configured, otherwise fail closed."""
@@ -65,6 +66,7 @@ def complete_research_run(
             params={"id": f"eq.{run_id}"},
             body={
                 "status": "needs_review",
+                "input_observation_ids": [observation_id] if observation_id else [],
                 "findings": {"evidence": evidence, "analysis": None},
                 "metrics": {"text_chars": len(page_text), "model_available": False},
                 "error": str(exc)[:500],
@@ -78,6 +80,7 @@ def complete_research_run(
         params={"id": f"eq.{run_id}"},
         body={
             "status": "needs_review",
+            "input_observation_ids": [observation_id] if observation_id else [],
             "model_provider": provider,
             "model_name": model,
             "prompt_version": PROMPT_VERSION,
