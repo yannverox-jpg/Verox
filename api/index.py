@@ -13,6 +13,7 @@ import httpx
 
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
+from verox_brain.source_registry import DOMAINS, list_sources
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
@@ -240,6 +241,18 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/sources":
+            # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
+            query = urlparse(self.path).query
+            from urllib.parse import parse_qs
+            params = parse_qs(query, keep_blank_values=False)
+            domain = (params.get("domain") or [None])[0]
+            search = (params.get("q") or [None])[0]
+            try:
+                _json(self, 200, list_sources(domain=domain, query=search))
+            except ValueError:
+                _json(self, 400, {"error": "Domaine de sources inconnu.", "available_domains": sorted(DOMAINS)})
+            return
         if path == "/api/opportunities/public":
             # Publicly sourced lead metadata only; never return credentials or internal task payloads.
             try:
