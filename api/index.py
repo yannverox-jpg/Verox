@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
@@ -69,6 +70,25 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("Invalid task store response.")
+        return data
+
+
+def _opportunity_rpc(action: str, items: list | None = None) -> dict:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
+    if not url or not anon or not token:
+        raise RuntimeError("Opportunity persistence is not configured.")
+    with httpx.Client(timeout=15.0) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_opportunity_api",
+            headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
+            json={"p_token": token, "p_action": action, "p_items": items or []},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid opportunity store response.")
         return data
 
 
@@ -147,6 +167,30 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path in {"/api/opportunities", "/api/opportunities/scan"}:
+            # Protected operator/cron endpoints. Never expose a public outbound-scan trigger.
+            expected = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
+            supplied = self.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            if not expected or not supplied or not __import__("hmac").compare_digest(expected, supplied):
+                _json(self, 401, {"error": "Authentification requise."})
+                return
+            try:
+                if path == "/api/opportunities":
+                    _json(self, 200, _opportunity_rpc("list"))
+                    return
+                feeds = load_feeds()
+                result = scan_feeds(feeds)
+                if result["status"] == "not_configured":
+                    _json(self, 503, result)
+                    return
+                result["persistence"] = _opportunity_rpc("upsert", result["leads"])
+                status = 200 if result["status"] in {"completed", "partial"} else 503
+                _json(self, status, result)
+            except ValueError:
+                _json(self, 503, {"error": "Configuration des sources d'opportunités invalide."})
+            except Exception:
+                _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
+            return
         if path == "/api/health":
             model_ready = _configured("GEMINI_API_KEY") or (_configured("AI_GATEWAY_API_KEY") and _configured("VEROX_AI_GATEWAY_MODEL"))
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))

@@ -1,0 +1,226 @@
+"""Public-source opportunity discovery primitives for Verox.
+
+Feeds are configured by the operator in VEROX_OPPORTUNITY_FEEDS as a JSON
+array of objects: {name, url, department, keywords}. Only HTTPS feed URLs are
+accepted. The scanner never follows arbitrary URLs supplied by an HTTP caller.
+It ranks leads for human/commercial follow-up; it does not claim that a lead is
+a confirmed buyer or that revenue has been earned.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+import urllib.error
+import urllib.request
+import xml.etree.ElementTree as ET
+from dataclasses import asdict, dataclass
+from email.utils import parsedate_to_datetime
+from typing import Any
+from urllib.parse import urlparse
+
+MAX_FEEDS = 12
+MAX_BYTES_PER_FEED = 1_000_000
+MAX_ITEMS_PER_FEED = 80
+DEFAULT_TIMEOUT_SECONDS = 6
+USER_AGENT = "VeroxOpportunityResearch/1.0 (+public-feed-reader)"
+
+
+@dataclass(frozen=True)
+class Feed:
+    name: str
+    url: str
+    department: str
+    keywords: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Opportunity:
+    title: str
+    summary: str
+    source_name: str
+    source_url: str
+    department: str
+    published_at: str | None
+    matched_keywords: tuple[str, ...]
+    score: int
+    status: str = "detected_unverified"
+
+
+def load_feeds(raw: str | None = None) -> list[Feed]:
+    """Load operator-configured feeds; fail closed on malformed configuration."""
+    value = raw if raw is not None else os.getenv("VEROX_OPPORTUNITY_FEEDS", "")
+    if not value.strip():
+        return []
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("VEROX_OPPORTUNITY_FEEDS must be valid JSON.") from exc
+    if not isinstance(data, list):
+        raise ValueError("VEROX_OPPORTUNITY_FEEDS must be a JSON array.")
+    if len(data) > MAX_FEEDS:
+        raise ValueError(f"At most {MAX_FEEDS} feeds may be configured.")
+    feeds: list[Feed] = []
+    seen: set[str] = set()
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()[:120]
+        url = str(item.get("url", "")).strip()
+        department = str(item.get("department", "microtasks_services")).strip().lower()
+        parsed = urlparse(url)
+        if not name or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            continue
+        if department not in {"microtasks_services", "trading", "sports_horse_betting", "ecommerce"}:
+            department = "microtasks_services"
+        keywords = item.get("keywords", [])
+        if not isinstance(keywords, list):
+            keywords = []
+        clean_keywords = tuple(dict.fromkeys(
+            str(k).strip().lower()[:80] for k in keywords if str(k).strip()
+        ))[:40]
+        key = url.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        feeds.append(Feed(name, url, department, clean_keywords))
+    return feeds
+
+
+def _text(element: ET.Element | None) -> str:
+    if element is None:
+        return ""
+    return " ".join("".join(element.itertext()).split())
+
+
+def _child(element: ET.Element, *names: str) -> ET.Element | None:
+    for child in element.iter():
+        if child is element:
+            continue
+        local = child.tag.rsplit("}", 1)[-1].lower()
+        if local in names:
+            return child
+    return None
+
+
+def _item_link(item: ET.Element) -> str:
+    for child in list(item):
+        local = child.tag.rsplit("}", 1)[-1].lower()
+        if local == "link":
+            href = child.attrib.get("href", "").strip()
+            value = href or _text(child)
+            if value.startswith("https://"):
+                return value[:2000]
+    return ""
+
+
+def _published(item: ET.Element) -> str | None:
+    node = _child(item, "pubdate", "published", "updated", "date")
+    raw = _text(node)
+    if not raw:
+        return None
+    try:
+        return parsedate_to_datetime(raw).isoformat()
+    except (TypeError, ValueError, OverflowError):
+        try:
+            from datetime import datetime
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            return raw[:80]
+
+
+def parse_feed(feed: Feed, body: bytes) -> list[Opportunity]:
+    """Parse RSS or Atom without executing or rendering feed content."""
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return []
+    candidates = [
+        node for node in root.iter()
+        if node.tag.rsplit("}", 1)[-1].lower() in {"item", "entry"}
+    ][:MAX_ITEMS_PER_FEED]
+    output: list[Opportunity] = []
+    for item in candidates:
+        title = _text(_child(item, "title"))[:300]
+        summary = _text(_child(item, "description", "summary", "content"))[:1500]
+        link = _item_link(item)
+        if not title or not link:
+            continue
+        searchable = f"{title} {summary}".lower()
+        matched = tuple(keyword for keyword in feed.keywords if keyword in searchable)
+        # This is a transparent triage score, not a probability of making money.
+        score = min(100, len(matched) * 18 + (12 if any(
+            term in searchable for term in ("request for proposal", "rfp", "integration",
+                                              "automation", "api", "vendor", "contract")
+        ) else 0))
+        output.append(Opportunity(
+            title=title,
+            summary=summary,
+            source_name=feed.name,
+            source_url=link,
+            department=feed.department,
+            published_at=_published(item),
+            matched_keywords=matched,
+            score=score,
+        ))
+    return output
+
+
+def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """Fetch configured public feeds and return deduplicated, ranked leads.
+
+    A failed feed is reported by name and error class only. Response bodies,
+    credentials, and exception strings are not returned or logged.
+    """
+    configured = feeds if feeds is not None else load_feeds()
+    if not configured:
+        return {
+            "status": "not_configured",
+            "sources_configured": 0,
+            "sources_fetched": 0,
+            "leads_detected": 0,
+            "leads": [],
+            "source_errors": [],
+            "revenue_confirmed": False,
+            "disclaimer": "Aucune source configurée; aucun revenu n'est confirmé.",
+            "scanned_at_unix": int(time.time()),
+        }
+    leads: list[Opportunity] = []
+    errors: list[dict[str, str]] = []
+    fetched = 0
+    for feed in configured[:MAX_FEEDS]:
+        request = urllib.request.Request(feed.url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"})
+        try:
+            with urllib.request.urlopen(request, timeout=max(1, min(timeout, 10))) as response:
+                final_url = response.geturl()
+                final = urlparse(final_url)
+                if final.scheme != "https" or not final.hostname:
+                    errors.append({"source": feed.name, "error": "unsafe_redirect"})
+                    continue
+                body = response.read(MAX_BYTES_PER_FEED + 1)
+                if len(body) > MAX_BYTES_PER_FEED:
+                    errors.append({"source": feed.name, "error": "feed_too_large"})
+                    continue
+            fetched += 1
+            leads.extend(parse_feed(feed, body))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            errors.append({"source": feed.name, "error": "fetch_failed"})
+    deduped: dict[str, Opportunity] = {}
+    for lead in leads:
+        key = re.sub(r"\s+", " ", lead.title.lower()).strip() + "|" + lead.source_url.lower()
+        current = deduped.get(key)
+        if current is None or lead.score > current.score:
+            deduped[key] = lead
+    ranked = sorted((lead for lead in deduped.values() if lead.score > 0), key=lambda lead: (lead.score, lead.published_at or ""), reverse=True)
+    return {
+        "status": "completed" if not errors else ("partial" if fetched else "unavailable"),
+        "sources_configured": len(configured),
+        "sources_fetched": fetched,
+        "leads_detected": len(ranked),
+        "leads": [asdict(lead) for lead in ranked[:250]],
+        "source_errors": errors,
+        "revenue_confirmed": False,
+        "disclaimer": "Les pistes sont détectées, non validées commercialement. Aucun revenu n'est confirmé par ce scan.",
+        "scanned_at_unix": int(time.time()),
+    }
