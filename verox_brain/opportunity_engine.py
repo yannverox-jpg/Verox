@@ -134,7 +134,7 @@ def _keyword_matches(keyword: str, text: str) -> bool:
     # Short tokens such as "AI" need word boundaries to avoid matching inside
     # unrelated words like "paid" or "certain".
     if len(keyword) <= 3 and keyword.isalnum():
-        return re.search(r"\\b" + re.escape(keyword) + r"\\b", text) is not None
+        return re.search(r"\b" + re.escape(keyword) + r"\b", text) is not None
     return keyword in text
 
 
