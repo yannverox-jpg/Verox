@@ -40,6 +40,15 @@ def _configured(name: str) -> bool:
     return bool(os.getenv(name, "").strip())
 
 
+def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
+    """Compare a bearer credential against configured server-side tokens."""
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not supplied:
+        return False
+    import hmac
+    return any(token and hmac.compare_digest(token, supplied) for token in expected_tokens)
+
+
 def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
     return (
         os.getenv("AI_GATEWAY_API_KEY", "").strip()
@@ -236,9 +245,9 @@ class handler(BaseHTTPRequestHandler):
             return
         if path in {"/api/opportunities", "/api/opportunities/scan"}:
             # Protected operator/cron endpoints. Never expose a public outbound-scan trigger.
-            expected = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
-            supplied = self.headers.get("authorization", "").removeprefix("Bearer ").strip()
-            if not expected or not supplied or not __import__("hmac").compare_digest(expected, supplied):
+            operator_token = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
+            cron_token = os.getenv("CRON_SECRET", "").strip() if path == "/api/opportunities/scan" else ""
+            if not _bearer_matches(self.headers.get("authorization", ""), operator_token, cron_token):
                 _json(self, 401, {"error": "Authentification requise."})
                 return
             try:
