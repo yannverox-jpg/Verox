@@ -97,13 +97,20 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             gateway_ready = bool(_gateway_token(self)) and _configured("VEROX_AI_GATEWAY_MODEL")
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))
+            database_verified = False
+            if supabase_configured:
+                try:
+                    _rpc("metrics")
+                    database_verified = True
+                except Exception:
+                    database_verified = False
             _json(self, 200, {
-                "ok": gateway_ready, "service": "verox-vercel-brain", "runtime": "vercel",
+                "ok": gateway_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
                 "ai_gateway_configured": bool(_gateway_token(self)),
                 "model_configured": _configured("VEROX_AI_GATEWAY_MODEL"),
-                "supabase_configured": supabase_configured, "database_verified": False,
-                "background_workflows": "queue_pending_deployment",
-                "message": "La configuration est détectée; les fonctions doivent encore réussir leurs tests d'exécution."
+                "supabase_configured": supabase_configured, "database_verified": database_verified,
+                "background_workflows": "queue_subscriber_deployed_unverified",
+                "message": "La connectivité à la base est testée; le traitement de tâches doit encore être validé de bout en bout."
             })
             return
         if path == "/api/extensions":
@@ -151,7 +158,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "payload.text est obligatoire et limité à 20 000 caractères."})
                 return
             try:
-                stored_payload = {"text": prompt, "_client_ip": _client_ip(self)}
+                stored_payload = {"text": prompt, "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
                 try:
