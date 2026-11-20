@@ -40,6 +40,15 @@ def _configured(name: str) -> bool:
     return bool(os.getenv(name, "").strip())
 
 
+def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
+    """Compare a bearer credential against configured server-side tokens."""
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not supplied:
+        return False
+    import hmac
+    return any(token and hmac.compare_digest(token, supplied) for token in expected_tokens)
+
+
 def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
     return (
         os.getenv("AI_GATEWAY_API_KEY", "").strip()
@@ -90,6 +99,52 @@ def _opportunity_rpc(action: str, items: list | None = None) -> dict:
         if not isinstance(data, dict):
             raise RuntimeError("Invalid opportunity store response.")
         return data
+
+
+def _public_task_status(task: dict) -> dict:
+    """Expose only the task status fields required by the dashboard.
+
+    The task-status URL is a bearer capability (UUID); never return the stored
+    payload, client IP, internal metadata, or arbitrary RPC fields from it.
+    """
+    result = task.get("result")
+    safe_result: dict = {}
+    if isinstance(result, dict):
+        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type"):
+            value = result.get(key)
+            if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 20_000:
+                safe_result[key] = value
+        evidence = result.get("evidence")
+        if isinstance(evidence, list):
+            safe_evidence = []
+            for item in evidence[:30]:
+                if not isinstance(item, dict):
+                    continue
+                entry = {}
+                for key in ("connector", "title", "evidence", "source"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        entry[key] = value[:2_000]
+                source_url = item.get("source_url")
+                if isinstance(source_url, str) and source_url.startswith("https://"):
+                    entry["source_url"] = source_url[:2_000]
+                safe_evidence.append(entry)
+            safe_result["evidence"] = safe_evidence
+    public = {
+        "id": str(task.get("id", ""))[:36],
+        "status": str(task.get("status", "unknown"))[:32],
+        "task_type": str(task.get("task_type", "unknown"))[:64],
+        "attempts": max(0, min(100, int(task.get("attempts", 0) or 0))),
+        "result": safe_result,
+    }
+    error = task.get("error")
+    if isinstance(error, str) and error:
+        public["error"] = error[:500]
+    for key in ("created_at", "updated_at", "completed_at"):
+        value = task.get(key)
+        if isinstance(value, str):
+            public[key] = value[:64]
+    return public
 
 
 def _client_ip(request: BaseHTTPRequestHandler) -> str:
@@ -190,9 +245,9 @@ class handler(BaseHTTPRequestHandler):
             return
         if path in {"/api/opportunities", "/api/opportunities/scan"}:
             # Protected operator/cron endpoints. Never expose a public outbound-scan trigger.
-            expected = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
-            supplied = self.headers.get("authorization", "").removeprefix("Bearer ").strip()
-            if not expected or not supplied or not __import__("hmac").compare_digest(expected, supplied):
+            operator_token = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
+            cron_token = os.getenv("CRON_SECRET", "").strip() if path == "/api/opportunities/scan" else ""
+            if not _bearer_matches(self.headers.get("authorization", ""), operator_token, cron_token):
                 _json(self, 401, {"error": "Authentification requise."})
                 return
             try:
@@ -254,7 +309,7 @@ class handler(BaseHTTPRequestHandler):
                 if task.get("found") is False:
                     _json(self, 404, {"error": "Tâche introuvable."})
                 else:
-                    _json(self, 200, task)
+                    _json(self, 200, _public_task_status(task))
             except Exception:
                 _json(self, 503, {"error": "Le suivi persistant des tâches est indisponible."})
             return

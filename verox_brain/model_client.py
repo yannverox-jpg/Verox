@@ -37,7 +37,13 @@ def _extract_gemini_text(data: dict[str, Any]) -> str:
 
 def generate_text(prompt: str, system_prompt: str = SYSTEM_PROMPT_FALLBACK) -> tuple[str, str, str]:
     """Return (answer, provider, model), without ever selecting a paid fallback."""
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    # Prefer the canonical key, then the existing Vercel secret name, and use
+    # the explicitly configured second key only as a final Gemini-key fallback.
+    gemini_key = (
+        os.getenv("GEMINI_API_KEY", "").strip()
+        or os.getenv("Gemini", "").strip()
+        or os.getenv("GEMINI_API_KEY_2", "").strip()
+    )
     if gemini_key:
         model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
         try:

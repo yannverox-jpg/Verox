@@ -33,5 +33,5 @@ jobs:
           Path("/tmp/verox-dashboard.js").write_text("\n".join(inline), encoding="utf-8")
           PY
           node --check /tmp/verox-dashboard.js
-      - name: Run opportunity engine tests
-        run: python -m unittest tests.test_opportunity_engine
+      - name: Run all Python unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
