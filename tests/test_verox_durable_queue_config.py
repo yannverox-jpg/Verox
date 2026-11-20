@@ -62,7 +62,10 @@ class FreeModelClientTests(unittest.TestCase):
         source = (ROOT / "verox_brain/model_client.py").read_text()
         self.assertIn("GEMINI_API_KEY", source)
         self.assertIn("AI_GATEWAY_API_KEY", source)
-        self.assertNotIn("VERCEL_OIDC_TOKEN", source)
+        self.assertIn("VERCEL_OIDC_TOKEN", source)
+        self.assertIn("VEROX_AI_GATEWAY_MODEL", source)
+        self.assertIn('os.getenv("VEROX_HF_ENABLED", "").strip().lower() != "true"', source)
+        self.assertIn('os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() != "true"', source)
 
     def test_gemini_response_is_parsed_without_network(self):
         from unittest.mock import MagicMock, patch
@@ -78,7 +81,7 @@ class FreeModelClientTests(unittest.TestCase):
             with patch("verox_brain.model_client.httpx.Client", return_value=client):
                 answer, provider, model = generate_text("test prompt", "system")
         self.assertEqual(answer, "Réponse de test")
-        self.assertEqual(provider, "google-gemini-api-free-tier")
+        self.assertEqual(provider, "google-gemini-api-fallback")
         self.assertEqual(model, "gemini-3.8-flash")
         self.assertTrue(client.post.call_args.kwargs["headers"]["x-goog-api-key"].startswith("test-only"))
 
