@@ -36,7 +36,7 @@ def _load_brain_roadmap() -> str:
         return ""
 
 
-SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\\n\\nFeuille de route et règles opérationnelles de Verox :\\n" + _load_brain_roadmap()
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\n\nFeuille de route et règles opérationnelles de Verox :\n" + _load_brain_roadmap()
 
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
