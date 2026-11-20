@@ -7,8 +7,5 @@ dependencies = [
   "vercel-queue==0.10.0",
 ]
 
-[tool.vercel]
-entrypoint = "api.index:handler"
-
 [[tool.vercel.subscribers]]
 entrypoint = "queues.agent_tasks"
