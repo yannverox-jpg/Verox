@@ -66,7 +66,7 @@ begin
         dedupe_key, title, summary, source_name, source_url, department,
         published_at, matched_keywords, score, status, last_seen_at, updated_at
       ) values (
-        md5(lower(regexp_replace(v_title, '\s+', ' ', 'g')) || '|' || lower(v_url)),
+        md5(lower(regexp_replace(v_title, '[[:space:]]+', ' ', 'g')) || '|' || lower(v_url)),
         v_title,
         left(coalesce(v_item->>'summary',''), 1500),
         left(coalesce(v_item->>'source_name','Unknown source'), 120),
