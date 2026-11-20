@@ -2,17 +2,24 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "functions": {
-    "api/index.py": { "maxDuration": 60 }
-  },
-  "schedules": {
-    "daily-opportunity-scan": {
-      "path": "/api/opportunities/scan",
-      "schedule": "15 6 * * *",
-      "requestMethod": "GET"
+    "api/index.py": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.py" },
-    { "source": "/", "destination": "/nexus_dashboard.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/",
+      "destination": "/nexus_dashboard.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/opportunities/scan",
+      "schedule": "15 6 * * *"
+    }
   ]
 }

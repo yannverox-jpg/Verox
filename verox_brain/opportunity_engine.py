@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 MAX_FEEDS = 12
 MAX_BYTES_PER_FEED = 1_000_000
@@ -131,8 +131,10 @@ def _published(item: ET.Element) -> str | None:
 
 
 def _keyword_matches(keyword: str, text: str) -> bool:
-    # Short tokens such as "AI" need word boundaries to avoid matching inside
-    # unrelated words like "paid" or "certain".
+    # Normalize direct callers as well as feed text; short tokens such as AI
+    # need boundaries to avoid matching inside unrelated words like paid.
+    keyword = keyword.strip().lower()
+    text = text.lower()
     if len(keyword) <= 3 and keyword.isalnum():
         return re.search(r"\b" + re.escape(keyword) + r"\b", text) is not None
     return keyword in text
@@ -175,6 +177,59 @@ def parse_feed(feed: Feed, body: bytes) -> list[Opportunity]:
     return output
 
 
+def scan_world_bank_procurement(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> tuple[list[Opportunity], str | None]:
+    """Read public World Bank procurement notices from its no-key search API."""
+    if os.getenv("VEROX_WORLD_BANK_PROCUREMENT_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+        return [], None
+    params = {
+        "format": "json", "rows": "50", "os": "0",
+        "fl": "id,url,notice_type,publication_date,deadline_date,bid_description,procurement_category,procurement_method,country_name",
+        "qterm": "software OR digital OR cloud OR automation OR cybersecurity OR consulting OR information technology",
+    }
+    url = "https://search.worldbank.org/api/v2/procnotices?" + urlencode(params)
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=max(1, min(timeout, 10))) as response:
+            final = urlparse(response.geturl())
+            if final.scheme != "https" or final.hostname != "search.worldbank.org":
+                return [], "unsafe_redirect"
+            body = response.read(MAX_BYTES_PER_FEED + 1)
+        if len(body) > MAX_BYTES_PER_FEED:
+            return [], "response_too_large"
+        payload = json.loads(body.decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, UnicodeDecodeError):
+        return [], "fetch_failed"
+    if not isinstance(payload, dict):
+        return [], "invalid_response"
+    raw_items = payload.get("procnotices", payload.get("procurement_notices", []))
+    if isinstance(raw_items, dict):
+        items = list(raw_items.values())
+    elif isinstance(raw_items, list):
+        items = raw_items
+    else:
+        items = []
+    output: list[Opportunity] = []
+    keywords = ("software", "digital", "cloud", "automation", "cybersecurity", "consulting", "information technology", "api", "data", "system")
+    for item in items[:MAX_ITEMS_PER_FEED]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("bid_description") or item.get("title") or "").strip()[:300]
+        link = str(item.get("url") or item.get("notice_url") or "").strip()
+        parsed_link = urlparse(link)
+        if not title or parsed_link.scheme != "https" or not parsed_link.hostname:
+            continue
+        detail = " ".join(str(item.get(k) or "") for k in ("notice_type", "procurement_category", "procurement_method", "country_name"))
+        searchable = f"{title} {detail}".lower()
+        matched = tuple(k for k in keywords if _keyword_matches(k, searchable))
+        if not matched:
+            continue
+        score = min(100, len(matched) * 18 + 20)
+        published = str(item.get("publication_date") or "").strip()[:80] or None
+        deadline = str(item.get("deadline_date") or "").strip()
+        summary = " — ".join(part for part in (detail.strip(), f"Date limite : {deadline}" if deadline else "") if part)[:1500]
+        output.append(Opportunity(title=title, summary=summary, source_name="World Bank Procurement Notices", source_url=link[:2000], department="microtasks_services", published_at=published, matched_keywords=matched, score=score))
+    return output, None
+
 def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
     """Fetch configured public feeds and return deduplicated, ranked leads.
 
@@ -214,6 +269,14 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
             leads.extend(parse_feed(feed, body))
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             errors.append({"source": feed.name, "error": "fetch_failed"})
+    # Procurement notices are demand signals, unlike product-announcement feeds.
+    procurement_leads, procurement_error = scan_world_bank_procurement(timeout=timeout)
+    enabled = os.getenv("VEROX_WORLD_BANK_PROCUREMENT_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+    if procurement_error is None and enabled:
+        fetched += 1
+        leads.extend(procurement_leads)
+    elif procurement_error:
+        errors.append({"source": "World Bank Procurement Notices", "error": procurement_error})
     deduped: dict[str, Opportunity] = {}
     for lead in leads:
         key = re.sub(r"\s+", " ", lead.title.lower()).strip() + "|" + lead.source_url.lower()
