@@ -167,6 +167,27 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/opportunities/public":
+            # Publicly sourced lead metadata only; never return credentials or internal task payloads.
+            try:
+                data = _opportunity_rpc("list")
+                leads = data.get("opportunities", []) if isinstance(data, dict) else []
+                public_leads = [{
+                    "title": str(item.get("title", ""))[:300],
+                    "summary": str(item.get("summary", ""))[:1500],
+                    "source_name": str(item.get("source_name", ""))[:120],
+                    "source_url": str(item.get("source_url", ""))[:2000],
+                    "department": str(item.get("department", "microtasks_services")),
+                    "published_at": item.get("published_at"),
+                    "matched_keywords": item.get("matched_keywords", []),
+                    "score": int(item.get("score", 0)),
+                    "status": str(item.get("status", "detected_unverified")),
+                    "last_seen_at": item.get("last_seen_at"),
+                } for item in leads if isinstance(item, dict) and str(item.get("source_url", "")).startswith("https://")]
+                _json(self, 200, {"count": len(public_leads), "opportunities": public_leads})
+            except Exception:
+                _json(self, 503, {"error": "Le catalogue public des opportunités est momentanément indisponible."})
+            return
         if path in {"/api/opportunities", "/api/opportunities/scan"}:
             # Protected operator/cron endpoints. Never expose a public outbound-scan trigger.
             expected = os.getenv("VEROX_OPPORTUNITY_SCAN_TOKEN", "").strip()
