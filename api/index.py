@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -96,6 +97,8 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
     transition, so at most one of them invokes the model for a task.
     """
     try:
+        # Give Vercel Queues a brief chance to claim the task before the fallback.
+        time.sleep(1)
         started = _rpc("start", task_id=task_id)
         if started.get("accepted") is not True:
             return "claimed_by_queue"

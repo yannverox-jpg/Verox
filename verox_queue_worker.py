@@ -38,6 +38,7 @@ def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | N
 
 @subscribe(topic="verox-agent-tasks", max_attempts=3, max_concurrency=3)
 async def process_agent_task(message: dict) -> None:
+    print("verox_queue_subscriber_invoked")
     task_id = str(message.get("task_id", "")).strip()
     if len(task_id) != 36:
         raise ValueError("Queue message has no valid task id")
@@ -45,6 +46,7 @@ async def process_agent_task(message: dict) -> None:
     if started.get("accepted") is not True:
         # Already processed or no longer queued; acknowledge idempotently.
         return
+    print("verox_queue_task_claimed")
     task_type = str(started.get("task_type", "analysis"))
     payload = started.get("payload") or {}
     prompt = str(payload.get("text", "")).strip()
