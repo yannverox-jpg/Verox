@@ -174,6 +174,18 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
     credentials, and exception strings are not returned or logged.
     """
     configured = feeds if feeds is not None else load_feeds()
+    if not configured:
+        return {
+            "status": "not_configured",
+            "sources_configured": 0,
+            "sources_fetched": 0,
+            "leads_detected": 0,
+            "leads": [],
+            "source_errors": [],
+            "revenue_confirmed": False,
+            "disclaimer": "Aucune source configurée; aucun revenu n'est confirmé.",
+            "scanned_at_unix": int(time.time()),
+        }
     leads: list[Opportunity] = []
     errors: list[dict[str, str]] = []
     fetched = 0
