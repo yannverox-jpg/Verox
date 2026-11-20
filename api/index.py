@@ -40,6 +40,11 @@ def _configured(name: str) -> bool:
     return bool(os.getenv(name, "").strip())
 
 
+def _gemini_key_configured() -> bool:
+    """Report whether any supported Gemini credential alias is configured."""
+    return any(_configured(name) for name in ("GEMINI_API_KEY", "Gemini", "GEMINI_API_KEY_2"))
+
+
 def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
     """Compare a bearer credential against configured server-side tokens."""
     supplied = authorization.removeprefix("Bearer ").strip()
@@ -268,7 +273,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
         if path == "/api/health":
-            model_ready = _configured("GEMINI_API_KEY") or (_configured("AI_GATEWAY_API_KEY") and _configured("VEROX_AI_GATEWAY_MODEL"))
+            model_ready = _gemini_key_configured() or (_configured("AI_GATEWAY_API_KEY") and _configured("VEROX_AI_GATEWAY_MODEL"))
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))
             database_verified = False
             if supabase_configured:
@@ -279,7 +284,7 @@ class handler(BaseHTTPRequestHandler):
                     database_verified = False
             _json(self, 200, {
                 "ok": model_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
-                "gemini_configured": _configured("GEMINI_API_KEY"),
+                "gemini_configured": _gemini_key_configured(),
                 "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),
                 "model_configured": model_ready,
                 "supabase_configured": supabase_configured, "database_verified": database_verified,
@@ -289,7 +294,7 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/extensions":
             _json(self, 200, {"items": [
-                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _configured("GEMINI_API_KEY") else "needs_free_api_key"},
+                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key"},
                 {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _configured("AI_GATEWAY_API_KEY") else "blocked_by_credit_card_verification"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration"},
                 {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured"},
