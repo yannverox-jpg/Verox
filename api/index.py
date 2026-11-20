@@ -253,6 +253,20 @@ class handler(BaseHTTPRequestHandler):
             except ValueError:
                 _json(self, 400, {"error": "Domaine de sources inconnu.", "available_domains": sorted(DOMAINS)})
             return
+        if path.startswith("/api/sources/") and path.endswith("/fetch"):
+            # Retrieval is limited to pre-registered public sources; never accept caller-supplied URLs.
+            from urllib.parse import unquote
+            from verox_brain.read_only_fetcher import fetch_registered_source
+            source_id = unquote(path[len("/api/sources/"):-len("/fetch")]).strip("/")
+            try:
+                result = fetch_registered_source(source_id)
+                status = 200 if result.get("status") == "retrieved_public_page" else 502
+                _json(self, status, result)
+            except ValueError:
+                _json(self, 404, {"error": "Source inconnue dans le registre."})
+            except PermissionError:
+                _json(self, 403, {"error": "Cette source nécessite un compte ou un accès explicitement autorisé; aucun accès connecté n'est tenté."})
+            return
         if path == "/api/opportunities/public":
             # Publicly sourced lead metadata only; never return credentials or internal task payloads.
             try:
