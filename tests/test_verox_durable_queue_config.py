@@ -44,3 +44,23 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FreeModelClientTests(unittest.TestCase):
+    def test_no_provider_key_fails_closed(self):
+        from unittest.mock import patch
+        from verox_brain.model_client import ModelConfigurationError, generate_text
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "", "AI_GATEWAY_API_KEY": ""}, clear=False):
+            with self.assertRaises(ModelConfigurationError):
+                generate_text("test prompt")
+
+    def test_free_gemini_model_is_default(self):
+        from verox_brain.model_client import DEFAULT_GEMINI_MODEL
+        self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3.8-flash")
+
+    def test_no_paid_fallback_in_client(self):
+        from pathlib import Path
+        source = (ROOT / "verox_brain/model_client.py").read_text()
+        self.assertIn("GEMINI_API_KEY", source)
+        self.assertIn("AI_GATEWAY_API_KEY", source)
+        self.assertNotIn("VERCEL_OIDC_TOKEN", source)
