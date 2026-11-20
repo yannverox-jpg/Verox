@@ -94,13 +94,13 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
     transition, so at most one of them invokes the model for a task.
     """
     try:
-        started = _rpc("start", task_id)
+        started = _rpc("start", task_id=task_id)
         if started.get("accepted") is not True:
             return
         token = _gateway_token(request)
         model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
         if not token or not model:
-            _rpc("fail", task_id, error="Authentification AI Gateway ou modèle gratuit non configuré.")
+            _rpc("fail", task_id=task_id, error="Authentification AI Gateway ou modèle gratuit non configuré.")
             return
         with httpx.Client(timeout=45.0) as client:
             response = client.post(
