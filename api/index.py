@@ -161,7 +161,7 @@ class handler(BaseHTTPRequestHandler):
                     raise
                 _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "status_url": f"/api/tasks/{task_id}"})
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429:
+                if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                     _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
                 else:
                     _json(self, 503, {"error": "Le stockage ou la file de tâches est indisponible."})
