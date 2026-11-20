@@ -35,7 +35,7 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
     def test_existing_vercel_gemini_secret_name_is_supported(self):
         self._assert_key_alias_used("Gemini")
 
-    def test_canonical_key_has_precedence_over_second_key_and_legacy_name(self):
+    def test_canonical_key_has_precedence_over_legacy_and_second_key(self):
         fake_response = MagicMock()
         fake_response.json.return_value = {
             "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
@@ -49,8 +49,8 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
             "os.environ",
             {
                 "GEMINI_API_KEY": "primary-test-secret",
-                "GEMINI_API_KEY_2": "secondary-test-secret",
                 "Gemini": "legacy-test-secret",
+                "GEMINI_API_KEY_2": "secondary-test-secret",
             },
             clear=True,
         ):
@@ -60,6 +60,29 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             fake_client.post.call_args.kwargs["headers"]["x-goog-api-key"],
             "primary-test-secret",
+        )
+
+    def test_existing_legacy_key_has_precedence_over_second_key(self):
+        fake_response = MagicMock()
+        fake_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
+        }
+        fake_client = MagicMock()
+        fake_client.__enter__.return_value = fake_client
+        fake_client.__exit__.return_value = False
+        fake_client.post.return_value = fake_response
+
+        with patch.dict(
+            "os.environ",
+            {"Gemini": "legacy-test-secret", "GEMINI_API_KEY_2": "secondary-test-secret"},
+            clear=True,
+        ):
+            with patch("verox_brain.model_client.httpx.Client", return_value=fake_client):
+                generate_text("test")
+
+        self.assertEqual(
+            fake_client.post.call_args.kwargs["headers"]["x-goog-api-key"],
+            "legacy-test-secret",
         )
 
 
