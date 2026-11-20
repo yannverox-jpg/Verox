@@ -120,6 +120,8 @@ def _generate_pocketpal(prompt: str, system_prompt: str) -> tuple[str, str, str]
     token = os.getenv("POCKETPAL_API_KEY", "").strip()
     if not base_url:
         raise ModelConfigurationError("POCKETPAL_BASE_URL n'est pas configurée.")
+    if not token:
+        raise ModelConfigurationError("POCKETPAL_API_KEY est obligatoire pour sécuriser le connecteur distant.")
     return _post_openai_compatible(
         base_url=base_url,
         token=token,
