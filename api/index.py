@@ -286,7 +286,8 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
         if path == "/api/health":
-            gateway_auth_available = bool(_gateway_token(self))\n            model_ready = (gateway_auth_available and _configured("VEROX_AI_GATEWAY_MODEL")) or _gemini_key_configured()
+            gateway_auth_available = bool(_gateway_token(self))
+            model_ready = (gateway_auth_available and _configured("VEROX_AI_GATEWAY_MODEL")) or _gemini_key_configured()
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))
             database_verified = False
             if supabase_configured:
@@ -298,7 +299,8 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 200, {
                 "ok": model_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
                 "gemini_configured": _gemini_key_configured(),
-                "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),\n                "ai_gateway_oidc_available": gateway_auth_available,
+                "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),
+                "ai_gateway_oidc_available": gateway_auth_available,
                 "model_configured": model_ready,
                 "supabase_configured": supabase_configured, "database_verified": database_verified,
                 "background_workflows": "queue_delivery_unverified_inline_fallback",
