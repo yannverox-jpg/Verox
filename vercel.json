@@ -3,6 +3,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/browser/jobs",
+      "destination": "/api/browser_jobs.py"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index.py"
     },
