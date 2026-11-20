@@ -48,5 +48,5 @@ jobs:
       - name: Verify task safety boundaries
         run: |
           grep -q "TASK_TYPES = {\"analysis\", \"research\", \"chat\", \"code_review\"}" api/index.py
-          grep -q "max_attempts=3" queues/agent_tasks.py
+          grep -q "max_attempts=3" verox_queue_worker.py
           grep -q "rate limit exceeded" supabase/migrations/*verox_durable_agent_queue.sql
