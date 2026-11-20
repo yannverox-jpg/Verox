@@ -23,7 +23,8 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn("MAX_BODY_BYTES = 32_000", api)
         self.assertIn('_rpc("start", task_id=task_id)', api)
         self.assertIn('_rpc("complete", task_id=task_id, result={', api)
-        self.assertIn('_rpc("fail", task_id=task_id, error=f"Échec du traitement IA', api)
+        self.assertIn('_rpc("fail", task_id=task_id, error=safe_error)', api)
+        self.assertLess(api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'), api.index('request.headers.get("x-vercel-oidc-token", "").strip()'))
 
     def test_worker_retries_and_bounds_concurrency(self):
         worker = (ROOT / "queues/agent_tasks.py").read_text()
