@@ -25,7 +25,7 @@ Supported departments are `microtasks_services`, `trading`, `sports_horse_bettin
 
 `Authorization: Bearer <VEROX_OPPORTUNITY_SCAN_TOKEN>`
 
-The endpoint fails closed when the token is missing or incorrect. Do not put this token in browser code or commit it to Git. The result distinguishes detected leads from validated commercial opportunities; `revenue_confirmed` remains false.
+The endpoint fails closed when the token is missing or incorrect. Do not put this token in browser code or commit it to Git. `/api/opportunities` returns the latest persisted leads through the same protected token. The Vercel project has a daily Cron entry at 06:15 UTC; `CRON_SECRET` and `VEROX_OPPORTUNITY_SCAN_TOKEN` must match for scheduled runs. The result distinguishes detected leads from validated commercial opportunities; `revenue_confirmed` remains false.
 
 ## Current limitations
 
