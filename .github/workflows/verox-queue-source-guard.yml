@@ -1,0 +1,29 @@
+name: Verox Queue Source Guard
+
+on:
+  pull_request:
+    paths:
+      - "api/index.py"
+      - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - ".github/workflows/verox-queue-source-guard.yml"
+  push:
+    branches: [main]
+    paths:
+      - "api/index.py"
+      - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - ".github/workflows/verox-queue-source-guard.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile api/index.py
+      - run: python -m json.tool vercel.json >/dev/null
+      - name: Enforce frontend origin marker
+        run: |
+          grep -q '"source": "verox_dashboard"' api/index.py
+          grep -q "explicit frontend initiation required" supabase/migrations/*verox_durable_agent_queue.sql
