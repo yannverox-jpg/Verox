@@ -9,3 +9,4 @@ dependencies = [
 
 [[tool.vercel.subscribers]]
 entrypoint = "queues.agent_tasks"
+topics = ["verox-agent-tasks*"]
