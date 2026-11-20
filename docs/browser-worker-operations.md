@@ -1,41 +1,28 @@
-# Verox isolated browser worker
+# Verox browser worker operations
 
-This worker is designed to run as a separate isolated process, not inside the
-Vercel request/response runtime. It polls the Supabase browser-job queue, claims
-queued jobs with a compare-and-set status update, visits only registered public
-source hosts, stores bounded observations, and records an audit result.
+## Runtime boundary
 
-## Runtime requirements
+The Playwright worker runs as a short-lived GitHub Actions job, separate from Vercel's request handlers. It processes at most five queued jobs per run and exits. The workflow is scheduled every 15 minutes and can also be run manually after it is present on the repository's default branch.
 
-- Python 3.11 or later.
-- Install repository dependencies and the Playwright Chromium browser in an
-  isolated worker image.
-- Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as server-side secrets.
-- Never commit the service-role key or expose it to browser JavaScript or logs.
-- Restrict worker egress to HTTPS. Do not mount a personal browser profile.
+## Required GitHub Actions secrets
 
-## Run
+Configure these repository secrets under **Settings → Secrets and variables → Actions**:
 
-- python -m verox_brain.browser_worker --once processes up to five queued jobs.
-- python -m verox_brain.browser_worker polls continuously.
+- `SUPABASE_URL`: the HTTPS URL of the Verox Supabase project.
+- `SUPABASE_SERVICE_ROLE_KEY`: the server-only Supabase service-role key for that same project.
 
-The worker only processes inspect_page, collect_public_data, test_connector, and
-capture_evidence. download_public_file is held for approval until a separate
-reviewed download allowlist is implemented. Arbitrary extension installation,
-account login, form submission, purchases, betting, trading, and other external
-mutations are not implemented.
+Never place either value in source code, workflow YAML, issue comments, logs, or browser output. The workflow checks only whether they exist and whether the URL uses HTTPS; it never prints their values.
 
-## Queue payload
+The protected Vercel endpoint `/api/browser/jobs` also uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server, plus `VEROX_INTERNAL_TASK_TOKEN` for caller authentication. These are server-side variables, not `NEXT_PUBLIC_*` values. The currently inspected Vercel project had no non-empty `SUPABASE_SERVICE_ROLE_KEY` entry, so queue creation will remain unavailable until an authorized administrator configures it.
 
-Create a row in public.verox_browser_jobs with status='queued', a source_id
-present in verox_brain/source_registry.py, an allowed task type, and optional
-input.url. The URL must use HTTPS and exactly match the registered source host.
-Each task uses a fresh browser context with no persistent profile or cookies.
+## Job policy
 
-## Current limitation
+- Only registered public HTTPS hosts are eligible.
+- The worker blocks off-host requests, disables JavaScript, blocks service workers and does not reuse browser profiles or cookies.
+- Account logins, MFA/CAPTCHA bypass, form submissions, betting, trading orders, purchases, and other external mutations are out of scope.
+- `download_public_file` remains held for approval; this worker does not download arbitrary files.
+- Observations remain unverified until a separate validation process supports them.
 
-The worker code is committed to the GitHub feature branch but is not yet running
-as a persistent process and is not automatically hosted by Vercel. Configure the
-server-side secret in the isolated worker environment before processing live jobs.
-The new data-plane client also needs server-side service-role configuration before
-it can write durable observations.
+## Verification
+
+The workflow runs the browser-worker policy tests before touching the queue. A successful workflow means the worker process ran; it does not by itself prove every source is reliable or every hypothesis is correct. Confirm the resulting job status, observation hash, source provenance and timestamps in Supabase.
