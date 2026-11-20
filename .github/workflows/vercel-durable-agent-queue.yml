@@ -1,0 +1,48 @@
+name: Vercel Durable Agent Queue Checks
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "queues/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - "vercel.json"
+      - ".github/workflows/vercel-durable-agent-queue.yml"
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "queues/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - "vercel.json"
+      - ".github/workflows/vercel-durable-agent-queue.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile runtime modules
+        run: python -m py_compile api/index.py queues/agent_tasks.py
+      - name: Validate JSON and TOML configuration
+        run: |
+          python -m json.tool vercel.json >/dev/null
+          python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              cfg = tomllib.load(f)
+          assert cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"] == "queues.agent_tasks"
+          assert any(x.startswith("vercel-queue==") for x in cfg["project"]["dependencies"])
+          PY
+      - name: Verify task safety boundaries
+        run: |
+          grep -q "TASK_TYPES = {\"analysis\", \"research\", \"chat\", \"code_review\"}" api/index.py
+          grep -q "max_attempts=3" queues/agent_tasks.py
+          grep -q "rate limit exceeded" supabase/migrations/*verox_durable_agent_queue.sql
