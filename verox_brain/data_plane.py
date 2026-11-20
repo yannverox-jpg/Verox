@@ -70,7 +70,11 @@ class SupabaseDataPlane:
         digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
         record = {"source_id": source_id, "observed_at": datetime.now(timezone.utc).isoformat(), "source_published_at": source_published_at, "content_type": str(content_type)[:120], "content_hash": digest, "payload": payload, "verification_status": "unverified"}
         rows = self._request("POST", "verox_observations", params={"on_conflict": "source_id,content_hash"}, body=record, prefer="resolution=ignore-duplicates,return=representation")
-        return {"content_hash": digest, "stored": bool(rows), "verification_status": "unverified"}
+        observation_id = rows[0].get("id") if rows and isinstance(rows[0], dict) else None
+        if not observation_id:
+            existing = self._request("GET", "verox_observations", params={"select":"id", "source_id":f"eq.{source_id}", "content_hash":f"eq.{digest}", "limit":"1"})
+            observation_id = existing[0].get("id") if existing and isinstance(existing[0], dict) else None
+        return {"content_hash": digest, "observation_id": observation_id, "stored": bool(rows), "verification_status": "unverified"}
 
     def create_analysis_run(self, *, domain, subject_key=None, observation_ids=None, prompt_version="verox-research-v1"):
         record = {"domain": domain, "subject_key": (subject_key or "")[:200] or None, "status": "queued", "prompt_version": prompt_version[:100], "input_observation_ids": (observation_ids or [])[:200], "findings": {}, "metrics": {}}
