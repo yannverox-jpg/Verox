@@ -352,14 +352,28 @@ class handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/extensions":
-            _json(self, 200, {"items": [
-                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key"},
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth"},
-                {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "configured" if huggingface_ready else ("disabled" if os.getenv("VEROX_HF_ENABLED", "").strip().lower() != "true" else "needs_hf_token")},
-                {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "configured" if pocketpal_ready else ("disabled" if os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() != "true" else "needs_base_url")},
-                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration"},
-                {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured"},
-            ]})
+            # Dashboard catalogue: official-site shortcuts plus system connectors.
+            # Catalogue presence is not a claim that a platform account is connected.
+            items = [
+                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key", "category": "connector"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth", "category": "connector"},
+                {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "disabled_or_unverified", "category": "connector"},
+                {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "disabled_or_unverified", "category": "connector"},
+                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration", "category": "connector"},
+                {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured_in_code_unverified_runtime", "category": "connector"},
+            ]
+            catalogue = list_sources()
+            domain_labels = {entry["id"]: entry["label"] for entry in catalogue.get("domains", [])}
+            for source in catalogue.get("sources", []):
+                items.append({
+                    "id": source["id"], "label": source["name"],
+                    "group": domain_labels.get(source["domain"], source["domain"]),
+                    "lifecycle": source["connection_status"],
+                    "category": "platform", "url": source["url"],
+                    "source_id": source["id"], "access": source["access"],
+                    "verified_live": False, "notes": source["notes"],
+                })
+            _json(self, 200, {"items": items, "catalog_only": True, "disclaimer": catalogue.get("disclaimer")})
             return
         if path == "/api/metrics":
             try:
