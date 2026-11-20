@@ -39,8 +39,8 @@ def _configured(name: str) -> bool:
 def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
     return (
         os.getenv("AI_GATEWAY_API_KEY", "").strip()
-        or (request.headers.get("x-vercel-oidc-token", "").strip() if request else "")
         or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
+        or (request.headers.get("x-vercel-oidc-token", "").strip() if request else "")
     )
 
 
@@ -132,7 +132,11 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
     except Exception as exc:
         # Never persist upstream bodies, prompts, or credentials.
         try:
-            _rpc("fail", task_id=task_id, error=f"Échec du traitement IA ({type(exc).__name__}).")
+            if isinstance(exc, httpx.HTTPStatusError):
+                safe_error = f"AI Gateway HTTP {exc.response.status_code}"
+            else:
+                safe_error = f"Échec du traitement IA ({type(exc).__name__})."
+            _rpc("fail", task_id=task_id, error=safe_error)
             return "failed"
         except Exception:
             pass
