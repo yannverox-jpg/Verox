@@ -87,6 +87,56 @@ def _read_json(request: BaseHTTPRequestHandler) -> dict:
     return value
 
 
+def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task_type: str, prompt: str) -> None:
+    """Complete a task in the request if push delivery has not claimed it yet.
+
+    The queued worker and this fallback compete on the same atomic queued->running
+    transition, so at most one of them invokes the model for a task.
+    """
+    try:
+        started = _rpc("start", task_id)
+        if started.get("accepted") is not True:
+            return
+        token = _gateway_token(request)
+        model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
+        if not token or not model:
+            _rpc("fail", task_id, error="Authentification AI Gateway ou modèle gratuit non configuré.")
+            return
+        with httpx.Client(timeout=45.0) as client:
+            response = client.post(
+                "https://ai-gateway.vercel.sh/v1/chat/completions",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1200,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer = data["choices"][0]["message"]["content"]
+            if not isinstance(answer, str) or not answer.strip():
+                raise ValueError("empty model response")
+        _rpc("complete", task_id, result={
+            "answer": answer,
+            "provider": "vercel-ai-gateway",
+            "model": model,
+            "execution_mode": "inline_fallback",
+            "task_type": task_type,
+        })
+    except Exception as exc:
+        # Never persist upstream bodies, prompts, or credentials.
+        try:
+            _rpc("fail", task_id, error=f"Échec du traitement IA ({type(exc).__name__}).")
+        except Exception:
+            pass
+
+
+
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Request bodies, prompts, and credentials must never be logged.
@@ -109,7 +159,7 @@ class handler(BaseHTTPRequestHandler):
                 "ai_gateway_configured": bool(_gateway_token(self)),
                 "model_configured": _configured("VEROX_AI_GATEWAY_MODEL"),
                 "supabase_configured": supabase_configured, "database_verified": database_verified,
-                "background_workflows": "queue_subscriber_deployed_unverified",
+                "background_workflows": "queue_delivery_unverified_inline_fallback",
                 "message": "La connectivité à la base est testée; le traitement de tâches doit encore être validé de bout en bout."
             })
             return
@@ -166,6 +216,7 @@ class handler(BaseHTTPRequestHandler):
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
+                _process_inline_fallback(self, task_id, task_type, prompt)
                 _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "status_url": f"/api/tasks/{task_id}"})
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
@@ -200,6 +251,7 @@ class handler(BaseHTTPRequestHandler):
             )
             task_id = str(task["id"])
             message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+            _process_inline_fallback(self, task_id, "chat", prompt)
             _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id,
                               "status_url": f"/api/tasks/{task_id}"})
         except httpx.HTTPStatusError as exc:
