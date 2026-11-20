@@ -33,7 +33,7 @@ def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | N
         return data
 
 
-@subscribe(topic=TOPIC, max_attempts=3, max_concurrency=3)
+@subscribe(topic="verox-agent-tasks", max_attempts=3, max_concurrency=3)
 async def process_agent_task(message: dict) -> None:
     task_id = str(message.get("task_id", "")).strip()
     if len(task_id) != 36:
