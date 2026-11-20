@@ -407,8 +407,10 @@ class handler(BaseHTTPRequestHandler):
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
-                _process_inline_fallback(self, task_id, task_type, prompt)
-                _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "status_url": f"/api/tasks/{task_id}"})
+                # Return immediately after durable enqueue. Model inference belongs to
+                # the queue subscriber, not this HTTP request; otherwise free-model
+                # latency can exceed Vercel's request deadline and surface as an error.
+                _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "execution_mode": "queued", "status_url": f"/api/tasks/{task_id}"})
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                     _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
@@ -441,10 +443,15 @@ class handler(BaseHTTPRequestHandler):
                          "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
-            message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
-            execution_mode = _process_inline_fallback(self, task_id, "chat", prompt)
+            try:
+                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+            except Exception:
+                _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
+                raise
+            # Keep the request short and deterministic. The browser polls /api/tasks/{id}
+            # while the durable queue worker performs inference outside this request.
             _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id,
-                              "execution_mode": execution_mode, "status_url": f"/api/tasks/{task_id}"})
+                              "execution_mode": "queued", "status_url": f"/api/tasks/{task_id}"})
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                 _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
