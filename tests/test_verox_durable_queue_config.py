@@ -10,7 +10,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         cfg = tomllib.loads((ROOT / "pyproject.toml").read_text())
         self.assertEqual(
             cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"],
-            "queues.agent_tasks",
+            "queues.agent_tasks:process_agent_task",
         )
 
     def test_queue_sdk_is_pinned(self):
