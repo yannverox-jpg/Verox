@@ -32,6 +32,8 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         worker = (ROOT / "verox_queue_worker.py").read_text()
         self.assertIn("max_attempts=3", worker)
         self.assertIn("max_concurrency=3", worker)
+        self.assertIn("verox_queue_subscriber_invoked", worker)
+        self.assertIn("time.sleep(1)", api)
         self.assertIn('rpc("complete", task_id', worker)
 
     def test_database_migration_uses_private_token_hash(self):
