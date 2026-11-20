@@ -41,6 +41,8 @@ jobs:
           assert cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"] == "queues.agent_tasks:process_agent_task"
           assert any(x.startswith("vercel-queue==") for x in cfg["project"]["dependencies"])
           PY
+      - name: Install test dependency
+        run: python -m pip install httpx==0.28.1
       - name: Test free-first model selection
         run: python -m unittest discover -s tests -p 'test_verox_durable_queue_config.py'
       - name: Verify task safety boundaries
