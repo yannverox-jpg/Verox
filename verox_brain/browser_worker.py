@@ -70,7 +70,19 @@ class BrowserWorker:
             if _host(target_url) != _host(source["url"]): raise ValueError("target_host_not_registered")
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                context = browser.new_context(accept_downloads=False, service_workers="block", java_script_enabled=True, ignore_https_errors=False)
+                context = browser.new_context(accept_downloads=False, service_workers="block", java_script_enabled=False, ignore_https_errors=False)
+                allowed_host = _host(source["url"])
+                def guard_route(route):
+                    try:
+                        request_url = route.request.url
+                        parsed_request = urlparse(request_url)
+                        if parsed_request.scheme == "https" and parsed_request.hostname and parsed_request.hostname.lower() == allowed_host:
+                            route.continue_()
+                        else:
+                            route.abort()
+                    except Exception:
+                        route.abort()
+                context.route("**/*", guard_route)
                 page = context.new_page()
                 page.set_default_navigation_timeout(12_000)
                 page.set_default_timeout(5_000)
