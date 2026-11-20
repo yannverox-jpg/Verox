@@ -5,6 +5,9 @@ import json
 import os
 
 import httpx
+import asyncio
+
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from vercel.queue import subscribe
 
 TOPIC = "verox-agent-tasks"
@@ -49,26 +52,11 @@ async def process_agent_task(message: dict) -> None:
         rpc("fail", task_id, error="Type de tâche ou contenu invalide.")
         return
 
-    api_key = os.getenv("AI_GATEWAY_API_KEY", "").strip() or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
-    model = os.getenv("VEROX_AI_GATEWAY_MODEL", "").strip()
-    if not api_key or not model:
-        rpc("fail", task_id, error="Authentification AI Gateway ou modèle non configuré.")
-        return
-
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            response = await client.post(
-                "https://ai-gateway.vercel.sh/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-                      "temperature": 0.2, "max_tokens": 1800},
-            )
-            response.raise_for_status()
-            data = response.json()
-            answer = data["choices"][0]["message"]["content"]
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError("Empty model response")
-        rpc("complete", task_id, result={"answer": answer, "provider": "vercel-ai-gateway", "model": model})
+        answer, provider, model = await asyncio.to_thread(generate_text, prompt, SYSTEM_PROMPT)
+        rpc("complete", task_id, result={"answer": answer, "provider": provider, "model": model})
+    except (ModelConfigurationError, ModelRequestError) as exc:
+        rpc("fail", task_id, error=str(exc)[:500])
     except Exception as exc:
         # Retry transient failures with durable queue redelivery; persist only a generic error.
         try:
@@ -79,6 +67,5 @@ async def process_agent_task(message: dict) -> None:
                 return
             rpc("retry", task_id, error=f"Tentative {attempts} échouée.")
         except Exception:
-            # Preserve queue redelivery if task state itself is temporarily unreachable.
             raise
         raise
