@@ -21,7 +21,7 @@ Supported departments are `microtasks_services`, `trading`, `sports_horse_bettin
 
 ## Endpoint
 
-`GET /api/opportunities/scan` requires:
+`GET /api/opportunities/public` returns a sanitized list of persisted public-source leads for the dashboard; it cannot trigger a scan or expose credentials. `GET /api/opportunities/scan` and `GET /api/opportunities` require:
 
 `Authorization: Bearer <VEROX_OPPORTUNITY_SCAN_TOKEN>`
 
