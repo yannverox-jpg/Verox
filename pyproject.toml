@@ -7,6 +7,8 @@ dependencies = [
   "vercel-queue==0.10.0",
 ]
 
+[tool.uv]
+package = false
+
 [[tool.vercel.subscribers]]
-entrypoint = "queues.agent_tasks:process_agent_task"
-topics = ["verox-agent-tasks*"]
+entrypoint = "verox_queue_worker"
