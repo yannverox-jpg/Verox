@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from verox_brain.opportunity_engine import Feed, load_feeds, parse_feed
+from verox_brain.opportunity_engine import Feed, _keyword_matches, load_feeds, parse_feed
 
 
 class OpportunityEngineTests(unittest.TestCase):
@@ -48,6 +48,11 @@ class OpportunityEngineTests(unittest.TestCase):
         self.assertGreater(leads[0].score, leads[1].score)
         self.assertEqual(leads[0].status, "detected_unverified")
         self.assertIn("api", leads[0].matched_keywords)
+
+    def test_short_keywords_use_word_boundaries(self):
+        self.assertFalse(_keyword_matches("ai", "paid search and certain results"))
+        self.assertTrue(_keyword_matches("ai", "AI model release"))
+        self.assertTrue(_keyword_matches("api", "new API integration"))
 
     def test_malformed_feed_returns_no_leads(self):
         feed = Feed("broken", "https://example.com/feed", "trading", ())
