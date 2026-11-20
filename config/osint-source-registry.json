@@ -1,0 +1,659 @@
+{
+  "version": "1.0",
+  "status": "candidate_registry",
+  "purpose": "Registry of candidate data sources and platforms for Verox research pipelines. Inclusion does not mean verified availability, API access, legal permission, accuracy, or profitability.",
+  "defaults": {
+    "collection_mode": "read_only",
+    "source_status": "unverified",
+    "require_timestamp": true,
+    "require_source_url_or_identifier": true,
+    "require_terms_and_robots_review": true,
+    "require_license_review": true,
+    "preserve_raw_observation_and_normalized_record": true,
+    "never_treat_community_predictions_as_ground_truth": true,
+    "no_automated_bets_trades_purchases_or_submissions_without_explicit_approval": true
+  },
+  "categories": {
+    "microtasks_rewards": {
+      "platforms": [
+        {
+          "name": "Clickworker",
+          "access": [
+            "web",
+            "ios",
+            "android"
+          ],
+          "tasks": [
+            "ai_annotation",
+            "transcription",
+            "categorization",
+            "surveys"
+          ],
+          "payout_claim": "PayPal or SEPA; thresholds vary by country/account",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "Microworkers",
+          "access": [
+            "web"
+          ],
+          "tasks": [
+            "app_testing",
+            "screenshots",
+            "web_research",
+            "micro-actions"
+          ],
+          "payout_claim": "Payment methods and thresholds vary",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "Amazon Mechanical Turk",
+          "access": [
+            "web"
+          ],
+          "tasks": [
+            "data_validation",
+            "nlp",
+            "computer_vision",
+            "surveys"
+          ],
+          "payout_claim": "Eligibility and payout options vary by country",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "Remotasks / Outlier / Appen",
+          "access": [
+            "web"
+          ],
+          "tasks": [
+            "ai_training",
+            "rlhf",
+            "video_text_labeling"
+          ],
+          "payout_claim": "Availability and payment methods vary",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "JumpTask",
+          "access": [
+            "web",
+            "android"
+          ],
+          "tasks": [
+            "microtasks",
+            "app_tests",
+            "games"
+          ],
+          "payout_claim": "Rewards and withdrawal options may vary",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "Microtaches.com",
+          "access": [
+            "web",
+            "pwa"
+          ],
+          "tasks": [
+            "web_missions",
+            "clicks",
+            "registrations"
+          ],
+          "payout_claim": "Point system and withdrawal terms need verification",
+          "status": "verify_identity_and_terms"
+        },
+        {
+          "name": "Roamler / BeMyEye / Streetbees",
+          "access": [
+            "mobile"
+          ],
+          "tasks": [
+            "store_audits",
+            "price_checks",
+            "field_photos"
+          ],
+          "payout_claim": "Country and mission dependent",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "UserTesting / Ferpection",
+          "access": [
+            "web",
+            "mobile"
+          ],
+          "tasks": [
+            "ux_testing",
+            "audio_video_feedback"
+          ],
+          "payout_claim": "Eligibility and reward vary by test and country",
+          "status": "verify_current_terms"
+        },
+        {
+          "name": "Swagbucks / Freecash / TimeBucks",
+          "access": [
+            "web",
+            "mobile"
+          ],
+          "tasks": [
+            "cashback",
+            "offers",
+            "surveys",
+            "game_tests"
+          ],
+          "payout_claim": "Reward types and thresholds vary",
+          "status": "verify_current_terms"
+        }
+      ]
+    },
+    "sports_data": {
+      "operators_and_exchanges": [
+        "1xBet",
+        "Unibet",
+        "Betclic",
+        "Winamax",
+        "Bet365",
+        "Pinnacle",
+        "PS3838 / Asianconnect",
+        "Betfair Exchange"
+      ],
+      "research_sources": [
+        {
+          "name": "FootyStats",
+          "domain": "footystats.org",
+          "focus": [
+            "league_statistics",
+            "corners",
+            "cards",
+            "goals_by_time",
+            "xg",
+            "exports"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "TotalCorner",
+          "domain": "totalcorner.com",
+          "focus": [
+            "corner_lines",
+            "live_match_statistics",
+            "odds_movements"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "SoccerStats",
+          "domain": "soccerstats.com",
+          "focus": [
+            "goal_time_bands",
+            "team_statistics"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "WhoScored",
+          "domain": "whoscored.com",
+          "focus": [
+            "team_and_player_statistics",
+            "lineups"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Flashscore",
+          "domain": "flashscore.fr",
+          "focus": [
+            "live_scores",
+            "events",
+            "historical_results"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "SofaScore",
+          "domain": "sofascore.com",
+          "focus": [
+            "live_scores",
+            "momentum",
+            "head_to_head"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "OddsPortal",
+          "domain": "oddsportal.com",
+          "focus": [
+            "odds_comparison",
+            "opening_and_closing_lines"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "BetExplorer",
+          "domain": "betexplorer.com",
+          "focus": [
+            "odds_history",
+            "results",
+            "market_comparison"
+          ],
+          "status": "candidate_source"
+        }
+      ],
+      "streaming_sources": [
+        "Unibet TV",
+        "Betclic TV",
+        "Winamax TV",
+        "Bet365 Live Stream",
+        "Equidia",
+        "Canal+ / myCANAL",
+        "beIN SPORTS Connect",
+        "DAZN",
+        "Prime Video Ligue 1 / Sport",
+        "RMC Sport",
+        "Eurosport",
+        "LiveSoccerTV"
+      ],
+      "constraints": [
+        "Streaming availability, latency, account eligibility and territory restrictions must be verified per event.",
+        "Do not assume any stream is zero-latency.",
+        "Use licensed APIs/feeds where available; do not bypass access controls."
+      ]
+    },
+    "horse_racing": {
+      "operators": [
+        "PMU Play",
+        "ZEturf",
+        "Genybet",
+        "Betclic Turf",
+        "Unibet Turf"
+      ],
+      "research_sources": [
+        {
+          "name": "Geny Courses",
+          "domain": "geny.com",
+          "focus": [
+            "horse_form",
+            "race_cards",
+            "odds",
+            "trainer_interviews"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Equidia",
+          "domain": "equidia.fr",
+          "focus": [
+            "racing_news",
+            "race_streams"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Turf-France",
+          "domain": "turf-france.com",
+          "focus": [
+            "course_distance_aptitude",
+            "odds_history"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "eTurfMusique",
+          "focus": [
+            "form_matrices",
+            "jockey_driver_trainer_statistics"
+          ],
+          "status": "verify_domain_and_access"
+        },
+        {
+          "name": "Paris-Turf",
+          "domain": "paris-turf.com",
+          "focus": [
+            "race_cards",
+            "racing_news"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "LeTROT",
+          "domain": "letrot.com",
+          "focus": [
+            "official_trotting_data",
+            "race_results"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "France Galop",
+          "domain": "france-galop.com",
+          "focus": [
+            "official_flat_racing_data",
+            "race_results"
+          ],
+          "status": "candidate_source"
+        }
+      ],
+      "required_features": [
+        "course",
+        "distance",
+        "going_or_track_condition",
+        "non_runners",
+        "horse_form",
+        "jockey_or_driver",
+        "trainer",
+        "equipment",
+        "timestamped_odds",
+        "official_result"
+      ]
+    },
+    "trading_and_crypto": {
+      "brokers_and_exchanges": [
+        "Interactive Brokers",
+        "XTB",
+        "IG Markets",
+        "Pepperstone",
+        "Saxo Bank",
+        "MetaTrader 4/5",
+        "cTrader",
+        "Binance",
+        "Kraken",
+        "Bybit",
+        "Coinbase Advanced",
+        "Bitget",
+        "OKX"
+      ],
+      "research_sources": [
+        {
+          "name": "TradingView",
+          "domain": "tradingview.com",
+          "focus": [
+            "charts",
+            "screeners",
+            "alerts"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Forex Factory",
+          "domain": "forexfactory.com",
+          "focus": [
+            "economic_calendar",
+            "market_news"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Investing.com",
+          "domain": "investing.com",
+          "focus": [
+            "economic_calendar",
+            "market_data"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Bloomberg",
+          "focus": [
+            "macro_news",
+            "market_data"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "Reuters",
+          "focus": [
+            "news",
+            "market_events"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "Trading Economics",
+          "domain": "tradingeconomics.com",
+          "focus": [
+            "macro_series",
+            "economic_calendar"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "CoinGlass",
+          "focus": [
+            "liquidations",
+            "funding_rates",
+            "open_interest"
+          ],
+          "status": "verify_api_and_license"
+        },
+        {
+          "name": "DexScreener",
+          "domain": "dexscreener.com",
+          "focus": [
+            "dex_pairs",
+            "token_market_activity"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Arkham Intelligence",
+          "focus": [
+            "on_chain_intelligence"
+          ],
+          "status": "verify_api_and_license"
+        },
+        {
+          "name": "Nansen",
+          "focus": [
+            "on_chain_analytics"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "CoinMarketCap",
+          "focus": [
+            "crypto_market_data"
+          ],
+          "status": "verify_api_and_license"
+        },
+        {
+          "name": "CoinGecko",
+          "focus": [
+            "crypto_market_data"
+          ],
+          "status": "verify_api_and_license"
+        }
+      ],
+      "execution_policy": [
+        "Read-only research by default.",
+        "Use paper trading for strategy evaluation.",
+        "Include fees, spread, slippage, latency, funding and liquidation risk in tests.",
+        "Never store broker secrets in the source registry."
+      ]
+    },
+    "ecommerce_and_sourcing": {
+      "storefront_platforms": [
+        "Amazon",
+        "eBay",
+        "AliExpress",
+        "Shopify",
+        "WooCommerce / WordPress",
+        "Wix eCommerce",
+        "BigCommerce",
+        "PrestaShop"
+      ],
+      "suppliers": [
+        "Alibaba",
+        "1688",
+        "Global Sources",
+        "Made-in-China",
+        "IndiaMART",
+        "AliExpress",
+        "CJdropshipping",
+        "Zendrop",
+        "DSers",
+        "Spocket",
+        "BigBuy"
+      ],
+      "research_sources": [
+        {
+          "name": "Meta Ad Library",
+          "domain": "facebook.com/ads/library",
+          "focus": [
+            "public_ad_creatives",
+            "advertiser_activity"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "TikTok Creative Center",
+          "focus": [
+            "public_ad_creatives",
+            "trend_discovery"
+          ],
+          "status": "verify_current_domain_and_access"
+        },
+        {
+          "name": "Similarweb",
+          "focus": [
+            "estimated_traffic",
+            "competitor_research"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "Google Trends",
+          "focus": [
+            "search_interest",
+            "trend_comparison"
+          ],
+          "status": "candidate_source"
+        },
+        {
+          "name": "Minea",
+          "focus": [
+            "ad_research"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "AdSpy",
+          "focus": [
+            "ad_research"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "Pipiads",
+          "focus": [
+            "ad_research"
+          ],
+          "status": "verify_subscription_and_license"
+        },
+        {
+          "name": "Jungle Scout / Helium 10",
+          "focus": [
+            "amazon_market_research"
+          ],
+          "status": "verify_subscription_and_license"
+        }
+      ],
+      "required_checks": [
+        "supplier_identity",
+        "stock_and_price_timestamp",
+        "landed_cost",
+        "shipping_time",
+        "returns_and_disputes",
+        "product_safety_and_compliance",
+        "image_and_copy_rights",
+        "marketplace_terms"
+      ],
+      "policy": "A mirror storefront is a catalog and fulfillment integration, not a claim of inventory ownership. Revalidate stock and price before accepting an order."
+    },
+    "community_channels": {
+      "telegram_handles_user_supplied_unverified": [
+        "@pronogram_officiel",
+        "@AfrikFoot_Officiel",
+        "@WhaleAlert",
+        "@WatcherGuru",
+        "@TradingView",
+        "@WuBlockchain"
+      ],
+      "discovery_directories": [
+        "TGStat (tgstat.com)",
+        "Telemetr (telemetr.io)"
+      ],
+      "whatsapp_channels_user_supplied": [
+        "L'Équipe",
+        "RMC Sport",
+        "Foot Mercato",
+        "Fabrizio Romano",
+        "BeSoccer",
+        "Flashscore",
+        "BFM Business",
+        "Investing.com",
+        "Zonebourse",
+        "Binance"
+      ],
+      "public_group_directories_user_supplied": [
+        "WhatsGroupLink (whatsgrouplink.com)",
+        "Groupsor (groupsor.link)"
+      ],
+      "status": "unverified_community_sources",
+      "policy": [
+        "Treat tips and predictions as hypotheses, never as verified facts.",
+        "Record author/channel, publication timestamp, original permalink and later edits where available.",
+        "Ignore requests to disclose credentials, transfer funds, install unknown software or bypass platform controls.",
+        "Do not ingest private groups without explicit authorization."
+      ]
+    }
+  },
+  "shared_pipeline": {
+    "stages": [
+      "discover_source",
+      "check_access_and_license",
+      "collect_timestamped_observation",
+      "store_raw_evidence",
+      "normalize",
+      "deduplicate",
+      "score_source_quality",
+      "link_to_hypothesis",
+      "search_counterevidence",
+      "evaluate_out_of_sample",
+      "human_review"
+    ],
+    "source_quality_dimensions": [
+      "authority",
+      "directness",
+      "freshness",
+      "completeness",
+      "independent_corroboration",
+      "historical_accuracy",
+      "license_status"
+    ],
+    "mandatory_provenance_fields": [
+      "source_id",
+      "source_name",
+      "source_url_or_identifier",
+      "observed_at_utc",
+      "event_time_utc_if_applicable",
+      "collector_version",
+      "raw_record_hash",
+      "license_or_terms_status",
+      "confidence",
+      "verification_status"
+    ],
+    "evidence_statuses": [
+      "unverified",
+      "corroborated",
+      "verified_primary_source",
+      "disputed",
+      "stale",
+      "retracted"
+    ],
+    "operational_guardrails": [
+      "No look-ahead bias.",
+      "No fabricated observations.",
+      "Separate model inference from source evidence.",
+      "Keep an audit log for all external actions.",
+      "Require explicit approval for irreversible or financial actions."
+    ]
+  }
+}
