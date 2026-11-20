@@ -212,7 +212,7 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
         current = deduped.get(key)
         if current is None or lead.score > current.score:
             deduped[key] = lead
-    ranked = sorted(deduped.values(), key=lambda lead: (lead.score, lead.published_at or ""), reverse=True)
+    ranked = sorted((lead for lead in deduped.values() if lead.score > 0), key=lambda lead: (lead.score, lead.published_at or ""), reverse=True)
     return {
         "status": "completed" if not errors else ("partial" if fetched else "unavailable"),
         "sources_configured": len(configured),
