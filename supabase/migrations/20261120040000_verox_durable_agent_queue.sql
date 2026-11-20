@@ -73,6 +73,12 @@ begin
     where id = p_task_id and status = 'queued' returning * into v_task;
     if not found then return jsonb_build_object('accepted', false); end if;
     return jsonb_build_object('accepted', true, 'id', v_task.id, 'status', v_task.status, 'task_type', v_task.task_type, 'payload', v_task.payload);
+  elsif p_action = 'retry' then
+    if p_task_id is null then raise exception 'task id required'; end if;
+    update public.nexus_tasks set status = 'queued', error = left(coalesce(p_error, 'Retry scheduled'), 1000), updated_at = now()
+    where id = p_task_id and status = 'running' and attempts < 3;
+    if not found then return jsonb_build_object('id', p_task_id, 'status', 'not_requeued'); end if;
+    return jsonb_build_object('id', p_task_id, 'status', 'queued');
   elsif p_action = 'metrics' then
     return jsonb_build_object(
       'counts', (select coalesce(jsonb_object_agg(status, n), '{}'::jsonb) from
