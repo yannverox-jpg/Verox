@@ -10,7 +10,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         cfg = tomllib.loads((ROOT / "pyproject.toml").read_text())
         self.assertEqual(
             cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"],
-            "queues.agent_tasks:process_agent_task",
+            "verox_queue_worker",
         )
 
     def test_queue_sdk_is_pinned(self):
@@ -29,7 +29,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertLess(api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'), api.index('request.headers.get("x-vercel-oidc-token", "").strip()'))
 
     def test_worker_retries_and_bounds_concurrency(self):
-        worker = (ROOT / "queues/agent_tasks.py").read_text()
+        worker = (ROOT / "verox_queue_worker.py").read_text()
         self.assertIn("max_attempts=3", worker)
         self.assertIn("max_concurrency=3", worker)
         self.assertIn('rpc("complete", task_id', worker)
