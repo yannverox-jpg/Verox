@@ -11,4 +11,4 @@ dependencies = [
 package = false
 
 [[tool.vercel.subscribers]]
-entrypoint = "verox_queue_worker"
+entrypoint = "verox_queue_worker:process_agent_task"
