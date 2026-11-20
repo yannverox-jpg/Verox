@@ -7,6 +7,10 @@
       "destination": "/api/browser_jobs.py"
     },
     {
+      "source": "/api/research",
+      "destination": "/api/research.py"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index.py"
     },
