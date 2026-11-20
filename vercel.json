@@ -4,6 +4,9 @@
   "functions": {
     "api/index.py": { "maxDuration": 60 }
   },
+  "crons": [
+    { "path": "/api/opportunities/scan", "schedule": "15 6 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.py" },
     { "source": "/", "destination": "/nexus_dashboard.html" }
