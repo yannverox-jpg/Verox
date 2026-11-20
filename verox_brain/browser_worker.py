@@ -101,7 +101,7 @@ class BrowserWorker:
             run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
             analysis = None
             if run_id:
-                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,captured_at=captured_at)
+                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,observation_id=evidence.get('observation_id'),captured_at=captured_at)
             self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
             return {"status":"succeeded","observation":evidence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
