@@ -60,3 +60,24 @@ Verox est un agent de travail et de recherche, pas seulement un chatbot. Il doit
 
 ## Critère d'acceptation minimal
 Le cerveau n'est validé que si une requête réelle passe par Vercel AI Gateway, produit une réponse non vide, identifie le fournisseur/modèle réellement utilisé, persiste le résultat dans Supabase et permet de relire ce résultat après la fin de la requête. Le statut `READY` d'un déploiement seul ne suffit pas.
+
+
+## Connecteurs additionnels (optionnels, désactivés par défaut)
+
+### Hugging Face Inference Providers
+- Variables : `VEROX_HF_ENABLED=true`, `HF_TOKEN`, `VEROX_HF_MODEL`.
+- Endpoint OpenAI-compatible : `https://router.huggingface.co/v1/chat/completions`.
+- Hugging Face Inference Providers n'est pas garanti gratuit : le compte Free n'inclut pas de crédits d'inférence mensuels selon la tarification publiée. Ne pas activer sans vérifier le coût/les crédits du compte. Le connecteur reste désactivé tant que `VEROX_HF_ENABLED` n'est pas explicitement à `true`.
+
+### PocketPal (inférence locale sur Android)
+- PocketPal peut exposer un serveur API local compatible OpenAI quand un modèle est chargé et que le serveur local est activé.
+- Variables : `VEROX_POCKETPAL_ENABLED=true`, `POCKETPAL_BASE_URL`, `POCKETPAL_MODEL`, `POCKETPAL_API_KEY`.
+- L'URL doit être HTTPS pour ce connecteur cloud. Une adresse privée comme `http://192.168.x.x:port` n'est pas accessible depuis une fonction Vercel. Pour relier le téléphone au cerveau cloud, il faut un tunnel HTTPS authentifié et stable, ou bien exécuter l'orchestrateur local sur le même réseau. Ne jamais exposer le serveur du téléphone sur Internet sans authentification.
+- Ce connecteur reste désactivé par défaut. La connexion ne sera déclarée opérationnelle qu'après un appel réel réussi et une vérification de sécurité.
+
+### Ordre de routage
+1. Vercel AI Gateway et le modèle virtuel `vmc/verox-free-brain`.
+2. PocketPal si explicitement activé et accessible.
+3. Hugging Face si explicitement activé et authentifié.
+4. Les clés Gemini configurées, comme secours.
+Aucun connecteur optionnel n'est activé automatiquement et aucun modèle payant n'est sélectionné silencieusement.

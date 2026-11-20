@@ -22,7 +22,7 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
                 answer, provider, model = generate_text("test")
 
         self.assertEqual(answer, "réponse test")
-        self.assertEqual(provider, "google-gemini-api-free-tier")
+        self.assertEqual(provider, "google-gemini-api-fallback")
         self.assertEqual(model, "gemini-3.8-flash")
         self.assertEqual(fake_client.post.call_args.kwargs["headers"]["x-goog-api-key"], "unit-test-secret")
 
