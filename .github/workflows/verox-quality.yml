@@ -20,5 +20,18 @@ jobs:
         run: python -m pip install "httpx==0.28.1" "vercel-queue==0.10.0"
       - name: Compile Python modules
         run: python -m compileall -q api verox_brain verox_queue_worker.py tests
+      - name: Validate dashboard JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("nexus_dashboard.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script\\b[^>]*>(.*?)</script>", html, flags=re.I | re.S)
+          inline = [script for script in scripts if script.strip()]
+          if not inline:
+              raise SystemExit("No inline dashboard JavaScript found")
+          Path("/tmp/verox-dashboard.js").write_text("\\n".join(inline), encoding="utf-8")
+          PY
+          node --check /tmp/verox-dashboard.js
       - name: Run opportunity engine tests
         run: python -m unittest tests.test_opportunity_engine
