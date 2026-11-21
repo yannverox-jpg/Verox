@@ -13,18 +13,9 @@ from vercel.queue import subscribe
 
 from verox_brain.dispatch import build_role_system_prompt, resolve_route, select_route
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+from verox_brain.queue_config import queue_concurrency, queue_topic_for_role
 
-TOPIC_PREFIX = "verox-agent-"
 MAX_ATTEMPTS = max(1, min(8, int(os.getenv("VEROX_QUEUE_MAX_ATTEMPTS", "3"))))
-
-
-def _concurrency(role: str) -> int:
-    """Per-role concurrency is independently configurable and bounded."""
-    key = "VEROX_CONCURRENCY_" + role.upper()
-    try:
-        return max(1, min(20, int(os.getenv(key, "2"))))
-    except ValueError:
-        return 2
 
 
 def _now() -> str:
@@ -145,46 +136,46 @@ async def handle_agent_task(message: dict, forced_role: str | None = None) -> No
 
 # Each specialist has an independent durable topic and concurrency budget.
 # Concurrency defaults are conservative and can be overridden with Vercel env vars.
-@subscribe(topic=TOPIC_PREFIX + "brain_coordination", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("brain_coordination"))
+@subscribe(topic=queue_topic_for_role("brain_coordination"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("brain_coordination"))
 async def process_brain_coordination(message: dict) -> None:
     await handle_agent_task(message, "brain_coordination")
 
 
-@subscribe(topic=TOPIC_PREFIX + "public_research", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("public_research"))
+@subscribe(topic=queue_topic_for_role("public_research"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("public_research"))
 async def process_public_research(message: dict) -> None:
     await handle_agent_task(message, "public_research")
 
 
-@subscribe(topic=TOPIC_PREFIX + "revenue_research", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("revenue_research"))
+@subscribe(topic=queue_topic_for_role("revenue_research"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("revenue_research"))
 async def process_revenue_research(message: dict) -> None:
     await handle_agent_task(message, "revenue_research")
 
 
-@subscribe(topic=TOPIC_PREFIX + "microtask", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("microtask"))
+@subscribe(topic=queue_topic_for_role("microtask"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("microtask"))
 async def process_microtask(message: dict) -> None:
     await handle_agent_task(message, "microtask")
 
 
-@subscribe(topic=TOPIC_PREFIX + "service_work", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("service_work"))
+@subscribe(topic=queue_topic_for_role("service_work"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("service_work"))
 async def process_service_work(message: dict) -> None:
     await handle_agent_task(message, "service_work")
 
 
-@subscribe(topic=TOPIC_PREFIX + "mirror_store", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("mirror_store"))
+@subscribe(topic=queue_topic_for_role("mirror_store"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("mirror_store"))
 async def process_mirror_store(message: dict) -> None:
     await handle_agent_task(message, "mirror_store")
 
 
-@subscribe(topic=TOPIC_PREFIX + "sports_analysis", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("sports_analysis"))
+@subscribe(topic=queue_topic_for_role("sports_analysis"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("sports_analysis"))
 async def process_sports_analysis(message: dict) -> None:
     await handle_agent_task(message, "sports_analysis")
 
 
-@subscribe(topic=TOPIC_PREFIX + "horse_racing_analysis", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("horse_racing_analysis"))
+@subscribe(topic=queue_topic_for_role("horse_racing_analysis"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("horse_racing_analysis"))
 async def process_horse_racing_analysis(message: dict) -> None:
     await handle_agent_task(message, "horse_racing_analysis")
 
 
-@subscribe(topic=TOPIC_PREFIX + "software_build", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("software_build"))
+@subscribe(topic=queue_topic_for_role("software_build"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("software_build"))
 async def process_software_build(message: dict) -> None:
     await handle_agent_task(message, "software_build")
