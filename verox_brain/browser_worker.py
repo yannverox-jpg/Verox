@@ -36,7 +36,7 @@ class BrowserWorker:
 
     def _rest(self, method, path, *, params=None, body=None):
         headers = {"apikey": self.store.service_key, "Authorization": f"Bearer {self.store.service_key}", "Content-Type": "application/json", "Accept": "application/json"}
-        if method == "PATCH": headers["Prefer"] = "return=representation"
+        if method in {"POST", "PATCH"}: headers["Prefer"] = "return=representation"
         try:
             with httpx.Client(timeout=10, follow_redirects=False, trust_env=False) as client:
                 response = client.request(method, f"{self.store.base_url}/rest/v1/{path}", params=params, json=body, headers=headers)
