@@ -37,6 +37,7 @@ def complete_research_run(
     page_text: str,
     observation_id: str | None = None,
     captured_at: str | None = None,
+    model_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze collected text when a model is configured, otherwise fail closed."""
     now = datetime.now(timezone.utc).isoformat()
@@ -58,14 +59,21 @@ def complete_research_run(
         f"{str(page_text)[:14000]}"
     )
     try:
-        answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT)
+        if model_result is not None:
+            answer = str(model_result.get("analysis", "")).strip()
+            provider = str(model_result.get("provider_used", "")).strip()
+            model = str(model_result.get("model_used", "")).strip()
+            if not answer or not provider or not model:
+                raise ModelRequestError("Le moteur central a retourné une analyse incomplète.")
+        else:
+            answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT)
     except (ModelConfigurationError, ModelRequestError) as exc:
         store._request(
             "PATCH",
             "verox_analysis_runs",
             params={"id": f"eq.{run_id}"},
             body={
-                "status": "needs_review",
+                "status": "failed",
                 "input_observation_ids": [observation_id] if observation_id else [],
                 "findings": {"evidence": evidence, "analysis": None},
                 "metrics": {"text_chars": len(page_text), "model_available": False},
@@ -73,13 +81,13 @@ def complete_research_run(
                 "completed_at": now,
             },
         )
-        return {"status": "needs_review", "model_available": False}
+        return {"status": "failed", "model_available": False}
     store._request(
         "PATCH",
         "verox_analysis_runs",
         params={"id": f"eq.{run_id}"},
         body={
-            "status": "needs_review",
+            "status": "completed",
             "input_observation_ids": [observation_id] if observation_id else [],
             "model_provider": provider,
             "model_name": model,
@@ -98,4 +106,4 @@ def complete_research_run(
             "completed_at": now,
         },
     )
-    return {"status": "needs_review", "model_available": True, "provider": provider, "model": model}
+    return {"status": "completed", "model_available": True, "provider": provider, "model": model}
