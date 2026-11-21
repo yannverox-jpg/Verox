@@ -214,7 +214,11 @@ class BrowserWorker:
         return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
 
     def _queue_discovered_links(self, source, discovered_links, *, limit=3):
-        """Queue bounded follow-up reads under the registry entry that owns each host."""
+        """Queue bounded page reads and inert file downloads under the owning source."""
+        from pathlib import PurePosixPath
+        from urllib.parse import unquote
+        download_suffixes = {".pdf", ".md", ".txt", ".json", ".yaml", ".yml", ".toml",
+                            ".csv", ".xml", ".zip", ".whl", ".tgz", ".gz", ".py", ".js"}
         eligible = []
         for link in discovered_links:
             url = str(link.get("url", ""))
@@ -223,19 +227,23 @@ class BrowserWorker:
                 continue
             if target_source["id"] == source.get("id") and url == source.get("url"):
                 continue
-            eligible.append((url, target_source))
+            suffix = PurePosixPath(unquote(urlparse(url).path)).suffix.lower()
+            task_type = "download_public_file" if suffix in download_suffixes else "collect_public_data"
+            eligible.append((url, target_source, task_type))
         unique = []
         seen_urls = set()
-        for url, target_source in eligible:
+        for url, target_source, task_type in eligible:
             if url not in seen_urls:
                 seen_urls.add(url)
-                unique.append((url, target_source))
+                unique.append((url, target_source, task_type))
         unique = unique[:max(0, min(int(limit), 3))]
         if not unique:
             return {"queued": 0, "urls": []}
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         queued = []
-        for url, target_source in unique:
+        for url, target_source, task_type in unique:
+            # Ensure the destination source exists in Supabase before creating its FK-linked job.
+            self.store.register_source(target_source)
             recent = self._rest("GET", "verox_browser_jobs", params={
                 "select": "id,status,created_at,input",
                 "source_id": "eq." + str(target_source["id"]),
@@ -249,18 +257,18 @@ class BrowserWorker:
             if url in seen:
                 continue
             record = {
-                "task_type": "collect_public_data",
+                "task_type": task_type,
                 "source_id": target_source["id"],
                 "status": "queued",
                 "policy_mode": "read_only",
-                "requested_capabilities": ["navigate", "read_text", "discover_public_links"],
+                "requested_capabilities": ["navigate", "read_text", "discover_public_links"] if task_type != "download_public_file" else ["download_public_reference", "store_inert_artifact"],
                 "input": {"url": url, "request_reason": "bounded_registered_public_link_followup"},
                 "artifact_refs": [],
-                "audit": {"created_by": "browser_worker", "policy": "read_only", "parent_source_id": source["id"]},
+                "audit": {"created_by": "browser_worker", "policy": "read_only", "parent_source_id": source["id"], "artifact_policy": "never_execute" if task_type == "download_public_file" else None},
             }
             rows = self._rest("POST", "verox_browser_jobs", body=record)
             if rows:
-                queued.append({"source_id": target_source["id"], "url": url})
+                queued.append({"source_id": target_source["id"], "url": url, "task_type": task_type})
         return {"queued": len(queued), "urls": queued}
     def _download_public_file(self, job_id, source, target_url):
         """Store a bounded public artifact as inert data; never install or execute it."""
