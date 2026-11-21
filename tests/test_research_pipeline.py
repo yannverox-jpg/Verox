@@ -22,10 +22,10 @@ class ResearchPipelineTests(unittest.TestCase):
                 source_url="https://www.soccerstats.com/", page_title="Stats",
                 page_text="Un extrait de données publiques. " * 10, captured_at="2026-01-01T12:00:00Z",
             )
-        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["status"], "succeeded")
         self.assertTrue(result["model_available"])
         body = store.calls[0][2]["body"]
-        self.assertEqual(body["status"], "completed")
+        self.assertEqual(body["status"], "succeeded")
         self.assertFalse(body["metrics"]["evidence_verified"])
         self.assertEqual(body["findings"]["analysis"], "Analyse limitée")
 
@@ -38,7 +38,7 @@ class ResearchPipelineTests(unittest.TestCase):
                 page_text="Observed public text. " * 20,
                 model_result={"analysis":"Résumé central","provider_used":"vercel-ai-gateway","model_used":"test-model"},
             )
-        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["status"], "succeeded")
         self.assertEqual(result["provider"], "vercel-ai-gateway")
         self.assertEqual(store.calls[0][2]["body"]["model_name"], "test-model")
 
