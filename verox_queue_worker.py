@@ -179,3 +179,9 @@ async def process_horse_racing_analysis(message: dict) -> None:
 @subscribe(topic=queue_topic_for_role("software_build"), max_attempts=MAX_ATTEMPTS, max_concurrency=queue_concurrency("software_build"))
 async def process_software_build(message: dict) -> None:
     await handle_agent_task(message, "software_build")
+
+
+@subscribe(topic="verox-agent-tasks", max_attempts=MAX_ATTEMPTS, max_concurrency=2)
+async def process_legacy_agent_task(message: dict) -> None:
+    """Drain tasks queued before role-specific topics were introduced."""
+    await handle_agent_task(message)
