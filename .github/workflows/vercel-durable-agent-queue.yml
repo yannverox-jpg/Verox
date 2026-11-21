@@ -51,7 +51,7 @@ jobs:
           with open("pyproject.toml", "rb") as f:
               cfg = tomllib.load(f)
           subscribers = {x["entrypoint"] for x in cfg["tool"]["vercel"]["subscribers"]}
-          assert len(subscribers) == 9, subscribers
+          assert len(subscribers) == 10, subscribers
           assert "verox_queue_worker:process_microtask" in subscribers
           assert "verox_queue_worker:process_horse_racing_analysis" in subscribers
           assert any(x.startswith("vercel-queue==") for x in cfg["project"]["dependencies"])
