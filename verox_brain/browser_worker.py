@@ -15,7 +15,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_pla
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
 from verox_brain.research_pipeline import complete_research_run
 from verox_brain.source_registry import get_source, list_sources
-from verox_brain.platform_probe import profile_public_page\nfrom verox_brain.platform_probe import profile_public_page
+from verox_brain.platform_probe import profile_public_page
 
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
