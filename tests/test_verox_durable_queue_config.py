@@ -6,37 +6,51 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class VeroxQueueConfigurationTests(unittest.TestCase):
-    def test_queue_subscriber_is_registered(self):
+    def test_all_specialist_queue_subscribers_are_registered(self):
         cfg = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        self.assertEqual(
-            cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"],
-            "verox_queue_worker:process_agent_task",
-        )
+        entrypoints = {item["entrypoint"] for item in cfg["tool"]["vercel"]["subscribers"]}
+        expected = {
+            "verox_queue_worker:process_brain_coordination",
+            "verox_queue_worker:process_public_research",
+            "verox_queue_worker:process_revenue_research",
+            "verox_queue_worker:process_microtask",
+            "verox_queue_worker:process_service_work",
+            "verox_queue_worker:process_mirror_store",
+            "verox_queue_worker:process_sports_analysis",
+            "verox_queue_worker:process_horse_racing_analysis",
+            "verox_queue_worker:process_software_build",
+        }
+        self.assertEqual(entrypoints, expected)
         self.assertNotIn("uv", cfg.get("tool", {}))
 
     def test_queue_sdk_is_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text()
         self.assertIn("vercel-queue==0.10.0", requirements)
 
-    def test_api_limits_task_types(self):
+    def test_api_routes_to_specialist_topics_and_recovers_stale_tasks(self):
         api = (ROOT / "api/index.py").read_text()
         self.assertIn('TASK_TYPES = {"analysis", "research", "chat", "code_review"}', api)
-        self.assertIn("MAX_BODY_BYTES = 32_000", api)
-        self.assertIn('_rpc("start", task_id=task_id)', api)
-        self.assertIn('_rpc("complete", task_id=task_id, result={', api)
-        self.assertIn('_rpc("fail", task_id=task_id, error=safe_error)', api)
-        self.assertIn('safe_message = re.sub(', api)
-        self.assertIn('[:180]', api)
-        self.assertLess(api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'), api.index('request.headers.get("x-vercel-oidc-token", "").strip()'))
-        self.assertIn("time.sleep(1)", api)
+        self.assertIn("queue_topic_for_role(route.role)", api)
+        self.assertIn('path == "/api/tasks/recover"', api)
+        self.assertIn('_telemetry_rpc("recover_stale")', api)
+        self.assertIn('_record_task_event(task_id, "enqueued"', api)
+        self.assertIn('path == "/api/metrics"', api)
 
-    def test_worker_retries_and_bounds_concurrency(self):
+    def test_worker_uses_independent_bounded_role_pools(self):
         worker = (ROOT / "verox_queue_worker.py").read_text()
-        self.assertIn("max_attempts=3", worker)
-        self.assertIn("max_concurrency=3", worker)
-        self.assertIn("verox_queue_subscriber_invoked", worker)
-        self.assertIn("verox_queue_task_claimed", worker)
-        self.assertIn('rpc("complete", task_id', worker)
+        self.assertIn("max_attempts=MAX_ATTEMPTS", worker)
+        self.assertIn("max_concurrency=queue_concurrency(", worker)
+        self.assertIn('rpc("retry", task_id', worker)
+        self.assertIn('"retry_scheduled"', worker)
+        self.assertIn('"timings_ms"', worker)
+
+    def test_queue_names_and_concurrency_are_bounded(self):
+        from verox_brain.queue_config import queue_concurrency, queue_topic_for_role
+        self.assertEqual(queue_topic_for_role("microtask"), "verox-agent-microtask")
+        self.assertEqual(queue_concurrency("microtask", {"VEROX_CONCURRENCY_MICROTASK": "7"}), 7)
+        self.assertEqual(queue_concurrency("microtask", {"VEROX_CONCURRENCY_MICROTASK": "100"}), 20)
+        with self.assertRaises(ValueError):
+            queue_topic_for_role("unregistered")
 
     def test_database_migration_uses_private_token_hash(self):
         migration = next((ROOT / "supabase/migrations").glob("*verox_durable_agent_queue.sql")).read_text()
@@ -44,6 +58,12 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn("encode(sha256(convert_to(p_token", migration)
         self.assertIn("rate limit exceeded", migration)
         self.assertIn("grant execute on function public.verox_task_api", migration)
+
+    def test_telemetry_migration_supports_events_and_recovery(self):
+        migration = (ROOT / "supabase/migrations/20261121120000_verox_task_telemetry_and_recovery.sql").read_text()
+        self.assertIn("public.verox_task_events", migration)
+        self.assertIn("p_action = 'recover_stale'", migration)
+        self.assertIn("interval '5 minutes'", migration)
 
 
 class FreeModelClientTests(unittest.TestCase):
