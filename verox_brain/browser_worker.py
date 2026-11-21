@@ -241,12 +241,20 @@ class BrowserWorker:
                         department = source.get("domain", "microtasks_services")
                         if department not in {"microtasks_services", "trading", "sports_horse_betting", "ecommerce"}:
                             department = "microtasks_services"
-                        self.store.upsert_ai_verified_opportunity(
-                            title=analysis["title"], summary=analysis["summary"], source_name=source.get("name", source_id),
-                            source_url=final_url, department=department, observation_id=evidence["observation_id"],
-                            analysis_run_id=run_id, model_used=analysis["model"], confidence_score=analysis["confidence"],
-                            is_actionable=True, score=float(analysis["confidence"]) * 100,
-                        )
+                        try:
+                            self.store.upsert_ai_verified_opportunity(
+                                title=analysis["title"], summary=analysis["summary"], source_name=source.get("name", source_id),
+                                source_url=final_url, department=department, observation_id=evidence["observation_id"],
+                                analysis_run_id=run_id, model_used=analysis["model"], confidence_score=analysis["confidence"],
+                                is_actionable=True, score=float(analysis["confidence"]) * 100,
+                            )
+                            analysis["opportunity_status"] = "ai_verified"
+                        except Exception as exc:
+                            # Keep a successful analysis successful if the separate opportunity write fails.
+                            analysis["opportunity_status"] = "not_promoted"
+                            analysis["opportunity_error"] = str(exc)[:180] if isinstance(exc, (RuntimeError, ValueError)) else type(exc).__name__
+                    elif analysis.get("status") == "succeeded":
+                        analysis["opportunity_status"] = "not_promoted_quality_gate"
                 except Exception as exc:
                     safe_error = str(exc)[:180] if isinstance(exc, RuntimeError) else f"ai_analysis_failed:{type(exc).__name__}"
                     self.store._request("PATCH","verox_analysis_runs",params={"id":f"eq.{run_id}"},
