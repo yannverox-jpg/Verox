@@ -5,7 +5,7 @@ ALTER TABLE public.verox_opportunities
   ADD COLUMN IF NOT EXISTS observation_id uuid REFERENCES public.verox_observations(id),
   ADD COLUMN IF NOT EXISTS analysis_run_id uuid REFERENCES public.verox_analysis_runs(id),
   ADD COLUMN IF NOT EXISTS model_used text,
-  ADD COLUMN IF NOT EXISTS confidence_score numeric(4,3),
+  ADD COLUMN IF NOT EXISTS confidence_score numeric,
   ADD COLUMN IF NOT EXISTS is_actionable boolean NOT NULL DEFAULT false;
 
 ALTER TABLE public.verox_opportunities
@@ -112,7 +112,7 @@ DECLARE
   v_observation_id uuid;
   v_analysis_run_id uuid;
   v_model_used text;
-  v_confidence numeric(4,3);
+  v_confidence numeric;
   v_actionable boolean;
   v_collection_status text;
   v_verified boolean;
