@@ -39,7 +39,7 @@ Commencer avec les valeurs par défaut. Augmenter les limites uniquement après 
 
 Le worker enregistre les événements `enqueued`, `started`, `completed`, `retry_scheduled`, `retry_exhausted` et les erreurs de configuration dans `verox_task_events`. Les traces incluent le rôle, le statut, l'heure et les durées de file/modèle; aucun prompt ni secret n'est écrit dans le registre de télémétrie.
 
-Le point protégé `GET /api/tasks/recover` est planifié toutes les cinq minutes par Vercel Cron. Il récupère les tâches bloquées après une interruption et republie leur message sur la file du rôle. L'opération de démarrage en base reste atomique afin que les doublons de message ne déclenchent pas deux exécutions simultanées de la même tâche.
+Le point protégé `GET /api/tasks/recover` est planifié quotidiennement par Vercel Cron pour rester compatible avec les limites du plan gratuit. Il récupère les tâches bloquées après une interruption et republie leur message sur la file du rôle. L'opération de démarrage en base reste atomique afin que les doublons de message ne déclenchent pas deux exécutions simultanées de la même tâche.
 
 ## Migration requise avant activation
 
@@ -49,7 +49,7 @@ Après migration et déploiement, valider :
 1. une tâche par rôle, et le topic réellement consommé;
 2. deux tâches concurrentes dans le même rôle et deux rôles différents;
 3. une panne simulée du modèle puis une reprise;
-4. une tâche laissée en état `running`, puis récupérée par le cron;
+4. une tâche laissée en état `running`, puis récupérée par le cron quotidien;
 5. les métriques et événements persistés;
 6. p50/p95/p99 de l'attente en file, du modèle et du cycle total.
 
