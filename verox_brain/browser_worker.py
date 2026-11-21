@@ -64,7 +64,7 @@ class BrowserWorker:
             raise RuntimeError("ai_endpoint_unavailable_or_invalid_response") from None
         if not isinstance(data, dict) or data.get("model_ready") is not True:
             raise RuntimeError("ai_model_not_ready")
-        if payload.get("action") == "analyze" and not all(data.get(k) for k in ("analysis", "model_used", "provider_used")):
+        if payload.get("action") == "analyze" and not isinstance(data.get("analysis"), dict) or (payload.get("action") == "analyze" and not all(data.get(k) for k in ("analysis", "model_used", "provider_used"))):
             raise RuntimeError("ai_analysis_incomplete")
         return data
 
@@ -228,6 +228,25 @@ class BrowserWorker:
                     analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,
                         page_title=title,page_text=quality.clean_text,observation_id=evidence.get("observation_id"),
                         captured_at=captured_at,model_result=remote)
+                    if (
+                        analysis.get("status") == "succeeded"
+                        and analysis.get("model")
+                        and evidence.get("observation_id")
+                        and run_id
+                        and analysis.get("is_actionable") is True
+                        and isinstance(analysis.get("confidence"), (int, float))
+                        and not isinstance(analysis.get("confidence"), bool)
+                        and float(analysis["confidence"]) >= 0.6
+                    ):
+                        department = source.get("domain", "microtasks_services")
+                        if department not in {"microtasks_services", "trading", "sports_horse_betting", "ecommerce"}:
+                            department = "microtasks_services"
+                        self.store.upsert_ai_verified_opportunity(
+                            title=analysis["title"], summary=analysis["summary"], source_name=source.get("name", source_id),
+                            source_url=final_url, department=department, observation_id=evidence["observation_id"],
+                            analysis_run_id=run_id, model_used=analysis["model"], confidence_score=analysis["confidence"],
+                            is_actionable=True, score=float(analysis["confidence"]) * 100,
+                        )
                 except Exception as exc:
                     safe_error = str(exc)[:180] if isinstance(exc, RuntimeError) else f"ai_analysis_failed:{type(exc).__name__}"
                     self.store._request("PATCH","verox_analysis_runs",params={"id":f"eq.{run_id}"},
