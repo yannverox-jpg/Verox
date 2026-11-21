@@ -203,13 +203,13 @@ class BrowserWorker:
                 if run_id:
                     self.store._request("PATCH", "verox_analysis_runs",
                         params={"id":f"eq.{run_id}"},
-                        body={"status":"rejected_low_signal","input_observation_ids":[evidence["observation_id"]] if evidence.get("observation_id") else [],
+                        body={"status":"failed","input_observation_ids":[evidence["observation_id"]] if evidence.get("observation_id") else [],
                               "findings":{"collection_status":quality.status,"quality_reason":quality.reason},
                               "metrics":{"text_chars":len(quality.clean_text),"model_available":False},
                               "error":quality.reason,"completed_at":captured_at})
                 self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"captured_but_rejected","final_url":final_url,
                     "captured_at":captured_at,"text_chars":len(quality.clean_text),"collection_status":quality.status,
-                    "quality_reason":quality.reason,"cooldown_minutes":quality.cooldown_minutes,"analysis_status":"rejected_low_signal"},
+                    "quality_reason":quality.reason,"cooldown_minutes":quality.cooldown_minutes,"analysis_status":"failed_quality_gate"},
                     artifacts=[{"type":"observation",**evidence}])
                 return {"status":"rejected_quality","collection_status":quality.status,"reason":quality.reason,"observation":evidence}
 
