@@ -26,3 +26,11 @@ def queue_concurrency(role: str, environ: dict[str, str] | None = None) -> int:
         return max(1, min(20, int(values.get(key, "2"))))
     except (ValueError, TypeError):
         return 2
+
+def queue_max_attempts(environ: dict[str, str] | None = None) -> int:
+    """Return a safe, bounded retry count for all specialist subscribers."""
+    values = os.environ if environ is None else environ
+    try:
+        return max(1, min(8, int(values.get("VEROX_QUEUE_MAX_ATTEMPTS", "3"))))
+    except (ValueError, TypeError):
+        return 3
