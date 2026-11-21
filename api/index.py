@@ -13,6 +13,7 @@ import httpx
 
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
+from verox_brain.source_registry import DOMAINS, list_sources
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
@@ -240,6 +241,32 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/sources":
+            # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
+            query = urlparse(self.path).query
+            from urllib.parse import parse_qs
+            params = parse_qs(query, keep_blank_values=False)
+            domain = (params.get("domain") or [None])[0]
+            search = (params.get("q") or [None])[0]
+            try:
+                _json(self, 200, list_sources(domain=domain, query=search))
+            except ValueError:
+                _json(self, 400, {"error": "Domaine de sources inconnu.", "available_domains": sorted(DOMAINS)})
+            return
+        if path.startswith("/api/sources/") and path.endswith("/fetch"):
+            # Retrieval is limited to pre-registered public sources; never accept caller-supplied URLs.
+            from urllib.parse import unquote
+            from verox_brain.read_only_fetcher import fetch_registered_source
+            source_id = unquote(path[len("/api/sources/"):-len("/fetch")]).strip("/")
+            try:
+                result = fetch_registered_source(source_id)
+                status = 200 if result.get("status") == "retrieved_public_page" else 502
+                _json(self, status, result)
+            except ValueError:
+                _json(self, 404, {"error": "Source inconnue dans le registre."})
+            except PermissionError:
+                _json(self, 403, {"error": "Cette source nécessite un compte ou un accès explicitement autorisé; aucun accès connecté n'est tenté."})
+            return
         if path == "/api/opportunities/public":
             # Publicly sourced lead metadata only; never return credentials or internal task payloads.
             try:
@@ -325,14 +352,28 @@ class handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/extensions":
-            _json(self, 200, {"items": [
-                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key"},
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth"},
-                {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "configured" if huggingface_ready else ("disabled" if os.getenv("VEROX_HF_ENABLED", "").strip().lower() != "true" else "needs_hf_token")},
-                {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "configured" if pocketpal_ready else ("disabled" if os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() != "true" else "needs_base_url")},
-                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration"},
-                {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured"},
-            ]})
+            # Dashboard catalogue: official-site shortcuts plus system connectors.
+            # Catalogue presence is not a claim that a platform account is connected.
+            items = [
+                {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key", "category": "connector"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth", "category": "connector"},
+                {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "disabled_or_unverified", "category": "connector"},
+                {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "disabled_or_unverified", "category": "connector"},
+                {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration", "category": "connector"},
+                {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured_in_code_unverified_runtime", "category": "connector"},
+            ]
+            catalogue = list_sources()
+            domain_labels = {entry["id"]: entry["label"] for entry in catalogue.get("domains", [])}
+            for source in catalogue.get("sources", []):
+                items.append({
+                    "id": source["id"], "label": source["name"],
+                    "group": domain_labels.get(source["domain"], source["domain"]),
+                    "lifecycle": source["connection_status"],
+                    "category": "platform", "url": source["url"],
+                    "source_id": source["id"], "access": source["access"],
+                    "verified_live": False, "notes": source["notes"],
+                })
+            _json(self, 200, {"items": items, "catalog_only": True, "disclaimer": catalogue.get("disclaimer")})
             return
         if path == "/api/metrics":
             try:
@@ -380,8 +421,10 @@ class handler(BaseHTTPRequestHandler):
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
-                _process_inline_fallback(self, task_id, task_type, prompt)
-                _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "status_url": f"/api/tasks/{task_id}"})
+                # Return immediately after durable enqueue. Model inference belongs to
+                # the queue subscriber, not this HTTP request; otherwise free-model
+                # latency can exceed Vercel's request deadline and surface as an error.
+                _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id, "execution_mode": "queued", "status_url": f"/api/tasks/{task_id}"})
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                     _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})
@@ -414,10 +457,15 @@ class handler(BaseHTTPRequestHandler):
                          "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
-            message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
-            execution_mode = _process_inline_fallback(self, task_id, "chat", prompt)
+            try:
+                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+            except Exception:
+                _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
+                raise
+            # Keep the request short and deterministic. The browser polls /api/tasks/{id}
+            # while the durable queue worker performs inference outside this request.
             _json(self, 202, {"id": task_id, "status": "queued", "queue_message_id": message_id,
-                              "execution_mode": execution_mode, "status_url": f"/api/tasks/{task_id}"})
+                              "execution_mode": "queued", "status_url": f"/api/tasks/{task_id}"})
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429 or "rate limit exceeded" in exc.response.text.lower():
                 _json(self, 429, {"error": "Limite de tâches atteinte pour cette adresse."})

@@ -81,3 +81,11 @@ Le cerveau n'est validé que si une requête réelle passe par Vercel AI Gateway
 3. Hugging Face si explicitement activé et authentifié.
 4. Les clés Gemini configurées, comme secours.
 Aucun connecteur optionnel n'est activé automatiquement et aucun modèle payant n'est sélectionné silencieusement.
+
+
+## Registre de sources OSINT (P4)
+- [x] Ajouter un catalogue structuré de sources candidates pour micro-tâches, sport/turf, trading, e-commerce et communautés publiques.
+- [x] Exposer une API de lecture `GET /api/sources`, avec filtres `domain` et `q`.
+- [x] Afficher un état explicite `NON_CONFIGURÉE` et `verified_live=false` pour éviter de confondre présence au catalogue et connexion réelle.
+- [ ] Ajouter un connecteur source par source uniquement après validation des conditions d'accès, de la fraîcheur, des limites et des tests réels.
+- [ ] Ne pas automatiser mises, transactions, commandes ou publications; la détection d'une opportunité n'est jamais une autorisation d'action.

@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "mode": "read_only_by_default",
+  "domains": {
+    "sports_odds": {
+      "purpose": "Detect and validate historical bookmaker pricing behavior against verified event outcomes.",
+      "tasks": ["collect_odds_snapshots", "normalize_markets", "remove_overround", "compare_bookmakers", "join_fixtures_and_results", "collect_lineups_and_availability", "collect_match_events", "extract_tactical_features", "compare_odds_to_empirical_frequency", "evaluate_goal_corner_card_penalty_patterns", "validate_out_of_sample"]
+    },
+    "horse_racing": {
+      "purpose": "Evaluate odds and outcome patterns by comparable race conditions.",
+      "tasks": ["collect_pre_race_odds", "join_official_results", "normalize_course_distance_going", "track_horse_jockey_trainer_form", "account_for_non_runners", "compare_starting_prices", "validate_out_of_sample"]
+    },
+    "trading": {
+      "purpose": "Study market microstructure, spread, session transitions, latency and timestamped news impact.",
+      "tasks": ["collect_authorized_quotes", "collect_trades_and_depth_if_available", "measure_spread_and_latency", "detect_stale_quotes", "map_session_transitions", "align_news_event_time", "detect_candidate_breakouts_and_liquidity_gaps", "backtest_with_fees_slippage_and_latency", "paper_trade_only"]
+    },
+    "mirror_storefront": {
+      "purpose": "Aggregate supplier catalogs and orchestrate verified fulfillment without claiming inventory ownership.",
+      "tasks": ["ingest_permitted_catalogs", "normalize_product_identifiers", "track_supplier_price_and_stock", "verify_image_and_description_rights", "calculate_landed_cost", "revalidate_before_checkout", "route_confirmed_orders", "track_shipping_returns_and_disputes"]
+    },
+    "business_opportunities": {
+      "purpose": "Find and rank lawful public commercial and public-sector opportunities with traceable evidence.",
+      "tasks": ["ingest_public_tenders_and_grants", "extract_eligibility_and_deadlines", "deduplicate_notices", "score_fit_and_feasibility", "cite_primary_sources", "flag_human_review_before_submission"]
+    },
+    "shared_services": {
+      "tasks": ["source_registry_and_health", "provenance_and_event_time", "evidence_quality_scoring", "hypothesis_registry", "historical_memory", "reproducible_evaluations", "counterexample_search", "model_synthesis_with_evidence_ids", "audit_log", "approval_gate", "data_retention_and_licensing"]
+    }
+  },
+  "acceptance_policy": {
+    "no_lookahead_bias": true,
+    "no_fabricated_observations": true,
+    "require_source_timestamp_and_provenance": true,
+    "require_sample_size_and_uncertainty": true,
+    "require_out_of_sample_validation": true,
+    "no_guaranteed_predictions": true,
+    "no_live_bets_trades_purchases_or_external_submissions_without_explicit_approval": true
+  }
+}
