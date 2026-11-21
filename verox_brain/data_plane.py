@@ -161,7 +161,7 @@ class SupabaseDataPlane:
             "evidence_refs": _sanitize(event.get("evidence_refs", [])),
             "economics": _sanitize(event.get("economics", {})),
             "metadata": _sanitize(event.get("metadata", {})),
-            "occurred_at": str(event.get("occurred_at", "") or "") or datetime.now(timezone.utc).isoformat(),
+            "source_occurred_at": str(event.get("occurred_at", "") or "") or None,
         }
         rows = self._request(
             "POST", "verox_ia2ia_audit_events",
