@@ -37,6 +37,7 @@ def complete_research_run(
     page_text: str,
     observation_id: str | None = None,
     captured_at: str | None = None,
+    model_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Analyze collected text when a model is configured, otherwise fail closed."""
     now = datetime.now(timezone.utc).isoformat()
@@ -58,14 +59,36 @@ def complete_research_run(
         f"{str(page_text)[:14000]}"
     )
     try:
-        answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT)
+        analysis_payload = None
+        if model_result is not None:
+            raw_analysis = model_result.get("analysis")
+            if isinstance(raw_analysis, dict):
+                analysis_payload = raw_analysis
+                answer = __import__("json").dumps(raw_analysis, ensure_ascii=False, separators=(",", ":"))
+            else:
+                answer = str(raw_analysis or "").strip()
+            provider = str(model_result.get("provider_used", "")).strip()
+            model = str(model_result.get("model_used", "")).strip()
+            if not answer or not provider or not model:
+                raise ModelRequestError("Le moteur central a retourné une analyse incomplète.")
+            if analysis_payload is not None and (
+                not isinstance(analysis_payload.get("title"), str)
+                or not isinstance(analysis_payload.get("summary"), str)
+                or not isinstance(analysis_payload.get("confidence"), (int, float))
+                or isinstance(analysis_payload.get("confidence"), bool)
+                or not 0 <= analysis_payload["confidence"] <= 1
+                or not isinstance(analysis_payload.get("is_actionable"), bool)
+            ):
+                raise ModelRequestError("Le moteur central a retourné un schéma d'analyse invalide.")
+        else:
+            answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT)
     except (ModelConfigurationError, ModelRequestError) as exc:
         store._request(
             "PATCH",
             "verox_analysis_runs",
             params={"id": f"eq.{run_id}"},
             body={
-                "status": "needs_review",
+                "status": "failed",
                 "input_observation_ids": [observation_id] if observation_id else [],
                 "findings": {"evidence": evidence, "analysis": None},
                 "metrics": {"text_chars": len(page_text), "model_available": False},
@@ -73,20 +96,20 @@ def complete_research_run(
                 "completed_at": now,
             },
         )
-        return {"status": "needs_review", "model_available": False}
+        return {"status": "failed", "model_available": False}
     store._request(
         "PATCH",
         "verox_analysis_runs",
         params={"id": f"eq.{run_id}"},
         body={
-            "status": "needs_review",
+            "status": "succeeded",
             "input_observation_ids": [observation_id] if observation_id else [],
             "model_provider": provider,
             "model_name": model,
             "prompt_version": PROMPT_VERSION,
             "findings": {
                 "evidence": evidence,
-                "analysis": answer[:12000],
+                "analysis": analysis_payload if analysis_payload is not None else answer[:12000],
                 "review_required": True,
             },
             "metrics": {
@@ -98,4 +121,7 @@ def complete_research_run(
             "completed_at": now,
         },
     )
-    return {"status": "needs_review", "model_available": True, "provider": provider, "model": model}
+    result = {"status": "succeeded", "model_available": True, "provider": provider, "model": model}
+    if analysis_payload is not None:
+        result.update(analysis_payload)
+    return result

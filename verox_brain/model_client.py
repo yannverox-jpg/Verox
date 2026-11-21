@@ -79,6 +79,7 @@ def _post_openai_compatible(
     system_prompt: str,
     provider: str,
     timeout: float = 45.0,
+    max_tokens: int = 1200,
 ) -> tuple[str, str, str]:
     parsed = urlparse(base_url)
     if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
@@ -101,7 +102,7 @@ def _post_openai_compatible(
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 1800,
+                    "max_tokens": max(1, min(int(max_tokens), 1200)),
                 },
             )
             response.raise_for_status()
@@ -118,7 +119,7 @@ def _post_openai_compatible(
         raise ModelRequestError(f"Réponse {provider} invalide.") from None
 
 
-def _generate_gateway(prompt: str, system_prompt: str, token: str) -> tuple[str, str, str]:
+def _generate_gateway(prompt: str, system_prompt: str, token: str, *, max_tokens: int = 1200) -> tuple[str, str, str]:
     model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
     return _post_openai_compatible(
         base_url="https://ai-gateway.vercel.sh/v1",
@@ -127,6 +128,7 @@ def _generate_gateway(prompt: str, system_prompt: str, token: str) -> tuple[str,
         prompt=prompt,
         system_prompt=system_prompt,
         provider="vercel-ai-gateway",
+        max_tokens=max_tokens,
     )
 
 
@@ -210,6 +212,7 @@ def generate_text(
     system_prompt: str = SYSTEM_PROMPT_FALLBACK,
     gateway_token: str | None = None,
     task_id: str | None = None,
+    max_output_tokens: int = 1200,
 ) -> tuple[str, str, str]:
     """Use Vercel AI Gateway first; try explicitly enabled connectors, then Gemini keys."""
     token = _gateway_token(gateway_token)
@@ -222,7 +225,7 @@ def generate_text(
         started = time.monotonic()
         gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
         try:
-            result = _generate_gateway(prompt, system_prompt, token)
+            result = _generate_gateway(prompt, system_prompt, token, max_tokens=max_output_tokens)
             _trace("gateway", result[2], 200, started, task_id=task_id)
             return result
         except ModelRequestError as exc:

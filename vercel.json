@@ -11,6 +11,10 @@
       "destination": "/api/research.py"
     },
     {
+      "source": "/api/analyze-observation",
+      "destination": "/api/analyze_observation.py"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index.py"
     },

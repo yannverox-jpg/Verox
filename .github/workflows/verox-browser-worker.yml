@@ -19,7 +19,8 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      VEROX_INTERNAL_TASK_TOKEN: ${{ secrets.VEROX_INTERNAL_TASK_TOKEN }}
+      VEROX_BRAIN_ANALYZE_URL: https://verox-brain.vercel.app/api/analyze-observation
     steps:
       - name: Check required server-side secrets
         shell: bash
@@ -30,6 +31,10 @@ jobs:
           fi
           if [[ "$SUPABASE_URL" != https://* ]]; then
             echo "::error::SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
+          if [[ -z "$VEROX_INTERNAL_TASK_TOKEN" ]]; then
+            echo "::error::Configure the repository Actions secret VEROX_INTERNAL_TASK_TOKEN. This is an internal service token, not an AI provider key."
             exit 1
           fi
 
@@ -49,8 +54,8 @@ jobs:
       - name: Install isolated Chromium runtime
         run: python -m playwright install --with-deps chromium
 
-      - name: Run browser worker policy tests
-        run: python -m unittest discover -s tests -p "test_browser_worker.py" -v
+      - name: Run Verox unit and policy tests
+        run: python -m unittest discover -s tests -v
 
       - name: Process a bounded batch of read-only jobs
         run: python -m verox_brain.browser_worker --cycle
