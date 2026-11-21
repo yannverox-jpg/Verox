@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_PATCH_BYTES = 250_000
-ALLOWED_PREFIXES = ("verox_brain/", "api/", "tests/")
+ALLOWED_PREFIXES = ("verox_brain/", "api/")
 DIFF_PATH = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 SECRET_PATH_PARTS = {".env", ".venv", "venv", ".git", "__pycache__", "node_modules"}
 
@@ -43,7 +43,7 @@ def _validate_patch(patch: str) -> list[str]:
                 raise PatchRejected("path_outside_allowlist")
             if any(part in SECRET_PATH_PARTS for part in pure.parts):
                 raise PatchRejected("sensitive_or_generated_path")
-            if pure.suffix not in {".py", ".md"}:
+            if pure.suffix != ".py":
                 raise PatchRejected("file_extension_not_allowlisted")
         if old != new:
             raise PatchRejected("rename_not_allowed")
@@ -112,13 +112,11 @@ def validate_patch(patch: str) -> dict[str, Any]:
         if python_paths:
             checks.append({"name": "compile_changed_python", **_run(
                 [os.environ.get("PYTHON", "python"), "-m", "py_compile", *python_paths], work)})
-        test_files = sorted({path for path in paths if path.startswith("tests/") and path.endswith(".py")})
-        if test_files:
-            # unittest module/file execution is not inferred from patch text.
-            for test_file in test_files:
-                checks.append({"name": f"targeted_test:{test_file}", **_run(
-                    [os.environ.get("PYTHON", "python"), "-m", "unittest", "discover",
-                     "-s", "tests", "-p", Path(test_file).name, "-v"], work, timeout=120)})
+        # Run repository-owned tests from the temporary copy; proposed patches
+        # cannot alter tests, CI workflows, dependencies, or configuration.
+        checks.append({"name": "repository_unit_tests", **_run(
+            [os.environ.get("PYTHON", "python"), "-m", "unittest", "discover", "-s", "tests", "-v"],
+            work, timeout=180)})
         passed = all(item["passed"] for item in checks)
         return {
             "schema_version": 1, "status": "validated_in_sandbox" if passed else "needs_review",
