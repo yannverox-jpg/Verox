@@ -23,6 +23,10 @@
     {
       "path": "/api/opportunities/scan",
       "schedule": "15 6 * * *"
+    },
+    {
+      "path": "/api/tasks/recover",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
