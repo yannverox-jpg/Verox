@@ -135,6 +135,51 @@ class SupabaseDataPlane:
                 saved.append(str(existing[0].get("id") or item["hypothesis_key"]) if existing else str(item["hypothesis_key"]))
         return {"candidate_count": len(saved), "saved_ids": saved[:30], "validated_revenue_count": 0}
 
+    def record_ia2ia_event(self, event):
+        """Append a minimal, traceable IA-to-IA business event; never store raw prompts or secrets."""
+        if not isinstance(event, dict):
+            raise ValueError("IA-to-IA audit event must be an object.")
+        required = ("event_key", "event_type", "actor_type", "status")
+        values = {key: str(event.get(key, "")).strip() for key in required}
+        if any(not values[key] for key in required):
+            raise ValueError("event_key, event_type, actor_type and status are required.")
+        if len(values["event_key"]) > 200 or len(values["event_type"]) > 100:
+            raise ValueError("IA-to-IA audit event identifiers exceed their limits.")
+        for digest_key in ("request_hash", "result_hash"):
+            digest = str(event.get(digest_key, "") or "").strip().lower()
+            if digest and (len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest)):
+                raise ValueError(f"{digest_key} must be a SHA-256 hex digest when supplied.")
+        record = {
+            **values,
+            "mission_id": str(event.get("mission_id", "") or "")[:200] or None,
+            "actor_id": str(event.get("actor_id", "") or "")[:200] or None,
+            "counterparty_type": str(event.get("counterparty_type", "") or "")[:100] or None,
+            "counterparty_id": str(event.get("counterparty_id", "") or "")[:200] or None,
+            "direction": str(event.get("direction", "") or "")[:40] or None,
+            "request_hash": str(event.get("request_hash", "") or "").lower() or None,
+            "result_hash": str(event.get("result_hash", "") or "").lower() or None,
+            "evidence_refs": _sanitize(event.get("evidence_refs", [])),
+            "economics": _sanitize(event.get("economics", {})),
+            "metadata": _sanitize(event.get("metadata", {})),
+            "occurred_at": str(event.get("occurred_at", "") or "") or datetime.now(timezone.utc).isoformat(),
+        }
+        rows = self._request(
+            "POST", "verox_ia2ia_audit_events",
+            params={"on_conflict": "event_key"},
+            body=record,
+            prefer="resolution=ignore-duplicates,return=representation",
+        )
+        if rows and isinstance(rows, list) and isinstance(rows[0], dict):
+            return {"stored": True, "duplicate": False, "event": rows[0]}
+        existing = self._request(
+            "GET", "verox_ia2ia_audit_events",
+            params={"select": "event_key,event_type,mission_id,status,occurred_at,request_hash,result_hash",
+                    "event_key": f"eq.{values['event_key']}", "limit": "1"},
+        ) or []
+        if existing and isinstance(existing[0], dict):
+            return {"stored": True, "duplicate": True, "event": existing[0]}
+        return {"stored": False, "duplicate": False, "event": None}
+
     def create_analysis_run(self, *, domain, subject_key=None, observation_ids=None, prompt_version="verox-research-v1"):
         record = {"domain": domain, "subject_key": (subject_key or "")[:200] or None, "status": "queued", "prompt_version": prompt_version[:100], "input_observation_ids": (observation_ids or [])[:200], "findings": {}, "metrics": {}}
         return self._request("POST", "verox_analysis_runs", body=record, prefer="return=representation")
