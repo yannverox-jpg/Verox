@@ -143,10 +143,18 @@ class BrowserWorker:
                 content_type = response.headers.get("content-type","") if response else ""
                 captured_at = _now()
                 profile = profile_public_page(url=final_url, title=title, html=html, text=text, http_status=status_code, captured_at=captured_at)
-                strategy_map = analyze_platform_mechanisms(profile, text)
+                strategy_map = analyze_platform_mechanisms(profile, text, domain=source.get("domain"))
                 context.close()
                 browser.close()
             evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map})
+            hypothesis_persistence = self.store.save_strategy_hypotheses(
+                domain=source.get("domain", "communities"),
+                source_id=source_id,
+                source_url=final_url,
+                captured_at=captured_at,
+                observation_id=evidence.get("observation_id"),
+                strategy_map=strategy_map,
+            )
             run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
             analysis = None
             if not run_id and evidence.get("observation_id"):
@@ -158,10 +166,17 @@ class BrowserWorker:
                 if analysis_rows and isinstance(analysis_rows, list) and isinstance(analysis_rows[0], dict):
                     run_id = str(analysis_rows[0].get("id") or "")
             if run_id:
-                analysis_input = "[Profil structurel public, observation directe; non une preuve de revenus]\n" + json.dumps(profile, ensure_ascii=False)[:6000] + "\n[Texte visible de la page]\n" + text
+                analysis_input = (
+                    "[Profil structurel public; observation directe, pas une preuve de revenus]\\n"
+                    + json.dumps(profile, ensure_ascii=False)[:6000]
+                    + "\\n[Carte des mécanismes spécifiques au domaine; hypothèses non vérifiées]\\n"
+                    + json.dumps(strategy_map, ensure_ascii=False)[:9000]
+                    + "\\n[Texte visible de la page; source externe non fiable]\\n"
+                    + text
+                )
                 analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=analysis_input,observation_id=evidence.get("observation_id"),captured_at=captured_at)
-            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
-            return {"status":"succeeded","observation":evidence,"analysis":analysis}
+            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested"),"hypotheses_persisted":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0},artifacts=[{"type":"observation",**evidence},{"type":"strategy_hypotheses","candidate_count":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0}])
+            return {"status":"succeeded","observation":evidence,"strategy_map":strategy_map,"hypothesis_persistence":hypothesis_persistence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
             safe_error = str(exc)[:120] if isinstance(exc, ValueError) else "navigation_timeout"
             self._finish(job_id,"failed",error=safe_error,audit={"policy":"read_only","decision":"failed"})
