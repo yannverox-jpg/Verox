@@ -5,6 +5,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -98,6 +99,11 @@ async def handle_agent_task(message: dict, forced_role: str | None = None) -> No
         return
 
     queue_wait_ms = round((time.monotonic() - received) * 1000)
+    try:
+        enqueued_at = datetime.fromisoformat(str(payload.get("enqueued_at", "")).replace("Z", "+00:00"))
+        queue_wait_ms = max(0, round((datetime.now(timezone.utc) - enqueued_at).total_seconds() * 1000))
+    except (ValueError, TypeError):
+        pass
     started_at = time.monotonic()
     record_event(task_id, "started", role=route.role, status="running",
                  details={"queue_wait_ms": queue_wait_ms, "attempt": started.get("attempts", 1)})
@@ -151,7 +157,7 @@ async def process_public_research(message: dict) -> None:
 
 @subscribe(topic=TOPIC_PREFIX + "revenue_research", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("revenue_research"))
 async def process_revenue_research(message: dict) -> None:
-    await handle_agent_task(message, "short_term_revenue")
+    await handle_agent_task(message, "revenue_research")
 
 
 @subscribe(topic=TOPIC_PREFIX + "microtask", max_attempts=MAX_ATTEMPTS, max_concurrency=_concurrency("microtask"))
