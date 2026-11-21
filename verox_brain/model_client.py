@@ -24,6 +24,8 @@ GEMINI_MAX_ATTEMPTS = 3
 
 
 def _trace(provider: str, model: str, status: str | int, started: float, *, task_id: str | None = None, key_source: str | None = None, attempt: int = 1, fallback_reason: str | None = None) -> None:
+    if not isinstance(status, (str, int, float)):
+        status = "unknown"
     record = {"event": "model_provider_attempt", "task_id": task_id, "provider_attempted": provider, "model_used": model, "status": status, "latency_ms": round((time.monotonic() - started) * 1000, 1), "attempt": attempt, "key_source": key_source, "fallback_triggered": fallback_reason is not None, "fallback_reason": fallback_reason}
     _LOG.info("%s", json.dumps(record, ensure_ascii=False, separators=(",", ":")))
 
