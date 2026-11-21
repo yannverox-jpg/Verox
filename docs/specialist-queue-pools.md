@@ -2,7 +2,7 @@
 
 ## Architecture livrée dans cette branche
 
-L'API choisit un rôle à partir du type et de l'intention de la mission, écrit la tâche dans Supabase puis publie un message dans le topic durable dédié. Chaque rôle possède son propre abonné Vercel Queue et son budget de concurrence. Les neuf topics sont définis par `verox_brain/queue_config.py`.
+L'API choisit un rôle à partir du type et de l'intention de la mission, écrit la tâche dans Supabase puis publie un message dans le topic durable dédié. Chaque rôle possède son propre abonné Vercel Queue et son budget de concurrence. Les neuf topics spécialisés sont définis par `verox_brain/queue_config.py`.
 
 - `verox-agent-brain_coordination`
 - `verox-agent-public_research`
@@ -14,7 +14,7 @@ L'API choisit un rôle à partir du type et de l'intention de la mission, écrit
 - `verox-agent-horse_racing_analysis`
 - `verox-agent-software_build`
 
-Les files sont isolées par spécialité, mais les rôles utilisent encore le moteur IA commun configuré. Les connecteurs GPT/Claude/Gemini/Grok ne sont pas déclarés opérationnels tant qu'un appel réel n'a pas été vérifié.
+Un dixième abonné conserve temporairement le topic historique `verox-agent-tasks` pour drainer les tâches déjà en attente lors de la migration. Les files spécialisées sont isolées par rôle, mais les rôles utilisent encore le moteur IA commun configuré. Les connecteurs GPT/Claude/Gemini/Grok ne sont pas déclarés opérationnels tant qu'un appel réel n'a pas été vérifié.
 
 ## Configuration Vercel
 
