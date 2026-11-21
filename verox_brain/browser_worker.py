@@ -136,7 +136,7 @@ def _extract_public_links(raw_links, base_url, limit=50):
                 "host": parsed.hostname.lower(),
                 "label": " ".join(str(item.get("label", "")).split())[:180],
                 "registered_public_source": _is_registered_public_url(absolute),
-                "follow_policy": "eligible_for_next_cycle" if _is_registered_public_url(absolute) else "lead_only_review_registry",
+                "follow_policy": "eligible_for_next_cycle" if _is_registered_public_url(absolute) else "eligible_for_public_candidate_catalog",
             })
         except (TypeError, ValueError):
             continue
