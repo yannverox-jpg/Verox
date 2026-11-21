@@ -60,7 +60,8 @@ class SupabaseDataPlane:
         source_id, url = str(source.get("id", "")).strip(), str(source.get("url", "")).strip()
         if not source_id or not url.startswith("https://"): raise ValueError("A registered source ID and HTTPS URL are required.")
         record = {"source_id": source_id, "domain": source.get("domain", "communities"), "name": str(source.get("name", source_id))[:200], "canonical_url": url, "source_kind": "website", "access_mode": "public_only", "status": "catalog_only", "trust_level": "unrated", "enabled": False, "metadata": _sanitize({"kind": source.get("kind"), "notes": source.get("notes")}), "updated_at": datetime.now(timezone.utc).isoformat()}
-        return self._request("POST", "verox_sources", params={"on_conflict": "source_id"}, body=record, prefer="resolution=merge-duplicates,return=representation")
+        # Insert new catalog entries only; never reset an operator's trust/enabled state on each cycle.
+        return self._request("POST", "verox_sources", params={"on_conflict": "source_id"}, body=record, prefer="resolution=ignore-duplicates,return=representation")
 
     def save_observation(self, *, source_id, text, url, content_type, source_published_at=None, metadata=None):
         if not source_id or not url.startswith("https://"): raise ValueError("A source ID and HTTPS evidence URL are required.")
@@ -75,6 +76,64 @@ class SupabaseDataPlane:
             existing = self._request("GET", "verox_observations", params={"select":"id", "source_id":f"eq.{source_id}", "content_hash":f"eq.{digest}", "limit":"1"})
             observation_id = existing[0].get("id") if existing and isinstance(existing[0], dict) else None
         return {"content_hash": digest, "observation_id": observation_id, "stored": bool(rows), "verification_status": "unverified"}
+
+    def save_strategy_hypotheses(self, *, domain, source_id, source_url, captured_at, observation_id, strategy_map):
+        """Persist platform-specific hypotheses as candidates, never as validated revenue."""
+        allowed_domains = {"sports_horse_betting", "trading", "ecommerce", "microtasks_services", "communities", "public_sector"}
+        if domain not in allowed_domains:
+            domain = "communities"
+        mechanisms = strategy_map.get("observed_mechanisms", []) if isinstance(strategy_map, dict) else []
+        saved = []
+        for item in mechanisms[:30]:
+            if not isinstance(item, dict) or not item.get("hypothesis_key") or not item.get("hypothesis"):
+                continue
+            record = {
+                "domain": domain,
+                "hypothesis_key": str(item["hypothesis_key"])[:200],
+                "statement": str(item["hypothesis"])[:2000],
+                "metrics": _sanitize({
+                    "mechanism_id": item.get("mechanism_id"),
+                    "platform": item.get("platform"),
+                    "strategy": item.get("strategy"),
+                    "metrics_to_measure": item.get("metrics_to_measure", []),
+                    "evidence_needed": item.get("evidence_needed", []),
+                    "risk_notes": item.get("risk_notes"),
+                    "observed_signals": item.get("observed_signals", []),
+                    "confidence": "low",
+                    "revenue_confirmed": False,
+                }),
+                "evidence_summary": _sanitize({
+                    "source_id": source_id,
+                    "source_url": source_url,
+                    "captured_at": captured_at,
+                    "observation_id": observation_id,
+                    "evidence_quality": strategy_map.get("evidence_quality", {}),
+                    "verification_status": "unverified",
+                }),
+                "validation_window": {
+                    "required_next_step": "collect_independent_or_time_series_evidence",
+                    "status": "not_started",
+                },
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # First observation wins for the canonical hypothesis row. Repeated scans must
+            # not overwrite validation status/window; evidence history remains in observations.
+            rows = self._request(
+                "POST",
+                "verox_hypotheses",
+                params={"on_conflict": "hypothesis_key"},
+                body=record,
+                prefer="resolution=ignore-duplicates,return=representation",
+            )
+            if rows and isinstance(rows, list) and isinstance(rows[0], dict):
+                saved.append(str(rows[0].get("id", "")))
+            else:
+                existing = self._request(
+                    "GET", "verox_hypotheses",
+                    params={"select": "id", "hypothesis_key": f"eq.{record['hypothesis_key']}", "limit": "1"},
+                ) or []
+                saved.append(str(existing[0].get("id") or item["hypothesis_key"]) if existing else str(item["hypothesis_key"]))
+        return {"candidate_count": len(saved), "saved_ids": saved[:30], "validated_revenue_count": 0}
 
     def create_analysis_run(self, *, domain, subject_key=None, observation_ids=None, prompt_version="verox-research-v1"):
         record = {"domain": domain, "subject_key": (subject_key or "")[:200] or None, "status": "queued", "prompt_version": prompt_version[:100], "input_observation_ids": (observation_ids or [])[:200], "findings": {}, "metrics": {}}

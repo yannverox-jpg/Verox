@@ -62,7 +62,8 @@ class handler(BaseHTTPRequestHandler):
             store.register_source(source)
             record = {
                 "task_type": task_type, "source_id": source_id, "status": "queued",
-                "policy_mode": "read_only", "requested_capabilities": ["navigate","read_text"],
+                "policy_mode": "read_only",
+                "requested_capabilities": (["download_public_file","store_private_artifact"] if task_type == "download_public_file" else ["navigate","read_text","inspect_public_links"]),
                 "input": {"url": target_url, "request_reason": str(data.get("reason",""))[:500]},
                 "artifact_refs": [], "audit": {"created_by":"protected_api","policy":"read_only"}
             }

@@ -2,9 +2,9 @@ name: Verox autonomous brain tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/osint-source-registry]
   push:
-    branches: [feat/osint-source-registry]
+    branches: [feat/osint-source-registry, feat/brain-self-repair-loop]
 
 permissions:
   contents: read
@@ -32,7 +32,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Compile API and worker modules
-        run: python -m py_compile api/index.py api/browser_jobs.py api/research.py verox_brain/data_plane.py verox_brain/browser_worker.py verox_brain/model_client.py verox_brain/behavioral_analysis.py verox_brain/research_pipeline.py
+        run: python -m py_compile api/index.py api/browser_jobs.py api/research.py verox_brain/data_plane.py verox_brain/browser_worker.py verox_brain/model_client.py verox_brain/behavioral_analysis.py verox_brain/research_pipeline.py verox_brain/self_repair.py verox_brain/recon.py verox_brain/causal_lab.py verox_brain/repair_sandbox.py verox_brain/platform_probe.py verox_brain/platform_strategy.py verox_brain/repair_agent.py
 
       - name: Test durable data-plane sanitization and hashing
         run: python -m unittest discover -s tests -p "test_data_plane.py" -v
@@ -45,3 +45,50 @@ jobs:
 
       - name: Test evidence-first research pipeline
         run: python -m unittest discover -s tests -p "test_research_pipeline.py" -v
+
+      - name: Test bounded self-diagnostic and recovery loop
+        run: python -m unittest discover -s tests -p "test_self_repair.py" -v
+
+      - name: Test causal analysis and revenue evidence grading
+        run: python -m unittest discover -s tests -p "test_causal_lab.py" -v
+
+      - name: Test isolated repair sandbox boundaries
+        run: python -m unittest discover -s tests -p "test_repair_sandbox.py" -v
+
+      - name: Test public platform structural profiling
+        run: python -m unittest discover -s tests -p "test_platform_probe.py" -v
+
+
+      - name: Test model-driven repair proposal boundaries
+        run: python -m unittest discover -s tests -p "test_repair_agent.py" -v
+
+      - name: Test platform revenue strategy engine
+        run: python -m unittest discover -s tests -p "test_platform_strategy.py" -v
+
+      # CI validates diagnostics and inventories the repo, but deliberately does not
+      # browse external sites or write to Supabase. Live collection needs server secrets.
+      - name: Build static read-only reconnaissance report
+        if: always()
+        run: python -m verox_brain.recon --json > "$RUNNER_TEMP/verox-recon.json"
+
+      - name: Run bounded self-diagnostics
+        if: always()
+        run: python -m verox_brain.self_repair --json > "$RUNNER_TEMP/verox-self-repair.json"
+
+      - name: Preserve sanitized reconnaissance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verox-recon-${{ github.run_id }}
+          path: ${{ runner.temp }}/verox-recon.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Preserve self-diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verox-self-repair-${{ github.run_id }}
+          path: ${{ runner.temp }}/verox-self-repair.json
+          if-no-files-found: ignore
+          retention-days: 7
