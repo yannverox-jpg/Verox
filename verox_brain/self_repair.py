@@ -29,7 +29,8 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("test_browser_policy", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_browser_worker.py", "-v")),
     ("test_behavioral_analysis", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_behavioral_analysis.py", "-v")),
     ("test_research_pipeline", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_research_pipeline.py", "-v")),
-    ("test_self_repair", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_self_repair.py", "-v")),\n    ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),
+    ("test_self_repair", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_self_repair.py", "-v")),
+    ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),
 )
 
 @dataclass
