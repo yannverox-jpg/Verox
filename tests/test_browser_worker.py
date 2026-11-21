@@ -16,7 +16,9 @@ class BrowserWorkerTests(unittest.TestCase):
     def test_read_only_guard_rejects_queries_actions_and_external_hosts(self):
         self.assertTrue(_safe_read_request("https://example.com/pricing", "GET", "example.com"))
         self.assertTrue(_safe_read_request("https://example.com/assets/site.css", "HEAD", "example.com"))
-        self.assertFalse(_safe_read_request("https://example.com/api/data?symbol=EURUSD", "GET", "example.com"))
+        self.assertTrue(_safe_read_request("https://example.com/api/data?symbol=EURUSD&page=2", "GET", "example.com", "xhr"))
+        self.assertTrue(_safe_read_request("https://cdn.example.net/assets/app.js?v=3", "GET", "example.com", "script"))
+        self.assertFalse(_safe_read_request("https://cdn.example.net/landing", "GET", "example.com", "document"))
         self.assertFalse(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
         self.assertFalse(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
         self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
@@ -41,7 +43,8 @@ class BrowserWorkerTests(unittest.TestCase):
         worker = BrowserWorker(store=store)
         worker._finish = Mock()
         result = worker.run_job({"id":"job-2","task_type":"download_public_file","source_id":"google_trends","input":{}})
-        self.assertEqual(result["status"],"denied")
+        self.assertEqual(result["status"],"failed")
+        self.assertEqual(result["reason"],"file_extension_not_allowlisted")
         store.save_observation.assert_not_called()
         worker._finish.assert_called_once()
 
