@@ -54,6 +54,9 @@ class BrowserWorkerTests(unittest.TestCase):
         store = Mock()
         store.register_source = Mock()
         worker = BrowserWorker(store=store)
+        worker._known_public_sources = Mock(return_value=[
+            get_source("google_trends"), get_source("ebay"),
+        ])
         worker._rest = Mock(side_effect=[
             [], [{"id": "queued-page"}],
             [], [{"id": "queued-file"}],
@@ -70,6 +73,27 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertEqual(posts[1].kwargs["body"]["task_type"], "download_public_file")
         self.assertEqual(posts[1].kwargs["body"]["audit"]["artifact_policy"], "never_execute")
         self.assertEqual(store.register_source.call_count, 2)
+    def test_unknown_public_host_is_catalogued_and_queued_as_a_candidate(self):
+        source = get_source("google_trends")
+        store = Mock()
+        store.register_source = Mock()
+        worker = BrowserWorker(store=store)
+        worker._known_public_sources = Mock(return_value=[source])
+        worker._rest = Mock(side_effect=[[], [{"id": "candidate-job"}]])
+        result = worker._queue_discovered_links(source, [{
+            "url": "https://docs.new-public-example.org/sdk/client.zip",
+            "registered_public_source": False,
+        }], limit=3)
+        self.assertEqual(result["queued"], 1)
+        self.assertEqual(result["urls"][0]["task_type"], "download_public_file")
+        self.assertTrue(result["urls"][0]["source_id"].startswith("discovered_"))
+        candidate = store.register_source.call_args.args[0]
+        self.assertEqual(candidate["access"], "public_web")
+        self.assertIn("Unverified public source", candidate["notes"])
+        post_call = worker._rest.call_args_list[1]
+        self.assertEqual(post_call.kwargs["body"]["source_id"], candidate["id"])
+        self.assertEqual(post_call.kwargs["body"]["policy_mode"], "read_only")
+
     def test_platform_sources_are_public_only_not_account_sessions(self):
         for source_id in ("metatrader5_public", "mql5_docs", "1xbet", "amazon", "ebay",
                           "openai_platform_docs", "anthropic_docs", "google_ai_docs",
@@ -80,6 +104,7 @@ class BrowserWorkerTests(unittest.TestCase):
     def test_rejects_unknown_or_non_public_source(self):
         store = Mock()
         worker = BrowserWorker(store=store)
+        worker._rest = Mock(return_value=[])
         worker._finish = Mock()
         result = worker.run_job({"id":"job-1","task_type":"inspect_page","source_id":"clickworker","input":{}})
         self.assertEqual(result["status"],"denied")
@@ -87,6 +112,7 @@ class BrowserWorkerTests(unittest.TestCase):
     def test_download_jobs_are_held_for_approval(self):
         store = Mock()
         worker = BrowserWorker(store=store)
+        worker._rest = Mock(return_value=[])
         worker._finish = Mock()
         result = worker.run_job({"id":"job-2","task_type":"download_public_file","source_id":"google_trends","input":{}})
         self.assertEqual(result["status"],"failed")
