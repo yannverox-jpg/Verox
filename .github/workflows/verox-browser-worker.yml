@@ -56,7 +56,7 @@ jobs:
         run: python -m verox_brain.recon --json > "$RUNNER_TEMP/verox-recon.json"
 
       - name: Diagnose core runtime and retry bounded checks
-        run: python -m verox_brain.self_repair --json > "$RUNNER_TEMP/verox-self-repair.json"
+        run: python -m verox_brain.self_repair --json --propose-repairs > "$RUNNER_TEMP/verox-self-repair.json"
 
       - name: Preserve sanitized reconnaissance report
         if: always()
