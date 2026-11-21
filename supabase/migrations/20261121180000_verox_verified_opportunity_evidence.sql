@@ -215,7 +215,7 @@ BEGIN
         status = CASE
           WHEN public.verox_opportunities.status = 'ai_verified' THEN 'ai_verified'
           WHEN EXCLUDED.status = 'ai_verified' THEN 'ai_verified'
-          ELSE 'detected_unverified'
+          ELSE public.verox_opportunities.status
         END;
 
       v_count := v_count + 1;
