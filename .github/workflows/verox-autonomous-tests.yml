@@ -48,4 +48,4 @@ jobs:
 
       - name: Test bounded self-diagnostic and recovery loop
         run: python -m unittest discover -s tests -p "test_self_repair.py" -v
-\n      - name: Test causal analysis and revenue evidence grading\n        run: python -m unittest discover -s tests -p "test_causal_lab.py" -v\n\n      - name: Test isolated repair sandbox boundaries\n        run: python -m unittest discover -s tests -p "test_repair_sandbox.py" -v\n
+\n      - name: Test causal analysis and revenue evidence grading\n        run: python -m unittest discover -s tests -p "test_causal_lab.py" -v\n\n      - name: Test isolated repair sandbox boundaries\n        run: python -m unittest discover -s tests -p "test_repair_sandbox.py" -v\n\n      - name: Test public platform structural profiling\n        run: python -m unittest discover -s tests -p "test_platform_probe.py" -v\n
