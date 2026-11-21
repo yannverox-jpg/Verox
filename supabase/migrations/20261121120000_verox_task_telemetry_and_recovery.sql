@@ -52,15 +52,16 @@ begin
             case when jsonb_typeof(p_details) = 'object' then p_details else '{}'::jsonb end,
             coalesce(p_occurred_at, now()));
     return jsonb_build_object('recorded', true);
+
   elsif p_action = 'recover_stale' then
-    -- Requeue interrupted running tasks, and re-publish older queued tasks whose
-    -- process may have crashed after the DB update but before queue_send completed.
+    -- Fail tasks that exhausted the database retry ceiling.
     update public.nexus_tasks
       set status = 'failed', error = 'Nombre maximal de tentatives atteint après interruption.',
           completed_at = now(), updated_at = now()
       where status in ('running', 'queued') and attempts >= 3
         and updated_at < now() - interval '5 minutes';
 
+    -- Requeue interrupted tasks and older queued tasks whose publish may have failed.
     with recovered as (
       update public.nexus_tasks
       set status = 'queued', error = 'Récupération automatique après interruption.',
@@ -86,14 +87,27 @@ begin
       'agent_role', coalesce(payload->>'agent_role', 'brain_coordination')
     )), '[]'::jsonb) into v_ids from recovered;
     return jsonb_build_object('tasks', v_ids, 'count', jsonb_array_length(v_ids));
+
   elsif p_action = 'metrics' then
     return jsonb_build_object(
-      'event_counts', (select coalesce(jsonb_object_agg(event_type, n), '{}'::jsonb)
-        from (select event_type, count(*) n from public.verox_task_events
-              where occurred_at > now() - interval '7 days' group by event_type) s),
-      'role_counts', (select coalesce(jsonb_object_agg(agent_role, n), '{}'::jsonb)
-        from (select agent_role, count(*) n from public.verox_task_events
-              where occurred_at > now() - interval '7 days' group by agent_role) s),
+      'event_counts', (
+        select coalesce(jsonb_object_agg(event_type, n), '{}'::jsonb)
+        from (
+          select event_type, count(*) n
+          from public.verox_task_events
+          where occurred_at > now() - interval '7 days'
+          group by event_type
+        ) s
+      ),
+      'role_counts', (
+        select coalesce(jsonb_object_agg(agent_role, n), '{}'::jsonb)
+        from (
+          select agent_role, count(*) n
+          from public.verox_task_events
+          where occurred_at > now() - interval '7 days'
+          group by agent_role
+        ) s
+      ),
       'performance_by_role', (
         select coalesce(jsonb_agg(jsonb_build_object(
           'agent_role', m.agent_role,
@@ -118,95 +132,31 @@ begin
           select agent_role,
             count(*) filter (where event_type = 'completed') as successful_tasks,
             percentile_cont(0.50) within group (order by (details->>'queue_wait_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as queue_wait_p50,
+              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?$') as queue_wait_p50,
             percentile_cont(0.95) within group (order by (details->>'queue_wait_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as queue_wait_p95,
+              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?$') as queue_wait_p95,
             percentile_cont(0.99) within group (order by (details->>'queue_wait_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as queue_wait_p99,
+              filter (where event_type = 'completed' and details->>'queue_wait_ms' ~ '^[0-9]+([.][0-9]+)?$') as queue_wait_p99,
             percentile_cont(0.50) within group (order by (details->>'model_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as model_p50,
+              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?$') as model_p50,
             percentile_cont(0.95) within group (order by (details->>'model_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as model_p95,
+              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?$') as model_p95,
             percentile_cont(0.99) within group (order by (details->>'model_ms')::double precision)
-              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as model_p99,
+              filter (where event_type = 'completed' and details->>'model_ms' ~ '^[0-9]+([.][0-9]+)?$') as model_p99,
+            percentile_cont(0.50) within group (order by (details->>'total_ms')::double precision)
+              filter (where event_type = 'completed' and details->>'total_ms' ~ '^[0-9]+([.][0-9]+)?$') as total_p50,
+            percentile_cont(0.95) within group (order by (details->>'total_ms')::double precision)
+              filter (where event_type = 'completed' and details->>'total_ms' ~ '^[0-9]+([.][0-9]+)?$') as total_p95,
+            percentile_cont(0.99) within group (order by (details->>'total_ms')::double precision)
+              filter (where event_type = 'completed' and details->>'total_ms' ~ '^[0-9]+([.][0-9]+)?$') as total_p99,
             count(*) filter (where event_type = 'quality_review'
-              and details->>'quality_score' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as quality_samples,
+              and details->>'quality_score' ~ '^[0-9]+([.][0-9]+)?$') as quality_samples,
             avg((details->>'quality_score')::numeric) filter (where event_type = 'quality_review'
-              and details->>'quality_score' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as quality_avg,
+              and details->>'quality_score' ~ '^[0-9]+([.][0-9]+)?$') as quality_avg,
             count(*) filter (where event_type = 'completed'
-              and details->>'cost_usd' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as cost_samples,
+              and details->>'cost_usd' ~ '^[0-9]+([.][0-9]+)?$') as cost_samples,
             sum((details->>'cost_usd')::numeric) filter (where event_type = 'completed'
-              and details->>'cost_usd' ~ '^[0-9]+([.][0-9]+)?  else
-    raise exception 'unsupported action';
-  end if;
-end;
-$$;
-revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
-grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
-) as cost_total
+              and details->>'cost_usd' ~ '^[0-9]+([.][0-9]+)?$') as cost_total
           from public.verox_task_events
           where occurred_at > now() - interval '7 days'
           group by agent_role
@@ -224,5 +174,6 @@ grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,te
   end if;
 end;
 $$;
+
 revoke all on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) from public;
 grant execute on function public.verox_task_telemetry_api(text,text,uuid,text,text,text,jsonb,timestamptz) to anon, authenticated;
