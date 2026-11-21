@@ -26,7 +26,7 @@
     },
     {
       "path": "/api/tasks/recover",
-      "schedule": "*/5 * * * *"
+      "schedule": "17 6 * * *"
     }
   ]
 }
