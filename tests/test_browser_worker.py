@@ -45,28 +45,31 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertEqual(links[1]["follow_policy"], "lead_only_review_registry")
         self.assertNotIn("campaign", links[1]["url"])
 
-    def test_registered_link_followup_uses_destination_source_identity(self):
+    def test_registered_link_followup_uses_destination_source_and_queues_downloads(self):
         source = get_source("google_trends")
         target = _registered_source_for_url("https://www.ebay.com/sch/i.html?_nkw=SDK")
         self.assertIsNotNone(source)
         self.assertIsNotNone(target)
         self.assertEqual(target["id"], "ebay")
         store = Mock()
-        store._rest.side_effect = [
-            [],  # No recent jobs for the destination source.
-            [{"id": "queued-job"}],  # Insert succeeded.
-        ]
+        store.register_source = Mock()
         worker = BrowserWorker(store=store)
-        result = worker._queue_discovered_links(source, [{
-            "url": "https://www.ebay.com/sch/i.html?_nkw=SDK",
-            "registered_public_source": True,
-        }], limit=3)
-        self.assertEqual(result["queued"], 1)
-        post_call = store._rest.call_args_list[1]
-        self.assertEqual(post_call.args[0], "POST")
-        self.assertEqual(post_call.args[2]["body"]["source_id"], "ebay")
-        self.assertEqual(post_call.args[2]["body"]["audit"]["parent_source_id"], "google_trends")
-
+        worker._rest = Mock(side_effect=[
+            [], [{"id": "queued-page"}],
+            [], [{"id": "queued-file"}],
+        ])
+        result = worker._queue_discovered_links(source, [
+            {"url": "https://www.ebay.com/sch/i.html?_nkw=SDK", "registered_public_source": True},
+            {"url": "https://www.ebay.com/assets/sdk.zip", "registered_public_source": True},
+        ], limit=3)
+        self.assertEqual(result["queued"], 2)
+        posts = [call for call in worker._rest.call_args_list if call.args[0] == "POST"]
+        self.assertEqual(posts[0].kwargs["body"]["source_id"], "ebay")
+        self.assertEqual(posts[0].kwargs["body"]["task_type"], "collect_public_data")
+        self.assertEqual(posts[0].kwargs["body"]["audit"]["parent_source_id"], "google_trends")
+        self.assertEqual(posts[1].kwargs["body"]["task_type"], "download_public_file")
+        self.assertEqual(posts[1].kwargs["body"]["audit"]["artifact_policy"], "never_execute")
+        self.assertEqual(store.register_source.call_count, 2)
     def test_platform_sources_are_public_only_not_account_sessions(self):
         for source_id in ("metatrader5_public", "mql5_docs", "1xbet", "amazon", "ebay",
                           "openai_platform_docs", "anthropic_docs", "google_ai_docs",
