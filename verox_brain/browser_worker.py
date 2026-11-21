@@ -38,6 +38,32 @@ def _safe_network_url(url):
     parsed = urlparse(str(url))
     return parsed._replace(query="", fragment="").geturl()[:1200]
 
+
+_BLOCKED_PATH_SEGMENTS = {
+    "login", "logout", "signin", "signout", "register", "signup",
+    "buy", "purchase", "checkout", "order", "orders", "bet", "bets",
+    "trade", "trades", "transfer", "withdraw", "deposit", "payment",
+    "payments", "delete", "remove", "submit", "subscribe", "unsubscribe",
+}
+
+
+def _safe_read_request(url, method, allowed_host):
+    """Conservative public-read guard; reject query-bearing and action-like routes."""
+    try:
+        parsed = urlparse(str(url))
+        if parsed.scheme != "https" or parsed.hostname is None:
+            return False
+        if parsed.username or parsed.password or parsed.hostname.lower() != allowed_host.lower():
+            return False
+        if method.upper() not in {"GET", "HEAD"} or parsed.query or parsed.fragment:
+            return False
+        segments = {part.lower() for part in parsed.path.split("/") if part}
+        if segments & _BLOCKED_PATH_SEGMENTS:
+            return False
+        return True
+    except (TypeError, ValueError):
+        return False
+
 class BrowserWorker:
     def __init__(self, store=None):
         self.store = store or SupabaseDataPlane()
@@ -140,10 +166,7 @@ class BrowserWorker:
                 def guard_route(route):
                     try:
                         request = route.request
-                        parsed_request = urlparse(request.url)
-                        if (parsed_request.scheme == "https" and parsed_request.hostname
-                            and parsed_request.hostname.lower() == allowed_host
-                            and request.method in {"GET", "HEAD"}):
+                        if _safe_read_request(request.url, request.method, allowed_host):
                             route.continue_()
                         else:
                             route.abort()
@@ -232,9 +255,15 @@ def main():
     args = parser.parse_args()
     worker = BrowserWorker()
     if args.cycle:
+        # Fail closed: do not collect if the fixed, bounded local checks are unhealthy.
+        from verox_brain.self_repair import run_recovery_cycle
+        diagnostics = run_recovery_cycle(max_attempts=1)
+        if diagnostics.get("status") != "healthy":
+            print(json.dumps({"status": "blocked_by_self_diagnostics", "diagnostics": diagnostics}, ensure_ascii=False))
+            raise SystemExit(2)
         seeded = worker.seed_public_cycle(limit=5)
         processed = worker.run_once()
-        print(json.dumps({"seeded": seeded, "worker": processed}, ensure_ascii=False))
+        print(json.dumps({"diagnostics": {"status": diagnostics["status"], "checks_failed": diagnostics["checks_failed"]}, "seeded": seeded, "worker": processed}, ensure_ascii=False))
     elif args.once: print(json.dumps(worker.run_once(),ensure_ascii=False))
     else: worker.run_forever()
 
