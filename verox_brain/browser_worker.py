@@ -16,6 +16,7 @@ from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, 
 from verox_brain.research_pipeline import complete_research_run
 from verox_brain.source_registry import get_source, list_sources
 from verox_brain.platform_probe import profile_public_page
+from verox_brain.platform_strategy import analyze_platform_mechanisms
 
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
@@ -142,9 +143,10 @@ class BrowserWorker:
                 content_type = response.headers.get("content-type","") if response else ""
                 captured_at = _now()
                 profile = profile_public_page(url=final_url, title=title, html=html, text=text, http_status=status_code, captured_at=captured_at)
+                strategy_map = analyze_platform_mechanisms(profile, text)
                 context.close()
                 browser.close()
-            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile})
+            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map})
             run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
             analysis = None
             if not run_id and evidence.get("observation_id"):
