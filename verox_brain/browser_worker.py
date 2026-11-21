@@ -3,8 +3,8 @@
 Run in a separate worker/container:
 python -m verox_brain.browser_worker --once
 
-Download jobs are intentionally held for approval until a reviewed allowlist
-implementation exists. No persistent browser profiles or account sessions.
+Public reference downloads are bounded, stored privately as inert artifacts, and never executed.
+No persistent browser profiles or account sessions.
 """
 from __future__ import annotations
 import argparse, json, time
@@ -162,15 +162,23 @@ class BrowserWorker:
             suffix = PurePosixPath(unquote(parsed.path)).suffix.lower()
             if suffix not in allowed_suffixes:
                 raise ValueError("file_extension_not_allowlisted")
+            chunks = []
+            total_bytes = 0
             with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-                response = client.get(target_url, headers={"Accept": "application/pdf, application/json, text/plain, application/zip, application/octet-stream"})
-                if response.is_redirect:
-                    raise ValueError("download_redirect_requires_registered_target")
-                response.raise_for_status()
-                content = response.content
-                if len(content) > max_bytes:
-                    raise ValueError("download_exceeds_20mb_limit")
-                content_type = response.headers.get("content-type", "application/octet-stream").split(";")[0][:120]
+                with client.stream("GET", target_url, headers={"Accept": "application/pdf, application/json, text/plain, application/zip, application/octet-stream"}) as response:
+                    if response.is_redirect:
+                        raise ValueError("download_redirect_requires_registered_target")
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "application/octet-stream").split(";")[0][:120]
+                    declared_size = response.headers.get("content-length")
+                    if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
+                        raise ValueError("download_exceeds_20mb_limit")
+                    for chunk in response.iter_bytes(64 * 1024):
+                        total_bytes += len(chunk)
+                        if total_bytes > max_bytes:
+                            raise ValueError("download_exceeds_20mb_limit")
+                        chunks.append(chunk)
+            content = b"".join(chunks)
             import hashlib
             digest = hashlib.sha256(content).hexdigest()
             filename = PurePosixPath(unquote(parsed.path)).name[:120] or ("artifact" + suffix)
