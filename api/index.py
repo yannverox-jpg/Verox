@@ -522,7 +522,7 @@ class handler(BaseHTTPRequestHandler):
             return
         try:
             route = select_route("chat", prompt)
-            enqueued_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            enqueued_at = datetime.now(timezone.utc).isoformat()
             task = _rpc(
                 "create",
                 task_type="chat",
@@ -530,8 +530,9 @@ class handler(BaseHTTPRequestHandler):
                          "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
+            _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": "chat"})
             try:
-                message_id = asyncio.run(queue_send(QUEUE_TOPIC_PREFIX + route.role, {"task_id": task_id}))
+                message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
             except Exception:
                 _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                 raise
