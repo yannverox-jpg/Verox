@@ -13,15 +13,18 @@ class BrowserWorkerTests(unittest.TestCase):
         safe = _safe_network_url("https://example.com/api/quotes?token=private&symbol=EURUSD#chart")
         self.assertEqual(safe, "https://example.com/api/quotes")
 
-    def test_read_only_guard_rejects_queries_actions_and_external_hosts(self):
+    def test_read_only_guard_allows_public_queries_and_cross_host_assets(self):
         self.assertTrue(_safe_read_request("https://example.com/pricing", "GET", "example.com"))
         self.assertTrue(_safe_read_request("https://example.com/assets/site.css", "HEAD", "example.com"))
         self.assertTrue(_safe_read_request("https://example.com/api/data?symbol=EURUSD&page=2", "GET", "example.com", "xhr"))
         self.assertTrue(_safe_read_request("https://cdn.example.net/assets/app.js?v=3", "GET", "example.com", "script"))
-        self.assertFalse(_safe_read_request("https://cdn.example.net/landing", "GET", "example.com", "document"))
-        self.assertFalse(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
-        self.assertFalse(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
+        self.assertTrue(_safe_read_request("https://cdn.example.net/landing", "GET", "example.com", "document"))
+        self.assertTrue(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
+        self.assertTrue(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
         self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
+        self.assertFalse(_safe_read_request("http://example.com/pricing", "GET", "example.com"))
+        self.assertFalse(_safe_read_request("https://127.0.0.1/admin", "GET", "example.com"))
+        self.assertFalse(_safe_read_request("https://example.com/action", "DELETE", "example.com"))
 
 
     def test_discovers_public_links_without_following_unregistered_hosts(self):
