@@ -14,7 +14,7 @@ import httpx
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
 from verox_brain.research_pipeline import complete_research_run
-from verox_brain.source_registry import get_source, list_sources
+from verox_brain.source_registry import get_source, list_sources\nfrom verox_brain.platform_probe import profile_public_page
 
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
@@ -153,7 +153,7 @@ class BrowserWorker:
                 if analysis_rows and isinstance(analysis_rows, list) and isinstance(analysis_rows[0], dict):
                     run_id = str(analysis_rows[0].get("id") or "")
             if run_id:
-                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,observation_id=evidence.get("observation_id"),captured_at=captured_at)
+                analysis_input = "[Profil structurel public, observation directe; non une preuve de revenus]\n" + json.dumps(profile, ensure_ascii=False)[:6000] + "\n[Texte visible de la page]\n" + text\n                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=analysis_input,observation_id=evidence.get("observation_id"),captured_at=captured_at)
             self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
             return {"status":"succeeded","observation":evidence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
