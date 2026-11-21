@@ -94,18 +94,36 @@ class BrowserWorker:
         ]
         if not candidates:
             return {"queued": 0, "sources": []}
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=cooldown_minutes)).isoformat()
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(minutes=max(cooldown_minutes, 240))).isoformat()
         ids = [str(source["id"]) for source in candidates]
         recent = self._rest(
             "GET", "verox_browser_jobs",
             params={
-                "select": "source_id,status,created_at",
+                "select": "source_id,status,created_at,audit",
                 "source_id": "in.(" + ",".join(ids) + ")",
                 "created_at": "gte." + cutoff,
                 "limit": "500",
             },
         ) or []
-        seen = {str(row.get("source_id")) for row in recent if isinstance(row, dict)}
+        seen = set()
+        for row in recent:
+            if not isinstance(row, dict) or not row.get("source_id"):
+                continue
+            created_raw = row.get("created_at")
+            try:
+                created = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            audit = row.get("audit") if isinstance(row.get("audit"), dict) else {}
+            try:
+                source_cooldown = max(cooldown_minutes, min(240, int(audit.get("cooldown_minutes", 0) or 0)))
+            except (TypeError, ValueError):
+                source_cooldown = cooldown_minutes
+            if now - created < timedelta(minutes=source_cooldown):
+                seen.add(str(row["source_id"]))
         queued = []
         for source in candidates:
             if source["id"] in seen:
