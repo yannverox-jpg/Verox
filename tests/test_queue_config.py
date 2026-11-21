@@ -25,7 +25,7 @@ class QueueConfigTests(unittest.TestCase):
         self.assertEqual(queue_concurrency("microtask", {"VEROX_CONCURRENCY_MICROTASK": "bad"}), 2)
         self.assertEqual(queue_concurrency("microtask", {}), 2)
         self.assertEqual(queue_max_attempts({"VEROX_QUEUE_MAX_ATTEMPTS": "6"}), 6)
-        self.assertEqual(queue_max_attempts({"VEROX_QUEUE_MAX_ATTEMPTS": "99"}), 8)
+        self.assertEqual(queue_max_attempts({"VEROX_QUEUE_MAX_ATTEMPTS": "99"}), 3)
         self.assertEqual(queue_max_attempts({"VEROX_QUEUE_MAX_ATTEMPTS": "bad"}), 3)
 
 
