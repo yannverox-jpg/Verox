@@ -73,12 +73,14 @@ class handler(BaseHTTPRequestHandler):
                         value = result.get(field)
                         if isinstance(value, (str, int, float, bool)) or value is None:
                             safe_result[field] = value
+                capabilities = row.get("capabilities")
+                safe_capabilities = [str(item)[:100] for item in capabilities[:50] if isinstance(item, str)] if isinstance(capabilities, list) else []
                 connectors.append({
                     "connector_id": str(row.get("connector_id", ""))[:120],
                     "connector_type": str(row.get("connector_type", ""))[:40],
                     "status": str(row.get("status", "catalog_only"))[:40],
                     "permission_profile": str(row.get("permission_profile", "read_only"))[:40],
-                    "capabilities": row.get("capabilities") if isinstance(row.get("capabilities"), list) else [],
+                    "capabilities": safe_capabilities,
                     "last_tested_at": row.get("last_tested_at"),
                     "last_test_result": safe_result,
                     "updated_at": row.get("updated_at"),
@@ -93,7 +95,3 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 503, {"error": "connector_registry_unavailable", "upstream_status": exc.response.status_code})
         except (httpx.HTTPError, ValueError, TypeError):
             _json(self, 503, {"error": "connector_registry_unavailable"})
-
-
-def do_GET(self):
-    handler.do_GET(self)
