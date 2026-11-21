@@ -64,7 +64,10 @@ class BrowserWorker:
             raise RuntimeError("ai_endpoint_unavailable_or_invalid_response") from None
         if not isinstance(data, dict) or data.get("model_ready") is not True:
             raise RuntimeError("ai_model_not_ready")
-        if payload.get("action") == "analyze" and not isinstance(data.get("analysis"), dict) or (payload.get("action") == "analyze" and not all(data.get(k) for k in ("analysis", "model_used", "provider_used"))):
+        if payload.get("action") == "analyze" and (
+            not isinstance(data.get("analysis"), dict)
+            or not all(data.get(k) for k in ("analysis", "model_used", "provider_used"))
+        ):
             raise RuntimeError("ai_analysis_incomplete")
         return data
 
