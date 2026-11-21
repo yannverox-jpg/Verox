@@ -1,6 +1,6 @@
 from __future__ import annotations
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from verox_brain.browser_worker import BrowserWorker, _extract_public_links, _host, _registered_source_for_url, _safe_network_url, _safe_public_link_url, _safe_read_request
 from verox_brain.source_registry import get_source
 
@@ -14,19 +14,19 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertEqual(safe, "https://example.com/api/quotes")
 
     def test_read_only_guard_allows_public_queries_and_cross_host_assets(self):
-        self.assertTrue(_safe_read_request("https://example.com/pricing", "GET", "example.com"))
-        self.assertTrue(_safe_read_request("https://example.com/assets/site.css", "HEAD", "example.com"))
-        self.assertTrue(_safe_read_request("https://example.com/api/data?symbol=EURUSD&page=2", "GET", "example.com", "xhr"))
-        self.assertTrue(_safe_read_request("https://cdn.example.net/assets/app.js?v=3", "GET", "example.com", "script"))
-        self.assertTrue(_safe_read_request("https://cdn.example.net/landing", "GET", "example.com", "document"))
-        self.assertTrue(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
-        self.assertTrue(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
-        self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
-        self.assertFalse(_safe_read_request("http://example.com/pricing", "GET", "example.com"))
+        dns_result = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with patch("socket.getaddrinfo", return_value=dns_result):
+            self.assertTrue(_safe_read_request("https://example.com/pricing", "GET", "example.com"))
+            self.assertTrue(_safe_read_request("https://example.com/assets/site.css", "HEAD", "example.com"))
+            self.assertTrue(_safe_read_request("https://example.com/api/data?symbol=EURUSD&page=2", "GET", "example.com", "xhr"))
+            self.assertTrue(_safe_read_request("https://cdn.example.net/assets/app.js?v=3", "GET", "example.com", "script"))
+            self.assertTrue(_safe_read_request("https://cdn.example.net/landing", "GET", "example.com", "document"))
+            self.assertTrue(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
+            self.assertTrue(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
+            self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
+            self.assertFalse(_safe_read_request("http://example.com/pricing", "GET", "example.com"))
+            self.assertFalse(_safe_read_request("https://example.com/action", "DELETE", "example.com"))
         self.assertFalse(_safe_read_request("https://127.0.0.1/admin", "GET", "example.com"))
-        self.assertFalse(_safe_read_request("https://example.com/action", "DELETE", "example.com"))
-
-
     def test_public_link_url_keeps_search_parameters_but_drops_secrets(self):
         safe = _safe_public_link_url("https://example.com/search?q=SDK&page=2&api_key=private&sort=recent#results")
         self.assertEqual(safe, "https://example.com/search?q=SDK&page=2&sort=recent")
