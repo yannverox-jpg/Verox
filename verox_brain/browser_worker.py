@@ -18,7 +18,7 @@ from verox_brain.observation_quality import validate_observation
 from verox_brain.source_registry import get_source, list_sources
 
 POLL_SECONDS = 4
-MAX_JOBS_PER_CYCLE = 5
+MAX_JOBS_PER_CYCLE = 3
 MAX_PAGE_TEXT = 18_000
 ALLOWED_JOB_TYPES = {"inspect_page", "collect_public_data", "test_connector", "capture_evidence"}
 
@@ -274,7 +274,7 @@ def main():
     elif args.cycle:
         # Fail closed before queuing or opening Chromium when the central model is unavailable.
         preflight = worker.preflight_ai()
-        seeded = worker.seed_public_cycle(limit=5)
+        seeded = worker.seed_public_cycle(limit=3)
         processed = worker.run_once()
         print(json.dumps({"preflight":preflight,"seeded": seeded, "worker": processed}, ensure_ascii=False))
     elif args.once: print(json.dumps(worker.run_once(),ensure_ascii=False))
