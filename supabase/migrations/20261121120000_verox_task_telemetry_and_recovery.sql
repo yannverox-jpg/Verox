@@ -73,6 +73,13 @@ begin
         and attempts < 3
       )
       returning id, payload
+    ),
+    logged as (
+      insert into public.verox_task_events(task_id, event_type, agent_role, task_status, details, occurred_at)
+      select id, 'recovery_requested', left(coalesce(payload->>'agent_role', 'brain_coordination'), 100),
+             'queued', jsonb_build_object('reason', 'stale_task_recovery'), now()
+      from recovered
+      returning task_id
     )
     select coalesce(jsonb_agg(jsonb_build_object(
       'task_id', id,
