@@ -87,7 +87,7 @@ def complete_research_run(
         "verox_analysis_runs",
         params={"id": f"eq.{run_id}"},
         body={
-            "status": "completed",
+            "status": "succeeded",
             "input_observation_ids": [observation_id] if observation_id else [],
             "model_provider": provider,
             "model_name": model,
@@ -106,4 +106,4 @@ def complete_research_run(
             "completed_at": now,
         },
     )
-    return {"status": "completed", "model_available": True, "provider": provider, "model": model}
+    return {"status": "succeeded", "model_available": True, "provider": provider, "model": model}
