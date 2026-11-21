@@ -53,12 +53,19 @@ def _safe_read_request(url, method, allowed_host, resource_type="document"):
         if parsed.username or parsed.password or method.upper() not in {"GET", "HEAD"}:
             return False
         import ipaddress
+        import socket
         try:
-            address = ipaddress.ip_address(parsed.hostname)
-            if not address.is_global:
-                return False
+            addresses = [ipaddress.ip_address(parsed.hostname)]
         except ValueError:
-            pass
+            try:
+                addresses = [
+                    ipaddress.ip_address(item[4][0])
+                    for item in socket.getaddrinfo(parsed.hostname, None, type=socket.SOCK_STREAM)
+                ]
+            except OSError:
+                return False
+        if not addresses or any(not address.is_global for address in addresses):
+            return False
         return True
     except (TypeError, ValueError):
         return False
