@@ -1,7 +1,7 @@
 from __future__ import annotations
 import unittest
 from unittest.mock import Mock
-from verox_brain.browser_worker import BrowserWorker, _host, _safe_network_url, _safe_read_request
+from verox_brain.browser_worker import BrowserWorker, _extract_public_links, _host, _safe_network_url, _safe_read_request
 from verox_brain.source_registry import get_source
 
 class BrowserWorkerTests(unittest.TestCase):
@@ -23,6 +23,20 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertFalse(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
         self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
 
+
+    def test_discovers_public_links_without_following_unregistered_hosts(self):
+        links = _extract_public_links([
+            {"href":"https://www.mql5.com/en/docs?ref=private-token","label":"MQL5 SDK"},
+            {"href":"https://unknown.example/apps?campaign=secret","label":"Public app"},
+            {"href":"javascript:alert(1)","label":"invalid"},
+            {"href":"http://insecure.example/","label":"insecure"},
+        ], "https://www.mql5.com/en/docs")
+        self.assertEqual(len(links), 2)
+        self.assertTrue(links[0]["registered_public_source"])
+        self.assertEqual(links[0]["url"], "https://www.mql5.com/en/docs")
+        self.assertFalse(links[1]["registered_public_source"])
+        self.assertEqual(links[1]["follow_policy"], "lead_only_review_registry")
+        self.assertNotIn("campaign", links[1]["url"])
 
     def test_platform_sources_are_public_only_not_account_sessions(self):
         for source_id in ("metatrader5_public", "mql5_docs", "1xbet", "amazon", "ebay",
