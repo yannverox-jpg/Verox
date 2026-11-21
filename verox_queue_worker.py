@@ -12,9 +12,9 @@ from vercel.queue import subscribe
 
 from verox_brain.dispatch import build_role_system_prompt, resolve_route, select_route
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
-from verox_brain.queue_config import queue_concurrency, queue_topic_for_role
+from verox_brain.queue_config import queue_concurrency, queue_max_attempts, queue_topic_for_role
 
-MAX_ATTEMPTS = max(1, min(8, int(os.getenv("VEROX_QUEUE_MAX_ATTEMPTS", "3"))))
+MAX_ATTEMPTS = queue_max_attempts()
 
 
 def _now() -> str:
