@@ -90,8 +90,6 @@ class SupabaseDataPlane:
                 "domain": domain,
                 "hypothesis_key": str(item["hypothesis_key"])[:200],
                 "statement": str(item["hypothesis"])[:2000],
-                "status": "candidate",
-                "sample_size": 0,
                 "metrics": _sanitize({
                     "mechanism_id": item.get("mechanism_id"),
                     "platform": item.get("platform"),
