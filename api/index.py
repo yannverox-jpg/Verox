@@ -103,7 +103,8 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         return data
 
 
-def _telemetry_rpc(action: str, *, task_id: str | None = None) -> dict:
+def _telemetry_rpc(action: str, *, task_id: str | None = None, event_type: str | None = None,
+                   role: str = "system", status: str = "maintenance", details: dict | None = None) -> dict:
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
     token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
@@ -114,14 +115,22 @@ def _telemetry_rpc(action: str, *, task_id: str | None = None) -> dict:
             f"{url}/rest/v1/rpc/verox_task_telemetry_api",
             headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
             json={"p_token": token, "p_action": action, "p_task_id": task_id,
-                  "p_event_type": None, "p_role": "system", "p_status": "maintenance",
-                  "p_details": {}, "p_occurred_at": datetime.now(timezone.utc).isoformat()},
+                  "p_event_type": event_type, "p_role": role, "p_status": status,
+                  "p_details": details or {}, "p_occurred_at": datetime.now(timezone.utc).isoformat()},
         )
         response.raise_for_status()
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("Invalid task telemetry response.")
         return data
+
+
+def _record_task_event(task_id: str, event_type: str, role: str, status: str, details: dict | None = None) -> None:
+    try:
+        _telemetry_rpc("event", task_id=task_id, event_type=event_type, role=role, status=status, details=details)
+    except Exception:
+        # Task creation must remain available if telemetry has not been migrated yet.
+        return
 
 
 def _opportunity_rpc(action: str, items: list | None = None) -> dict:
@@ -432,7 +441,10 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/metrics":
             try:
                 metrics = _rpc("metrics")
-                metrics["agent_telemetry"] = _telemetry_rpc("metrics")
+                try:
+                    metrics["agent_telemetry"] = _telemetry_rpc("metrics")
+                except Exception:
+                    metrics["agent_telemetry"] = {"status": "not_configured"}
                 _json(self, 200, metrics)
             except Exception:
                 _json(self, 503, {"error": "Les métriques persistantes sont momentanément indisponibles."})
@@ -474,6 +486,7 @@ class handler(BaseHTTPRequestHandler):
                                   "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
+                _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": task_type})
                 try:
                     message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
                 except Exception:
