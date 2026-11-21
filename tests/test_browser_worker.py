@@ -42,7 +42,7 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertTrue(links[0]["registered_public_source"])
         self.assertEqual(links[0]["url"], "https://www.mql5.com/en/docs")
         self.assertFalse(links[1]["registered_public_source"])
-        self.assertEqual(links[1]["follow_policy"], "lead_only_review_registry")
+        self.assertEqual(links[1]["follow_policy"], "eligible_for_public_candidate_catalog")
         self.assertNotIn("campaign", links[1]["url"])
 
     def test_registered_link_followup_uses_destination_source_and_queues_downloads(self):
