@@ -261,9 +261,10 @@ class BrowserWorker:
         download_suffixes = {".pdf", ".md", ".txt", ".json", ".yaml", ".yml", ".toml",
                             ".csv", ".xml", ".zip", ".whl", ".tgz", ".gz", ".py", ".js"}
         eligible = []
+        known_sources = self._known_public_sources()
         for link in discovered_links:
             url = str(link.get("url", ""))
-            target_source = _registered_source_for_url(url, self._known_public_sources())
+            target_source = _registered_source_for_url(url, known_sources)
             if not url:
                 continue
             if not target_source:
