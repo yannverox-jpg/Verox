@@ -64,6 +64,10 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn("public.verox_task_events", migration)
         self.assertIn("p_action = 'recover_stale'", migration)
         self.assertIn("interval '5 minutes'", migration)
+        self.assertIn("queue_wait_ms_p95", migration)
+        self.assertIn("model_ms_p99", migration)
+        self.assertIn("quality_review_samples", migration)
+        self.assertIn("cost_per_success_usd", migration)
 
 
 class FreeModelClientTests(unittest.TestCase):
