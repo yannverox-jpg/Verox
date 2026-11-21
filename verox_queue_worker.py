@@ -100,6 +100,7 @@ async def handle_agent_task(message: dict, forced_role: str | None = None) -> No
     try:
         answer, provider, model = await asyncio.to_thread(generate_text, prompt, system_prompt)
         model_ms = round((time.monotonic() - started_at) * 1000)
+        total_ms = queue_wait_ms + model_ms
         result: dict[str, Any] = {
             "answer": answer, "provider": provider, "model": model, "task_type": task_type,
             "agent_role": route.role, "dispatch_target_provider": route.provider,
@@ -107,11 +108,11 @@ async def handle_agent_task(message: dict, forced_role: str | None = None) -> No
             "specialist_connector_used": False,
             "dispatch_mode": "role_specific_durable_queue_shared_model_gateway",
             "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
-            "timings_ms": {"queue_wait": queue_wait_ms, "model": model_ms},
+            "timings_ms": {"queue_wait": queue_wait_ms, "model": model_ms, "total": total_ms},
         }
         rpc("complete", task_id, result=result)
         record_event(task_id, "completed", role=route.role, status="succeeded",
-                     details={"queue_wait_ms": queue_wait_ms, "model_ms": model_ms,
+                     details={"queue_wait_ms": queue_wait_ms, "model_ms": model_ms, "total_ms": total_ms,
                               "provider": provider, "model": model})
     except ModelConfigurationError as exc:
         rpc("fail", task_id, error=str(exc)[:500])
