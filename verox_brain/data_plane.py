@@ -76,6 +76,60 @@ class SupabaseDataPlane:
             observation_id = existing[0].get("id") if existing and isinstance(existing[0], dict) else None
         return {"content_hash": digest, "observation_id": observation_id, "stored": bool(rows), "verification_status": "unverified"}
 
+    def save_strategy_hypotheses(self, *, domain, source_id, source_url, captured_at, observation_id, strategy_map):
+        """Persist platform-specific hypotheses as candidates, never as validated revenue."""
+        allowed_domains = {"sports_horse_betting", "trading", "ecommerce", "microtasks_services", "communities", "public_sector"}
+        if domain not in allowed_domains:
+            domain = "communities"
+        mechanisms = strategy_map.get("observed_mechanisms", []) if isinstance(strategy_map, dict) else []
+        saved = []
+        for item in mechanisms[:30]:
+            if not isinstance(item, dict) or not item.get("hypothesis_key") or not item.get("hypothesis"):
+                continue
+            record = {
+                "domain": domain,
+                "hypothesis_key": str(item["hypothesis_key"])[:200],
+                "statement": str(item["hypothesis"])[:2000],
+                "status": "candidate",
+                "sample_size": 0,
+                "metrics": _sanitize({
+                    "mechanism_id": item.get("mechanism_id"),
+                    "platform": item.get("platform"),
+                    "strategy": item.get("strategy"),
+                    "metrics_to_measure": item.get("metrics_to_measure", []),
+                    "evidence_needed": item.get("evidence_needed", []),
+                    "risk_notes": item.get("risk_notes"),
+                    "observed_signals": item.get("observed_signals", []),
+                    "confidence": "low",
+                    "revenue_confirmed": False,
+                }),
+                "evidence_summary": _sanitize({
+                    "source_id": source_id,
+                    "source_url": source_url,
+                    "captured_at": captured_at,
+                    "observation_id": observation_id,
+                    "evidence_quality": strategy_map.get("evidence_quality", {}),
+                    "verification_status": "unverified",
+                }),
+                "validation_window": {
+                    "required_next_step": "collect_independent_or_time_series_evidence",
+                    "status": "not_started",
+                },
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            rows = self._request(
+                "POST",
+                "verox_hypotheses",
+                params={"on_conflict": "domain,hypothesis_key"},
+                body=record,
+                prefer="resolution=merge-duplicates,return=representation",
+            )
+            if rows and isinstance(rows, list) and isinstance(rows[0], dict):
+                saved.append(str(rows[0].get("id", "")))
+            else:
+                saved.append(str(item["hypothesis_key"]))
+        return {"candidate_count": len(saved), "saved_ids": saved[:30], "validated_revenue_count": 0}
+
     def create_analysis_run(self, *, domain, subject_key=None, observation_ids=None, prompt_version="verox-research-v1"):
         record = {"domain": domain, "subject_key": (subject_key or "")[:200] or None, "status": "queued", "prompt_version": prompt_version[:100], "input_observation_ids": (observation_ids or [])[:200], "findings": {}, "metrics": {}}
         return self._request("POST", "verox_analysis_runs", body=record, prefer="return=representation")
