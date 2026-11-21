@@ -64,3 +64,31 @@ jobs:
 
       - name: Test platform revenue strategy engine
         run: python -m unittest discover -s tests -p "test_platform_strategy.py" -v
+
+      # CI validates diagnostics and inventories the repo, but deliberately does not
+      # browse external sites or write to Supabase. Live collection needs server secrets.
+      - name: Build static read-only reconnaissance report
+        if: always()
+        run: python -m verox_brain.recon --json > "$RUNNER_TEMP/verox-recon.json"
+
+      - name: Run bounded self-diagnostics
+        if: always()
+        run: python -m verox_brain.self_repair --json > "$RUNNER_TEMP/verox-self-repair.json"
+
+      - name: Preserve sanitized reconnaissance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verox-recon-${{ github.run_id }}
+          path: ${{ runner.temp }}/verox-recon.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Preserve self-diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verox-self-repair-${{ github.run_id }}
+          path: ${{ runner.temp }}/verox-self-repair.json
+          if-no-files-found: ignore
+          retention-days: 7
