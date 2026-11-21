@@ -54,8 +54,8 @@ jobs:
       - name: Install isolated Chromium runtime
         run: python -m playwright install --with-deps chromium
 
-      - name: Run browser worker policy tests
-        run: python -m unittest discover -s tests -p "test_browser_worker.py" -v
+      - name: Run Verox unit and policy tests
+        run: python -m unittest discover -s tests -v
 
       - name: Process a bounded batch of read-only jobs
         run: python -m verox_brain.browser_worker --cycle
