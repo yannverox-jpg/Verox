@@ -66,6 +66,7 @@ def propose_and_validate_patch(diagnostic: dict[str, Any]) -> dict[str, Any]:
         "provider": provider, "model": model,
         "changed_paths": report.get("changed_paths", []),
         "checks": report.get("checks", []),
+        "patch_diff": patch[:250_000] if report.get("status") == "validated_in_sandbox" else None,
         "live_files_modified": False,
         "automatic_merge": False,
         "automatic_deploy": False,
