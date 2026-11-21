@@ -46,13 +46,22 @@ Verox est un agent de travail et de recherche, pas seulement un chatbot. Il doit
 - [ ] Résumer les sessions sans confondre souvenirs, suppositions et faits vérifiés.
 - [ ] Ajouter des tests de continuité après redéploiement et reprise de tâche.
 
-### P4 — recherche et opportunités
-- [ ] Exécuter les flux de recherche configurés, conserver la source, la date, les preuves et un score explicable.
-- [ ] Dédupliquer et classer les opportunités; distinguer pistes détectées, vérifiées et exécutables.
-- [ ] Tester le cron et la persistance des résultats avant de considérer le scan autonome.
-- [ ] Aucun rendement financier ne doit être promis; toute décision de trading/paris reste en mode analyse jusqu'à autorisation explicite et intégration vérifiée.
+### P4 — rétro-ingénierie des plateformes et recherche de revenus
+- [ ] Cartographier les pages publiques, composants visibles, formulaires, parcours, prix, frais, récompenses et appels à l'action sans contourner les contrôles d'accès.
+- [ ] Relier chaque hypothèse économique à des observations horodatées et à une source; distinguer les signaux de demande des revenus effectivement encaissés.
+- [ ] Prioriser les pistes de revenus légitimes selon revenu net horaire mesuré, coût, délai de paiement, répétabilité, éligibilité, risque et qualité des preuves.
+- [ ] Construire des expériences contrôlées (groupe témoin, période comparable, métrique de résultat, facteurs de confusion), utiliser différence-de-différences lorsque les hypothèses sont défendables, puis valider hors échantillon.
+- [ ] Ne jamais traiter une corrélation, un score ou une estimation comme une causalité démontrée ou un revenu acquis.
+- [ ] Exécuter les flux de recherche configurés, conserver la source, la date, les preuves et un score explicable; dédupliquer et distinguer pistes détectées, vérifiées et exécutables.
+- [ ] Tester le cron et la persistance des résultats avant de considérer le scan autonome. Les mises, transactions, commandes et actions financières restent interdites sans autorisation spécifique.
 
-### P5 — exploitation contrôlée
+### P5 — rétro-ingénierie et auto-réparation
+- [ ] Inventorier imports, routes, variables de configuration, workflows et dépendances sans exécuter le code inspecté.
+- [ ] Exécuter des contrôles déterministes à durée limitée, classifier les erreurs, conserver des rapports expurgés et borner les nouvelles tentatives.
+- [ ] Tester toute proposition de correctif dans une copie temporaire, vérifier les chemins autorisés, la compilation et les tests ciblés; aucune fusion ni mise en production automatique.
+- [ ] Mesurer les régressions et réutiliser les résultats des cycles précédents pour améliorer les prochains diagnostics.
+
+### P6 — exploitation contrôlée
 - [ ] Surveiller les erreurs, les délais, le nombre d'appels et la consommation.
 - [ ] Prévoir des budgets/limites et arrêter les tâches en cas de dépassement.
 - [ ] Produire un rapport quotidien de tâches terminées, échouées, en attente et de preuves.
