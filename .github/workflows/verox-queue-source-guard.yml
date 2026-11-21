@@ -13,7 +13,10 @@ on:
     branches: [main]
     paths:
       - "api/index.py"
+      - "verox_queue_worker.py"
+      - "verox_brain/queue_config.py"
       - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - "supabase/migrations/*verox_task_telemetry_and_recovery.sql"
       - ".github/workflows/verox-queue-source-guard.yml"
 
 jobs:
