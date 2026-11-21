@@ -1,7 +1,7 @@
 from __future__ import annotations
 import unittest
 from unittest.mock import Mock
-from verox_brain.browser_worker import BrowserWorker, _host, _safe_network_url
+from verox_brain.browser_worker import BrowserWorker, _host, _safe_network_url, _safe_read_request
 from verox_brain.source_registry import get_source
 
 class BrowserWorkerTests(unittest.TestCase):
@@ -12,6 +12,15 @@ class BrowserWorkerTests(unittest.TestCase):
     def test_network_trace_redacts_query_values_and_fragments(self):
         safe = _safe_network_url("https://example.com/api/quotes?token=private&symbol=EURUSD#chart")
         self.assertEqual(safe, "https://example.com/api/quotes")
+
+    def test_read_only_guard_rejects_queries_actions_and_external_hosts(self):
+        self.assertTrue(_safe_read_request("https://example.com/pricing", "GET", "example.com"))
+        self.assertTrue(_safe_read_request("https://example.com/assets/site.css", "HEAD", "example.com"))
+        self.assertFalse(_safe_read_request("https://example.com/api/data?symbol=EURUSD", "GET", "example.com"))
+        self.assertFalse(_safe_read_request("https://example.com/checkout", "GET", "example.com"))
+        self.assertFalse(_safe_read_request("https://evil.example/pixel", "GET", "example.com"))
+        self.assertFalse(_safe_read_request("https://example.com/action", "POST", "example.com"))
+
 
     def test_platform_sources_are_public_only_not_account_sessions(self):
         for source_id in ("metatrader5_public", "mql5_docs", "1xbet", "amazon", "ebay",
