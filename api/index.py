@@ -435,6 +435,7 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/metrics":
             try:
                 metrics = _rpc("metrics")
+                metrics["agent_telemetry"] = _telemetry_rpc("metrics")
                 _json(self, 200, metrics)
             except Exception:
                 _json(self, 503, {"error": "Les métriques persistantes sont momentanément indisponibles."})
