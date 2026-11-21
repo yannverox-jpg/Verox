@@ -59,12 +59,27 @@ def complete_research_run(
         f"{str(page_text)[:14000]}"
     )
     try:
+        analysis_payload = None
         if model_result is not None:
-            answer = str(model_result.get("analysis", "")).strip()
+            raw_analysis = model_result.get("analysis")
+            if isinstance(raw_analysis, dict):
+                analysis_payload = raw_analysis
+                answer = __import__("json").dumps(raw_analysis, ensure_ascii=False, separators=(",", ":"))
+            else:
+                answer = str(raw_analysis or "").strip()
             provider = str(model_result.get("provider_used", "")).strip()
             model = str(model_result.get("model_used", "")).strip()
             if not answer or not provider or not model:
                 raise ModelRequestError("Le moteur central a retourné une analyse incomplète.")
+            if analysis_payload is not None and (
+                not isinstance(analysis_payload.get("title"), str)
+                or not isinstance(analysis_payload.get("summary"), str)
+                or not isinstance(analysis_payload.get("confidence"), (int, float))
+                or isinstance(analysis_payload.get("confidence"), bool)
+                or not 0 <= analysis_payload["confidence"] <= 1
+                or not isinstance(analysis_payload.get("is_actionable"), bool)
+            ):
+                raise ModelRequestError("Le moteur central a retourné un schéma d'analyse invalide.")
         else:
             answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT)
     except (ModelConfigurationError, ModelRequestError) as exc:
@@ -94,7 +109,7 @@ def complete_research_run(
             "prompt_version": PROMPT_VERSION,
             "findings": {
                 "evidence": evidence,
-                "analysis": answer[:12000],
+                "analysis": analysis_payload if analysis_payload is not None else answer[:12000],
                 "review_required": True,
             },
             "metrics": {
@@ -106,4 +121,7 @@ def complete_research_run(
             "completed_at": now,
         },
     )
-    return {"status": "succeeded", "model_available": True, "provider": provider, "model": model}
+    result = {"status": "succeeded", "model_available": True, "provider": provider, "model": model}
+    if analysis_payload is not None:
+        result.update(analysis_payload)
+    return result
