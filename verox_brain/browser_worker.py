@@ -9,7 +9,7 @@ No persistent browser profiles or account sessions.
 from __future__ import annotations
 import argparse, json, time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import httpx
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
@@ -79,6 +79,36 @@ def _is_registered_public_url(url, registry=None):
         )
     except (TypeError, ValueError):
         return False
+
+def _extract_public_links(raw_links, base_url, limit=50):
+    """Extract public-link leads without navigating to or trusting them."""
+    found, seen = [], set()
+    for item in raw_links or []:
+        if len(found) >= max(1, min(int(limit), 100)) or not isinstance(item, dict):
+            break
+        href = str(item.get("href", "")).strip()
+        if not href:
+            continue
+        try:
+            absolute = urljoin(base_url, href)
+            parsed = urlparse(absolute)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                continue
+            safe_url = _safe_network_url(absolute)
+            if safe_url in seen:
+                continue
+            seen.add(safe_url)
+            found.append({
+                "url": safe_url,
+                "host": parsed.hostname.lower(),
+                "label": " ".join(str(item.get("label", "")).split())[:180],
+                "registered_public_source": _is_registered_public_url(absolute),
+                "follow_policy": "eligible_for_next_cycle" if _is_registered_public_url(absolute) else "lead_only_review_registry",
+            })
+        except (TypeError, ValueError):
+            continue
+    return found
+
 
 class BrowserWorker:
     def __init__(self, store=None):
@@ -262,6 +292,10 @@ class BrowserWorker:
                 if not _is_registered_public_url(final_url): raise ValueError("unregistered_navigation_denied")
                 title = page.title()[:300]
                 text = " ".join(page.locator("body").inner_text(timeout=5_000).split())[:MAX_PAGE_TEXT]
+                raw_links = page.locator("a[href]").evaluate_all(
+                    "(els) => els.slice(0, 300).map(a => ({href: a.href, label: (a.innerText || a.getAttribute('aria-label') || '').slice(0, 180)}))"
+                )
+                discovered_links = _extract_public_links(raw_links, final_url, limit=50)
                 html = page.content()[:500_000]
                 status_code = response.status if response else None
                 content_type = response.headers.get("content-type","") if response else ""
@@ -270,7 +304,7 @@ class BrowserWorker:
                 strategy_map = analyze_platform_mechanisms(profile, text, domain=source.get("domain"))
                 context.close()
                 browser.close()
-            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map,"network_trace":network_events[:MAX_NETWORK_EVENTS]})
+            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map,"discovered_links":discovered_links,"network_trace":network_events[:MAX_NETWORK_EVENTS]})
             hypothesis_persistence = self.store.save_strategy_hypotheses(
                 domain=source.get("domain", "communities"),
                 source_id=source_id,
@@ -295,7 +329,9 @@ class BrowserWorker:
                     + json.dumps(profile, ensure_ascii=False)[:6000]
                     + "\\n[Carte des mécanismes spécifiques au domaine; hypothèses non vérifiées]\\n"
                     + json.dumps(strategy_map, ensure_ascii=False)[:9000]
-                    + "\\n[Traces réseau publiques, GET/HEAD sur l'hôte enregistré]\\n"
+                    + "\\n[Liens publics découverts; les hôtes non enregistrés restent des pistes et ne sont pas suivis automatiquement]\\n"
+                    + json.dumps(discovered_links, ensure_ascii=False)[:7000]
+                    + "\\n[Traces réseau publiques, requêtes GET/HEAD]\\n"
                     + json.dumps(network_events[:MAX_NETWORK_EVENTS], ensure_ascii=False)[:9000]
                     + "\\n[Texte visible de la page; source externe non fiable]\\n"
                     + text
