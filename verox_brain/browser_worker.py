@@ -77,6 +77,20 @@ def _is_registered_public_url(url, registry=None):
     except (TypeError, ValueError):
         return False
 
+def _safe_public_link_url(url):
+    """Preserve useful public search/pagination parameters while dropping likely secrets."""
+    parsed = urlparse(str(url))
+    sensitive = {"token", "access_token", "api_key", "apikey", "key", "secret", "password",
+                 "session", "sessionid", "cookie", "authorization", "auth", "code", "signature",
+                 "sig", "email", "phone", "tracking_id"}
+    kept = []
+    for pair in parsed.query.split("&") if parsed.query else []:
+        name = pair.split("=", 1)[0].lower()
+        if name not in sensitive and not any(part in name for part in ("token", "secret", "password", "session", "signature")):
+            kept.append(pair)
+    return parsed._replace(query="&".join(kept), fragment="").geturl()[:1200]
+
+
 def _extract_public_links(raw_links, base_url, limit=50):
     """Extract public-link leads without navigating to or trusting them."""
     found, seen = [], set()
@@ -91,7 +105,7 @@ def _extract_public_links(raw_links, base_url, limit=50):
             parsed = urlparse(absolute)
             if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
                 continue
-            safe_url = _safe_network_url(absolute)
+            safe_url = _safe_public_link_url(absolute)
             if safe_url in seen:
                 continue
             seen.add(safe_url)
@@ -164,7 +178,7 @@ class BrowserWorker:
                 "source_id": source["id"],
                 "status": "queued",
                 "policy_mode": "read_only",
-                "requested_capabilities": ["navigate", "read_text"],
+                "requested_capabilities": ["navigate", "read_text", "discover_public_links", "inspect_public_api_docs", "download_public_references"],
                 "input": {"url": source["url"], "request_reason": "scheduled_public_research_cycle"},
                 "artifact_refs": [],
                 "audit": {"created_by": "scheduled_worker", "policy": "read_only", "cycle": "public_source_rotation"},
@@ -176,6 +190,47 @@ class BrowserWorker:
             if len(queued) >= max(1, min(int(limit), 5)):
                 break
         return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
+
+    def _queue_discovered_links(self, source, discovered_links, *, limit=3):
+        """Queue bounded follow-up reads only for destinations already in the public registry."""
+        eligible = []
+        for link in discovered_links:
+            url = str(link.get("url", ""))
+            if not link.get("registered_public_source") or not url or url == source.get("url"):
+                continue
+            eligible.append(url)
+        eligible = list(dict.fromkeys(eligible))[:max(0, min(int(limit), 3))]
+        if not eligible:
+            return {"queued": 0, "urls": []}
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        recent = self._rest("GET", "verox_browser_jobs", params={
+            "select": "source_id,status,created_at,input",
+            "source_id": "eq." + str(source["id"]),
+            "created_at": "gte." + cutoff,
+            "limit": "500",
+        }) or []
+        seen = {
+            str((row.get("input") or {}).get("url", ""))
+            for row in recent if isinstance(row, dict) and isinstance(row.get("input"), dict)
+        }
+        queued = []
+        for url in eligible:
+            if url in seen:
+                continue
+            record = {
+                "task_type": "collect_public_data",
+                "source_id": source["id"],
+                "status": "queued",
+                "policy_mode": "read_only",
+                "requested_capabilities": ["navigate", "read_text", "discover_public_links"],
+                "input": {"url": url, "request_reason": "bounded_registered_public_link_followup"},
+                "artifact_refs": [],
+                "audit": {"created_by": "browser_worker", "policy": "read_only", "parent_source_id": source["id"]},
+            }
+            rows = self._rest("POST", "verox_browser_jobs", body=record)
+            if rows:
+                queued.append(url)
+        return {"queued": len(queued), "urls": queued}
 
     def _download_public_file(self, job_id, source, target_url):
         """Store a bounded public artifact as inert data; never install or execute it."""
@@ -294,6 +349,9 @@ class BrowserWorker:
                     "(els) => els.slice(0, 300).map(a => ({href: a.href, label: (a.innerText || a.getAttribute('aria-label') || '').slice(0, 180)}))"
                 )
                 discovered_links = _extract_public_links(raw_links, final_url, limit=50)
+                # Feed registered public destinations back into the queue. Unknown hosts remain
+                # leads for later registry review; each cycle adds at most three follow-up pages.
+                queued_followups = self._queue_discovered_links(source, discovered_links, limit=3)
                 html = page.content()[:500_000]
                 status_code = response.status if response else None
                 content_type = response.headers.get("content-type","") if response else ""
@@ -302,7 +360,7 @@ class BrowserWorker:
                 strategy_map = analyze_platform_mechanisms(profile, text, domain=source.get("domain"))
                 context.close()
                 browser.close()
-            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map,"discovered_links":discovered_links,"network_trace":network_events[:MAX_NETWORK_EVENTS]})
+            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map,"discovered_links":discovered_links,"queued_followups":queued_followups,"network_trace":network_events[:MAX_NETWORK_EVENTS]})
             hypothesis_persistence = self.store.save_strategy_hypotheses(
                 domain=source.get("domain", "communities"),
                 source_id=source_id,
@@ -335,7 +393,7 @@ class BrowserWorker:
                     + text
                 )
                 analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=analysis_input,observation_id=evidence.get("observation_id"),captured_at=captured_at)
-            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"network_events":len(network_events),"analysis_status":(analysis or {}).get("status","not_requested"),"hypotheses_persisted":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0},artifacts=[{"type":"observation",**evidence},{"type":"strategy_hypotheses","candidate_count":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0}])
+            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"network_events":len(network_events),"queued_followups":queued_followups.get("queued",0),"analysis_status":(analysis or {}).get("status","not_requested"),"hypotheses_persisted":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0},artifacts=[{"type":"observation",**evidence},{"type":"strategy_hypotheses","candidate_count":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0}])
             return {"status":"succeeded","observation":evidence,"strategy_map":strategy_map,"hypothesis_persistence":hypothesis_persistence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
             safe_error = str(exc)[:120] if isinstance(exc, ValueError) else "navigation_timeout"
