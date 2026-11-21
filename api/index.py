@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -99,6 +100,27 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("Invalid task store response.")
+        return data
+
+
+def _telemetry_rpc(action: str, *, task_id: str | None = None) -> dict:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
+    if not url or not anon or not token:
+        raise RuntimeError("Task telemetry is not configured.")
+    with httpx.Client(timeout=12.0) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_task_telemetry_api",
+            headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
+            json={"p_token": token, "p_action": action, "p_task_id": task_id,
+                  "p_event_type": None, "p_role": "system", "p_status": "maintenance",
+                  "p_details": {}, "p_occurred_at": datetime.now(timezone.utc).isoformat()},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid task telemetry response.")
         return data
 
 
@@ -242,6 +264,40 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/tasks/recover":
+            cron_token = os.getenv("CRON_SECRET", "").strip()
+            if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
+                _json(self, 401, {"error": "Authentification cron requise."})
+                return
+            try:
+                recovered = _telemetry_rpc("recover_stale")
+                tasks = recovered.get("tasks", []) if isinstance(recovered, dict) else []
+                allowed_roles = {
+                    "brain_coordination", "public_research", "revenue_research", "microtask",
+                    "service_work", "mirror_store", "sports_analysis", "horse_racing_analysis", "software_build",
+                }
+                published = 0
+                failures = 0
+                for item in tasks:
+                    if not isinstance(item, dict) or not item.get("task_id"):
+                        continue
+                    role = str(item.get("agent_role", "brain_coordination"))
+                    if role not in allowed_roles:
+                        role = "brain_coordination"
+                    try:
+                        awaitable = queue_send(QUEUE_TOPIC_PREFIX + role, {"task_id": str(item["task_id"])})
+                        message_id = asyncio.run(awaitable)
+                        if message_id:
+                            published += 1
+                    except Exception:
+                        failures += 1
+                _json(self, 200 if failures == 0 else 503, {
+                    "status": "completed" if failures == 0 else "partial",
+                    "recovered_candidates": len(tasks), "republished": published, "publish_failures": failures,
+                })
+            except Exception:
+                _json(self, 503, {"error": "La récupération des tâches interrompues a échoué."})
+            return
         if path == "/api/sources":
             # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
             query = urlparse(self.path).query
@@ -415,7 +471,7 @@ class handler(BaseHTTPRequestHandler):
                 return
             try:
                 route = select_route(task_type, prompt)
-                enqueued_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+                enqueued_at = datetime.now(timezone.utc).isoformat()
                 stored_payload = {"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
                                   "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
