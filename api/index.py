@@ -16,10 +16,10 @@ from verox_brain.model_client import ModelConfigurationError, ModelRequestError,
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
 from verox_brain.dispatch import select_route
+from verox_brain.queue_config import ROLE_KEYS, queue_topic_for_role
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
-QUEUE_TOPIC_PREFIX = "verox-agent-"
 TASK_TYPES = {"analysis", "research", "chat", "code_review"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
@@ -272,10 +272,7 @@ class handler(BaseHTTPRequestHandler):
             try:
                 recovered = _telemetry_rpc("recover_stale")
                 tasks = recovered.get("tasks", []) if isinstance(recovered, dict) else []
-                allowed_roles = {
-                    "brain_coordination", "public_research", "revenue_research", "microtask",
-                    "service_work", "mirror_store", "sports_analysis", "horse_racing_analysis", "software_build",
-                }
+                allowed_roles = ROLE_KEYS
                 published = 0
                 failures = 0
                 for item in tasks:
@@ -285,7 +282,7 @@ class handler(BaseHTTPRequestHandler):
                     if role not in allowed_roles:
                         role = "brain_coordination"
                     try:
-                        awaitable = queue_send(QUEUE_TOPIC_PREFIX + role, {"task_id": str(item["task_id"])})
+                        awaitable = queue_send(queue_topic_for_role(role), {"task_id": str(item["task_id"])})
                         message_id = asyncio.run(awaitable)
                         if message_id:
                             published += 1
@@ -478,7 +475,7 @@ class handler(BaseHTTPRequestHandler):
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
                 try:
-                    message_id = asyncio.run(queue_send(QUEUE_TOPIC_PREFIX + route.role, {"task_id": task_id}))
+                    message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
