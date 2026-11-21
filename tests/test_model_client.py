@@ -63,7 +63,7 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
             "primary-test-secret",
         )
 
-    def test_existing_legacy_key_has_precedence_over_second_key(self):
+    def test_second_key_has_precedence_over_existing_legacy_key(self):
         fake_response = MagicMock()
         fake_response.json.return_value = {
             "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
