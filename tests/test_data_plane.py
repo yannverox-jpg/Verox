@@ -16,6 +16,34 @@ class DataPlaneTests(unittest.TestCase):
         self.assertNotIn("api_key",value)
         self.assertNotIn("Authorization",value["nested"])
         self.assertNotIn("session",value["items"][0])
+    def test_source_registration_does_not_overwrite_operator_state(self):
+        store = SupabaseDataPlane(base_url="https://example.supabase.co",service_key="server-secret")
+        calls = []
+        store._request = lambda method, table, **kwargs: calls.append((method, table, kwargs)) or []
+        store.register_source({"id":"source-a","url":"https://example.com/","domain":"communities"})
+        self.assertEqual(calls[0][2]["prefer"], "resolution=ignore-duplicates,return=representation")
+
+    def test_duplicate_hypothesis_does_not_reset_validation_window(self):
+        store = SupabaseDataPlane(base_url="https://example.supabase.co",service_key="server-secret")
+        calls = []
+        def fake_request(method, table, **kwargs):
+            calls.append((method, table, kwargs))
+            if method == "GET":
+                return [{"id":"hypothesis-id"}]
+            return []
+        store._request = fake_request
+        result = store.save_strategy_hypotheses(
+            domain="microtasks_services", source_id="source-a",
+            source_url="https://example.com/", captured_at="2026-11-21T00:00:00Z",
+            observation_id=None,
+            strategy_map={"evidence_quality":{"status":"weak_observation"},
+                "observed_mechanisms":[{"hypothesis_key":"key-a","hypothesis":"A testable hypothesis"}]},
+        )
+        self.assertEqual(calls[0][2]["prefer"], "resolution=ignore-duplicates,return=representation")
+        self.assertEqual(calls[1][0], "GET")
+        self.assertEqual(result["saved_ids"], ["hypothesis-id"])
+        self.assertEqual(result["validated_revenue_count"], 0)
+
     def test_hash_is_deterministic_and_observation_unverified(self):
         store = SupabaseDataPlane(base_url="https://example.supabase.co",service_key="server-secret")
         calls = []
