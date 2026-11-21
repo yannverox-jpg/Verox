@@ -19,6 +19,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
             "verox_queue_worker:process_sports_analysis",
             "verox_queue_worker:process_horse_racing_analysis",
             "verox_queue_worker:process_software_build",
+            "verox_queue_worker:process_legacy_agent_task",
         }
         self.assertEqual(entrypoints, expected)
         self.assertNotIn("uv", cfg.get("tool", {}))
