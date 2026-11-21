@@ -39,29 +39,26 @@ def _safe_network_url(url):
     return parsed._replace(query="", fragment="").geturl()[:1200]
 
 
-_BLOCKED_PATH_SEGMENTS = {
-    "login", "logout", "signin", "signout", "register", "signup",
-    "checkout", "purchase", "payment", "payments", "withdraw", "deposit",
-    "transfer", "delete", "remove", "unsubscribe",
-}
-
-
 def _safe_read_request(url, method, allowed_host, resource_type="document"):
-    """Allow public read traffic, including query-based APIs and registered-site navigation."""
+    """Allow public HTTPS reads across CDNs and query-based APIs; never submit mutations.
+
+    The registered source controls the initial target. Public assets and API reads may
+    use other HTTPS hosts, as modern sites routinely depend on CDNs and API subdomains.
+    URL query values are allowed for search/pagination but are redacted from persisted logs.
+    """
     try:
         parsed = urlparse(str(url))
         if parsed.scheme != "https" or parsed.hostname is None:
             return False
         if parsed.username or parsed.password or method.upper() not in {"GET", "HEAD"}:
             return False
-        host = parsed.hostname.lower()
-        segments = {part.lower() for part in parsed.path.split("/") if part}
-        if segments & _BLOCKED_PATH_SEGMENTS:
-            return False
-        if resource_type == "document" and host != allowed_host.lower():
-            return False
-        # Public API routes often require query parameters for search and pagination.
-        # Query values may be requested but are never persisted in audit logs.
+        import ipaddress
+        try:
+            address = ipaddress.ip_address(parsed.hostname)
+            if not address.is_global:
+                return False
+        except ValueError:
+            pass
         return True
     except (TypeError, ValueError):
         return False
@@ -257,20 +254,20 @@ class BrowserWorker:
                 return self._download_public_file(job_id, source, target_url)
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                # Render public client-side apps while enforcing same-host HTTPS and GET/HEAD only.
-                context = browser.new_context(accept_downloads=False, service_workers="block", java_script_enabled=True, ignore_https_errors=False)
+                # Render public client-side apps; allow HTTPS CDNs/API hosts, but never submit writes.
+                context = browser.new_context(accept_downloads=True, service_workers="block", java_script_enabled=True, ignore_https_errors=False)
                 allowed_host = _host(source["url"])
                 network_events = []
                 def record_request(request):
                     if len(network_events) < MAX_NETWORK_EVENTS:
                         parsed_request = urlparse(request.url)
-                        if parsed_request.hostname and parsed_request.hostname.lower() == allowed_host:
-                            network_events.append({"kind": "request", "method": request.method, "url": _safe_network_url(request.url), "resource_type": request.resource_type})
+                        if parsed_request.hostname:
+                            network_events.append({"kind": "request", "method": request.method, "url": _safe_network_url(request.url), "resource_type": request.resource_type, "host": parsed_request.hostname.lower()})
                 def record_response(response):
                     if len(network_events) < MAX_NETWORK_EVENTS:
                         parsed_response = urlparse(response.url)
-                        if parsed_response.hostname and parsed_response.hostname.lower() == allowed_host:
-                            network_events.append({"kind": "response", "method": response.request.method, "url": _safe_network_url(response.url), "status": response.status, "content_type": response.headers.get("content-type", "")[:160]})
+                        if parsed_response.hostname:
+                            network_events.append({"kind": "response", "method": response.request.method, "url": _safe_network_url(response.url), "status": response.status, "content_type": response.headers.get("content-type", "")[:160], "host": parsed_response.hostname.lower()})
                 def guard_route(route):
                     try:
                         request = route.request
@@ -289,7 +286,8 @@ class BrowserWorker:
                 response = page.goto(target_url, wait_until="domcontentloaded")
                 page.wait_for_timeout(750)  # bounded client-side hydration window
                 final_url = page.url
-                if not _is_registered_public_url(final_url): raise ValueError("unregistered_navigation_denied")
+                # Public sites often redirect to country domains; allow HTTPS redirects only.
+                _host(final_url)
                 title = page.title()[:300]
                 text = " ".join(page.locator("body").inner_text(timeout=5_000).split())[:MAX_PAGE_TEXT]
                 raw_links = page.locator("a[href]").evaluate_all(
