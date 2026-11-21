@@ -120,7 +120,7 @@ class SupabaseDataPlane:
             rows = self._request(
                 "POST",
                 "verox_hypotheses",
-                params={"on_conflict": "domain,hypothesis_key"},
+                params={"on_conflict": "hypothesis_key"},
                 body=record,
                 prefer="resolution=merge-duplicates,return=representation",
             )
