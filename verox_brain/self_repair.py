@@ -30,7 +30,10 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("test_behavioral_analysis", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_behavioral_analysis.py", "-v")),
     ("test_research_pipeline", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_research_pipeline.py", "-v")),
     ("test_self_repair", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_self_repair.py", "-v")),
-    ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),\n    ("test_causal_lab", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_causal_lab.py", "-v")),\n    ("test_repair_sandbox", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_sandbox.py", "-v")),\n    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),
+    ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),
+    ("test_causal_lab", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_causal_lab.py", "-v")),
+    ("test_repair_sandbox", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_sandbox.py", "-v")),
+    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),
 )
 
 @dataclass
