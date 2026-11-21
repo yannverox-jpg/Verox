@@ -41,26 +41,42 @@ def _safe_network_url(url):
 
 _BLOCKED_PATH_SEGMENTS = {
     "login", "logout", "signin", "signout", "register", "signup",
-    "buy", "purchase", "checkout", "order", "orders", "bet", "bets",
-    "trade", "trades", "transfer", "withdraw", "deposit", "payment",
-    "payments", "delete", "remove", "submit", "subscribe", "unsubscribe",
+    "checkout", "purchase", "payment", "payments", "withdraw", "deposit",
+    "transfer", "delete", "remove", "unsubscribe",
 }
 
 
-def _safe_read_request(url, method, allowed_host):
-    """Conservative public-read guard; reject query-bearing and action-like routes."""
+def _safe_read_request(url, method, allowed_host, resource_type="document"):
+    """Allow public read traffic, including query-based APIs and registered-site navigation."""
     try:
         parsed = urlparse(str(url))
         if parsed.scheme != "https" or parsed.hostname is None:
             return False
-        if parsed.username or parsed.password or parsed.hostname.lower() != allowed_host.lower():
+        if parsed.username or parsed.password or method.upper() not in {"GET", "HEAD"}:
             return False
-        if method.upper() not in {"GET", "HEAD"} or parsed.query or parsed.fragment:
-            return False
+        host = parsed.hostname.lower()
         segments = {part.lower() for part in parsed.path.split("/") if part}
         if segments & _BLOCKED_PATH_SEGMENTS:
             return False
+        if resource_type == "document" and host != allowed_host.lower():
+            return False
+        # Public API routes often require query parameters for search and pagination.
+        # Query values may be requested but are never persisted in audit logs.
         return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_registered_public_url(url, registry=None):
+    """Top-level navigation/download target must match a registered public source."""
+    try:
+        host = _host(url)
+        sources = registry if registry is not None else list_sources().get("sources", [])
+        return any(
+            source.get("access") in {"web", "public_web", "web_or_api"}
+            and _host(str(source.get("url", ""))) == host
+            for source in sources
+        )
     except (TypeError, ValueError):
         return False
 
@@ -134,19 +150,73 @@ class BrowserWorker:
                 break
         return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
 
+    def _download_public_file(self, job_id, source, target_url):
+        """Store a bounded public artifact as inert data; never install or execute it."""
+        from pathlib import PurePosixPath
+        from urllib.parse import unquote
+        allowed_suffixes = {".pdf", ".md", ".txt", ".json", ".yaml", ".yml", ".toml",
+                            ".csv", ".xml", ".zip", ".whl", ".tgz", ".gz", ".py", ".js"}
+        max_bytes = 20 * 1024 * 1024
+        try:
+            parsed = urlparse(target_url)
+            suffix = PurePosixPath(unquote(parsed.path)).suffix.lower()
+            if suffix not in allowed_suffixes:
+                raise ValueError("file_extension_not_allowlisted")
+            with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
+                response = client.get(target_url, headers={"Accept": "application/pdf, application/json, text/plain, application/zip, application/octet-stream"})
+                if response.is_redirect:
+                    raise ValueError("download_redirect_requires_registered_target")
+                response.raise_for_status()
+                content = response.content
+                if len(content) > max_bytes:
+                    raise ValueError("download_exceeds_20mb_limit")
+                content_type = response.headers.get("content-type", "application/octet-stream").split(";")[0][:120]
+            import hashlib
+            digest = hashlib.sha256(content).hexdigest()
+            filename = PurePosixPath(unquote(parsed.path)).name[:120] or ("artifact" + suffix)
+            object_path = f"public-references/{source['id']}/{digest[:16]}-{filename}"
+            storage_url = f"{self.store.base_url}/storage/v1/object/verox-library/{object_path}"
+            headers = {"apikey": self.store.service_key, "Authorization": f"Bearer {self.store.service_key}",
+                       "Content-Type": content_type, "x-upsert": "false"}
+            with httpx.Client(timeout=25, follow_redirects=False, trust_env=False) as client:
+                stored = client.post(storage_url, content=content, headers=headers)
+                if stored.status_code == 409:
+                    storage_status = "already_exists"
+                else:
+                    stored.raise_for_status()
+                    storage_status = "stored"
+            artifact = {"source_id": source["id"], "url": _safe_network_url(target_url),
+                        "object_path": object_path, "bucket": "verox-library", "sha256": digest,
+                        "size_bytes": len(content), "content_type": content_type,
+                        "downloaded_at": _now(), "execution_policy": "never_execute"}
+            self._finish(job_id, "completed", audit={"policy":"public_read_only", "decision":"stored_inert_artifact",
+                "size_bytes":len(content), "sha256":digest, "storage_status":storage_status,
+                "execution_policy":"never_execute"}, artifacts=[artifact])
+            return {"status":"completed", "artifact":artifact}
+        except ValueError as exc:
+            reason = str(exc)[:120]
+            self._finish(job_id, "failed", error=reason, audit={"policy":"public_read_only", "decision":"denied"})
+            return {"status":"failed", "reason":reason}
+        except httpx.HTTPError as exc:
+            reason = f"public_download_failed:{type(exc).__name__}"
+            self._finish(job_id, "failed", error=reason, audit={"policy":"public_read_only", "decision":"failed"})
+            return {"status":"failed", "reason":reason}
+
     def run_job(self, job):
         job_id, task_type, source_id = str(job.get("id","")), str(job.get("task_type","")), str(job.get("source_id") or "")
         source = get_source(source_id)
-        if task_type not in ALLOWED_JOB_TYPES:
-            status = "needs_approval" if task_type == "download_public_file" else "failed"
-            self._finish(job_id, status, error="job_type_not_allowlisted", audit={"policy":"read_only", "decision":"denied"})
+        allowed_types = ALLOWED_JOB_TYPES | {"download_public_file"}
+        if task_type not in allowed_types:
+            self._finish(job_id, "failed", error="job_type_not_allowlisted", audit={"policy":"read_only", "decision":"denied"})
             return {"status":"denied", "reason":"job_type_not_allowlisted"}
         if not source or source.get("access") not in {"web", "public_web", "web_or_api"}:
             self._finish(job_id,"failed",error="source_not_public_allowlisted",audit={"policy":"read_only","decision":"denied"})
             return {"status":"denied","reason":"source_not_public_allowlisted"}
         target_url = str((job.get("input") or {}).get("url") or source["url"])
         try:
-            if _host(target_url) != _host(source["url"]): raise ValueError("target_host_not_registered")
+            if not _is_registered_public_url(target_url): raise ValueError("target_host_not_registered")
+            if task_type == "download_public_file":
+                return self._download_public_file(job_id, source, target_url)
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
                 # Render public client-side apps while enforcing same-host HTTPS and GET/HEAD only.
@@ -166,7 +236,7 @@ class BrowserWorker:
                 def guard_route(route):
                     try:
                         request = route.request
-                        if _safe_read_request(request.url, request.method, allowed_host):
+                        if _safe_read_request(request.url, request.method, allowed_host, request.resource_type):
                             route.continue_()
                         else:
                             route.abort()
@@ -181,7 +251,7 @@ class BrowserWorker:
                 response = page.goto(target_url, wait_until="domcontentloaded")
                 page.wait_for_timeout(750)  # bounded client-side hydration window
                 final_url = page.url
-                if _host(final_url) != _host(source["url"]): raise ValueError("cross_host_navigation_denied")
+                if not _is_registered_public_url(final_url): raise ValueError("unregistered_navigation_denied")
                 title = page.title()[:300]
                 text = " ".join(page.locator("body").inner_text(timeout=5_000).split())[:MAX_PAGE_TEXT]
                 html = page.content()[:500_000]
