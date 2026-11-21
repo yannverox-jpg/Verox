@@ -48,6 +48,10 @@ def _validate_patch(patch: str) -> list[str]:
         if old != new:
             raise PatchRejected("rename_not_allowed")
         paths.append(new)
+    if "--- /dev/null" in patch or "+++ /dev/null" in patch:
+        raise PatchRejected("file_creation_or_deletion_not_allowed")
+    if "GIT binary patch" in patch or "rename from " in patch or "rename to " in patch:
+        raise PatchRejected("binary_patch_or_rename_not_allowed")
     if not paths:
         raise PatchRejected("unrecognized_unified_diff")
     if len(set(paths)) != len(paths):
@@ -92,7 +96,10 @@ def validate_patch(patch: str) -> dict[str, Any]:
         patch_file = Path(tmp) / "candidate.patch"
         patch_file.write_text(patch, encoding="utf-8")
         checks: list[dict[str, Any]] = []
-        # git apply is invoked with a fixed command and the patch is treated only as data.
+        checks.append({"name": "temporary_repository_init", **_run(["git", "init", "-q"], work)})
+        if not checks[-1]["passed"]:
+            return {"schema_version": 1, "status": "rejected", "changed_paths": paths, "checks": checks, "production_modified": False, "patch_applied": False}
+        # git apply is invoked with fixed arguments; patch content is never executed.
         checks.append({"name": "patch_check", **_run(["git", "apply", "--check", str(patch_file)], work)})
         if not checks[-1]["passed"]:
             return {"schema_version": 1, "status": "rejected", "changed_paths": paths, "checks": checks,
@@ -110,8 +117,8 @@ def validate_patch(patch: str) -> dict[str, Any]:
             # unittest module/file execution is not inferred from patch text.
             for test_file in test_files:
                 checks.append({"name": f"targeted_test:{test_file}", **_run(
-                    [os.environ.get("PYTHON", "python"), "-m", "unittest",
-                     test_file[:-3].replace("/", ".")], work, timeout=120)})
+                    [os.environ.get("PYTHON", "python"), "-m", "unittest", "discover",
+                     "-s", "tests", "-p", Path(test_file).name, "-v"], work, timeout=120)})
         passed = all(item["passed"] for item in checks)
         return {
             "schema_version": 1, "status": "validated_in_sandbox" if passed else "needs_review",
