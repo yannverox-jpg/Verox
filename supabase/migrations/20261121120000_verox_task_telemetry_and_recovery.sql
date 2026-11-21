@@ -55,6 +55,12 @@ begin
   elsif p_action = 'recover_stale' then
     -- Requeue interrupted running tasks, and re-publish older queued tasks whose
     -- process may have crashed after the DB update but before queue_send completed.
+    update public.nexus_tasks
+      set status = 'failed', error = 'Nombre maximal de tentatives atteint après interruption.',
+          completed_at = now(), updated_at = now()
+      where status in ('running', 'queued') and attempts >= 3
+        and updated_at < now() - interval '5 minutes';
+
     with recovered as (
       update public.nexus_tasks
       set status = 'queued', error = 'Récupération automatique après interruption.',
