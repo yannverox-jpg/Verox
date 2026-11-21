@@ -31,7 +31,7 @@ Chaque variable de concurrence est facultative; la valeur par défaut est 2 et l
 | `VEROX_CONCURRENCY_SPORTS_ANALYSIS` | Analyse sportive |
 | `VEROX_CONCURRENCY_HORSE_RACING_ANALYSIS` | Analyse hippique |
 | `VEROX_CONCURRENCY_SOFTWARE_BUILD` | Développement logiciel |
-| `VEROX_QUEUE_MAX_ATTEMPTS` | Nombre maximal de tentatives, par défaut 3, maximum 8 |
+| `VEROX_QUEUE_MAX_ATTEMPTS` | Nombre maximal de tentatives, par défaut 3, maximum 3 (aligné sur la fonction SQL existante) |
 
 Commencer avec les valeurs par défaut. Augmenter les limites uniquement après mesure des délais, quotas du fournisseur et taux d'échec. Une concurrence plus forte peut accroître la latence côté fournisseur et provoquer des limitations.
 
