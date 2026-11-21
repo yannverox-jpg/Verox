@@ -1,12 +1,25 @@
 from __future__ import annotations
 import unittest
 from unittest.mock import Mock
-from verox_brain.browser_worker import BrowserWorker, _host
+from verox_brain.browser_worker import BrowserWorker, _host, _safe_network_url
+from verox_brain.source_registry import get_source
 
 class BrowserWorkerTests(unittest.TestCase):
     def test_rejects_http_and_url_credentials(self):
         with self.assertRaises(ValueError): _host("http://example.com")
         with self.assertRaises(ValueError): _host("https://user:pass@example.com/")
+
+    def test_network_trace_redacts_query_values_and_fragments(self):
+        safe = _safe_network_url("https://example.com/api/quotes?token=private&symbol=EURUSD#chart")
+        self.assertEqual(safe, "https://example.com/api/quotes")
+
+    def test_platform_sources_are_public_only_not_account_sessions(self):
+        for source_id in ("metatrader5_public", "mql5_docs", "1xbet", "amazon", "ebay",
+                          "openai_platform_docs", "anthropic_docs", "google_ai_docs",
+                          "vercel_ai_gateway_docs", "huggingface_inference_docs"):
+            source = get_source(source_id)
+            self.assertIsNotNone(source, source_id)
+            self.assertEqual(source["access"], "public_web", source_id)
     def test_rejects_unknown_or_non_public_source(self):
         store = Mock()
         worker = BrowserWorker(store=store)
