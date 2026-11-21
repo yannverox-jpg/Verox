@@ -72,9 +72,17 @@ def _copy_safe_tree(destination: Path) -> None:
 def _run(argv: list[str], cwd: Path, timeout: int = 90) -> dict[str, Any]:
     started = time.monotonic()
     try:
+        # Do not inherit deployment/API secrets into candidate-code test processes.
+        safe_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": str(cwd),
+            "LANG": "C.UTF-8",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(cwd),
+        }
         result = subprocess.run(
             argv, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-            check=False, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            check=False, env=safe_env,
         )
         combined = (result.stdout + "\n" + result.stderr)[-4000:]
         return {"return_code": result.returncode, "duration_seconds": round(time.monotonic() - started, 3),
