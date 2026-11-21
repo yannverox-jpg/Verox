@@ -84,6 +84,21 @@ def _is_registered_public_url(url, registry=None):
     except (TypeError, ValueError):
         return False
 
+def _registered_source_for_url(url, registry=None):
+    """Return the public registry entry that owns this hostname, if any."""
+    try:
+        host = _host(url)
+        sources = registry if registry is not None else list_sources().get("sources", [])
+        for source in sources:
+            if source.get("access") not in {"web", "public_web", "web_or_api"}:
+                continue
+            if _host(str(source.get("url", ""))) == host:
+                return source
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 def _safe_public_link_url(url):
     """Preserve useful public search/pagination parameters while dropping likely secrets."""
     parsed = urlparse(str(url))
@@ -199,34 +214,43 @@ class BrowserWorker:
         return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
 
     def _queue_discovered_links(self, source, discovered_links, *, limit=3):
-        """Queue bounded follow-up reads only for destinations already in the public registry."""
+        """Queue bounded follow-up reads under the registry entry that owns each host."""
         eligible = []
         for link in discovered_links:
             url = str(link.get("url", ""))
-            if not link.get("registered_public_source") or not url or url == source.get("url"):
+            target_source = _registered_source_for_url(url)
+            if not link.get("registered_public_source") or not target_source or not url:
                 continue
-            eligible.append(url)
-        eligible = list(dict.fromkeys(eligible))[:max(0, min(int(limit), 3))]
-        if not eligible:
+            if target_source["id"] == source.get("id") and url == source.get("url"):
+                continue
+            eligible.append((url, target_source))
+        unique = []
+        seen_urls = set()
+        for url, target_source in eligible:
+            if url not in seen_urls:
+                seen_urls.add(url)
+                unique.append((url, target_source))
+        unique = unique[:max(0, min(int(limit), 3))]
+        if not unique:
             return {"queued": 0, "urls": []}
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        recent = self._rest("GET", "verox_browser_jobs", params={
-            "select": "source_id,status,created_at,input",
-            "source_id": "eq." + str(source["id"]),
-            "created_at": "gte." + cutoff,
-            "limit": "500",
-        }) or []
-        seen = {
-            str((row.get("input") or {}).get("url", ""))
-            for row in recent if isinstance(row, dict) and isinstance(row.get("input"), dict)
-        }
         queued = []
-        for url in eligible:
+        for url, target_source in unique:
+            recent = self._rest("GET", "verox_browser_jobs", params={
+                "select": "id,status,created_at,input",
+                "source_id": "eq." + str(target_source["id"]),
+                "created_at": "gte." + cutoff,
+                "limit": "500",
+            }) or []
+            seen = {
+                str((row.get("input") or {}).get("url", ""))
+                for row in recent if isinstance(row, dict) and isinstance(row.get("input"), dict)
+            }
             if url in seen:
                 continue
             record = {
                 "task_type": "collect_public_data",
-                "source_id": source["id"],
+                "source_id": target_source["id"],
                 "status": "queued",
                 "policy_mode": "read_only",
                 "requested_capabilities": ["navigate", "read_text", "discover_public_links"],
@@ -236,9 +260,8 @@ class BrowserWorker:
             }
             rows = self._rest("POST", "verox_browser_jobs", body=record)
             if rows:
-                queued.append(url)
+                queued.append({"source_id": target_source["id"], "url": url})
         return {"queued": len(queued), "urls": queued}
-
     def _download_public_file(self, job_id, source, target_url):
         """Store a bounded public artifact as inert data; never install or execute it."""
         from pathlib import PurePosixPath
