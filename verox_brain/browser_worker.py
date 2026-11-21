@@ -82,11 +82,11 @@ def _safe_public_link_url(url):
     parsed = urlparse(str(url))
     sensitive = {"token", "access_token", "api_key", "apikey", "key", "secret", "password",
                  "session", "sessionid", "cookie", "authorization", "auth", "code", "signature",
-                 "sig", "email", "phone", "tracking_id"}
+                 "sig", "email", "phone", "tracking_id", "ref", "campaign", "gclid", "fbclid"}
     kept = []
     for pair in parsed.query.split("&") if parsed.query else []:
         name = pair.split("=", 1)[0].lower()
-        if name not in sensitive and not any(part in name for part in ("token", "secret", "password", "session", "signature")):
+        if name not in sensitive and not name.startswith("utm_") and not any(part in name for part in ("token", "secret", "password", "session", "signature")):
             kept.append(pair)
     return parsed._replace(query="&".join(kept), fragment="").geturl()[:1200]
 
