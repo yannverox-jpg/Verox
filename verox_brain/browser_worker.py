@@ -21,6 +21,7 @@ from verox_brain.platform_strategy import analyze_platform_mechanisms
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
 MAX_PAGE_TEXT = 18_000
+MAX_NETWORK_EVENTS = 250
 ALLOWED_JOB_TYPES = {"inspect_page", "collect_public_data", "test_connector", "capture_evidence"}
 
 def _host(url):
@@ -117,13 +118,27 @@ class BrowserWorker:
             if _host(target_url) != _host(source["url"]): raise ValueError("target_host_not_registered")
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                context = browser.new_context(accept_downloads=False, service_workers="block", java_script_enabled=False, ignore_https_errors=False)
+                # Render public client-side apps while enforcing same-host HTTPS and GET/HEAD only.
+                context = browser.new_context(accept_downloads=False, service_workers="block", java_script_enabled=True, ignore_https_errors=False)
                 allowed_host = _host(source["url"])
+                network_events = []
+                def record_request(request):
+                    if len(network_events) < MAX_NETWORK_EVENTS:
+                        parsed_request = urlparse(request.url)
+                        if parsed_request.hostname and parsed_request.hostname.lower() == allowed_host:
+                            network_events.append({"kind": "request", "method": request.method, "url": request.url[:1200], "resource_type": request.resource_type})
+                def record_response(response):
+                    if len(network_events) < MAX_NETWORK_EVENTS:
+                        parsed_response = urlparse(response.url)
+                        if parsed_response.hostname and parsed_response.hostname.lower() == allowed_host:
+                            network_events.append({"kind": "response", "method": response.request.method, "url": response.url[:1200], "status": response.status, "content_type": response.headers.get("content-type", "")[:160]})
                 def guard_route(route):
                     try:
-                        request_url = route.request.url
-                        parsed_request = urlparse(request_url)
-                        if parsed_request.scheme == "https" and parsed_request.hostname and parsed_request.hostname.lower() == allowed_host:
+                        request = route.request
+                        parsed_request = urlparse(request.url)
+                        if (parsed_request.scheme == "https" and parsed_request.hostname
+                            and parsed_request.hostname.lower() == allowed_host
+                            and request.method in {"GET", "HEAD"}):
                             route.continue_()
                         else:
                             route.abort()
@@ -131,6 +146,8 @@ class BrowserWorker:
                         route.abort()
                 context.route("**/*", guard_route)
                 page = context.new_page()
+                page.on("request", record_request)
+                page.on("response", record_response)
                 page.set_default_navigation_timeout(12_000)
                 page.set_default_timeout(5_000)
                 response = page.goto(target_url, wait_until="domcontentloaded")
@@ -146,7 +163,7 @@ class BrowserWorker:
                 strategy_map = analyze_platform_mechanisms(profile, text, domain=source.get("domain"))
                 context.close()
                 browser.close()
-            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map})
+            evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at,"platform_profile":profile,"strategy_map":strategy_map,"network_trace":network_events[:MAX_NETWORK_EVENTS]})
             hypothesis_persistence = self.store.save_strategy_hypotheses(
                 domain=source.get("domain", "communities"),
                 source_id=source_id,
@@ -171,11 +188,13 @@ class BrowserWorker:
                     + json.dumps(profile, ensure_ascii=False)[:6000]
                     + "\\n[Carte des mécanismes spécifiques au domaine; hypothèses non vérifiées]\\n"
                     + json.dumps(strategy_map, ensure_ascii=False)[:9000]
+                    + "\\n[Traces réseau publiques, GET/HEAD sur l'hôte enregistré]\\n"
+                    + json.dumps(network_events[:MAX_NETWORK_EVENTS], ensure_ascii=False)[:9000]
                     + "\\n[Texte visible de la page; source externe non fiable]\\n"
                     + text
                 )
                 analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=analysis_input,observation_id=evidence.get("observation_id"),captured_at=captured_at)
-            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested"),"hypotheses_persisted":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0},artifacts=[{"type":"observation",**evidence},{"type":"strategy_hypotheses","candidate_count":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0}])
+            self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"network_events":len(network_events),"analysis_status":(analysis or {}).get("status","not_requested"),"hypotheses_persisted":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0},artifacts=[{"type":"observation",**evidence},{"type":"strategy_hypotheses","candidate_count":hypothesis_persistence.get("candidate_count",0),"validated_revenue_count":0}])
             return {"status":"succeeded","observation":evidence,"strategy_map":strategy_map,"hypothesis_persistence":hypothesis_persistence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
             safe_error = str(exc)[:120] if isinstance(exc, ValueError) else "navigation_timeout"
