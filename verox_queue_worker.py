@@ -1,21 +1,16 @@
-"""Durable Vercel Queues consumer for Verox analysis tasks."""
+"""Durable Vercel Queues consumer for Verox's role-routed analysis tasks."""
 from __future__ import annotations
 
-import json
+import asyncio
 import os
 
 import httpx
-import asyncio
-
-from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from vercel.queue import subscribe
 
+from verox_brain.dispatch import build_role_system_prompt, select_route
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+
 TOPIC = "verox-agent-tasks"
-SYSTEM_PROMPT = (
-    "Tu es le moteur de tâches de Verox. Réponds en français. Ne prétends pas avoir exécuté "
-    "une action externe. Ne réalise aucune transaction, publication, dépense ou action destructive. "
-    "Retourne une analyse vérifiable et distingue les faits des hypothèses."
-)
 
 
 def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | None = None) -> dict:
@@ -36,9 +31,8 @@ def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | N
         return data
 
 
-@subscribe(topic="verox-agent-tasks", max_attempts=3, max_concurrency=3)
+@subscribe(topic=TOPIC, max_attempts=3, max_concurrency=3)
 async def process_agent_task(message: dict) -> None:
-    print("verox_queue_subscriber_invoked")
     task_id = str(message.get("task_id", "")).strip()
     if len(task_id) != 36:
         raise ValueError("Queue message has no valid task id")
@@ -46,7 +40,7 @@ async def process_agent_task(message: dict) -> None:
     if started.get("accepted") is not True:
         # Already processed or no longer queued; acknowledge idempotently.
         return
-    print("verox_queue_task_claimed")
+
     task_type = str(started.get("task_type", "analysis"))
     payload = started.get("payload") or {}
     prompt = str(payload.get("text", "")).strip()
@@ -55,11 +49,31 @@ async def process_agent_task(message: dict) -> None:
         return
 
     try:
-        answer, provider, model = await asyncio.to_thread(generate_text, prompt, SYSTEM_PROMPT)
-        rpc("complete", task_id, result={"answer": answer, "provider": provider, "model": model})
+        # A requested role is validated against the registry; otherwise route by task
+        # type and intent. This selects the specialist brief, not a fictitious provider.
+        route = select_route(task_type, prompt, payload.get("agent_role"))
+        system_prompt = build_role_system_prompt(route)
+    except (TypeError, ValueError):
+        rpc("fail", task_id, error="Rôle d'agent inconnu ou non autorisé.")
+        return
+
+    try:
+        answer, provider, model = await asyncio.to_thread(generate_text, prompt, system_prompt)
+        rpc("complete", task_id, result={
+            "answer": answer,
+            "provider": provider,
+            "model": model,
+            "task_type": task_type,
+            "agent_role": route.role,
+            "dispatch_target_provider": route.provider,
+            "dispatch_target_connector": route.connector,
+            "specialist_connector_used": False,
+            "dispatch_mode": "role_routed_shared_model_gateway",
+            "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
+        })
     except (ModelConfigurationError, ModelRequestError) as exc:
         rpc("fail", task_id, error=str(exc)[:500])
-    except Exception as exc:
+    except Exception:
         # Retry transient failures with durable queue redelivery; persist only a generic error.
         try:
             current = rpc("get", task_id)
