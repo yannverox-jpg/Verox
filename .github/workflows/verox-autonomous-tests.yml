@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feat/osint-source-registry]
+    branches: [feat/osint-source-registry, feat/brain-self-repair-loop]
 
 permissions:
   contents: read
