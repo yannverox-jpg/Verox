@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import httpx
 from unittest.mock import MagicMock, patch
 
 from verox_brain.model_client import generate_text
@@ -62,7 +63,7 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
             "primary-test-secret",
         )
 
-    def test_existing_legacy_key_has_precedence_over_second_key(self):
+    def test_second_key_has_precedence_over_existing_legacy_key(self):
         fake_response = MagicMock()
         fake_response.json.return_value = {
             "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
@@ -82,8 +83,28 @@ class GeminiCredentialCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(
             fake_client.post.call_args.kwargs["headers"]["x-goog-api-key"],
-            "legacy-test-secret",
+            "secondary-test-secret",
         )
+
+    def test_gemini_retries_transient_503_then_succeeds(self):
+        failed = MagicMock()
+        failed.status_code = 503
+        failed.raise_for_status.side_effect = httpx.HTTPStatusError("service unavailable", request=MagicMock(), response=failed)
+        succeeded = MagicMock()
+        succeeded.status_code = 200
+        succeeded.raise_for_status.return_value = None
+        succeeded.json.return_value = {"candidates": [{"content": {"parts": [{"text": "réponse après reprise"}]}}]}
+        fake_client = MagicMock()
+        fake_client.__enter__.return_value = fake_client
+        fake_client.__exit__.return_value = False
+        fake_client.post.side_effect = [failed, succeeded]
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "unit-test-secret"}, clear=True):
+            with patch("verox_brain.model_client.httpx.Client", return_value=fake_client):
+                with patch("verox_brain.model_client.time.sleep"):
+                    answer, provider, model = generate_text("test", task_id="test-task")
+        self.assertEqual(answer, "réponse après reprise")
+        self.assertEqual(provider, "google-gemini-api-fallback")
+        self.assertEqual(fake_client.post.call_count, 2)
 
 
 if __name__ == "__main__":
