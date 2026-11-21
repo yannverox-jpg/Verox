@@ -268,11 +268,79 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
-        # Request bodies, prompts, and credentials must never be logged.
-        super().log_message(fmt, *args)
+        # Request bodies, prompts, credentials, and query tokens must never be logged.
+        safe_args = list(args)
+        if len(safe_args) > 1 and isinstance(safe_args[1], str):
+            parts = safe_args[1].split(" ")
+            if len(parts) >= 2:
+                parts[1] = urlparse(parts[1]).path
+                safe_args[1] = " ".join(parts)
+        super().log_message(fmt, *safe_args)
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        run_match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/run", path)
+        if run_match:
+            from urllib.parse import parse_qs
+            supplied = (parse_qs(urlparse(self.path).query).get("token") or [""])[0].strip()
+            expected = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip()
+            if not expected or not _bearer_matches("Bearer " + supplied, expected):
+                _json(self, 401, {"error": "Authentification de lancement requise."})
+                return
+            if not _gemini_key_configured():
+                _json(self, 503, {"error": "Gemini n'est pas configuré."})
+                return
+            task_id = run_match.group(1)
+            try:
+                current = _rpc("get", task_id=task_id)
+                if current.get("found") is False:
+                    _json(self, 404, {"error": "Tâche introuvable."})
+                    return
+                task_payload = current.get("payload") or {}
+                prompt = str(task_payload.get("text", "")).strip() if isinstance(task_payload, dict) else ""
+                task_type = str(current.get("task_type", "research")).strip().lower()
+                if task_type not in TASK_TYPES or not prompt:
+                    _json(self, 409, {"error": "La tâche n'a pas de contenu exécutable valide."})
+                    return
+                from verox_brain import model_client
+                route = select_route(task_type, prompt, task_payload.get("agent_role"))
+                started = _rpc("start", task_id=task_id)
+                if started.get("accepted") is not True:
+                    latest = _rpc("get", task_id=task_id)
+                    _json(self, 200, {"id": task_id, "status": latest.get("status", "already_claimed"),
+                                      "message": "Tâche déjà prise en charge; aucune seconde exécution."})
+                    return
+                started_at = time.monotonic()
+                _record_task_event(task_id, "started", route.role, "running", {"execution_mode": "authenticated_gemini_inline"})
+                try:
+                    answer, provider, model = model_client._generate_gemini(
+                        prompt, SYSTEM_PROMPT, model_client._gemini_key()
+                    )
+                except (ModelConfigurationError, ModelRequestError) as exc:
+                    _rpc("fail", task_id=task_id, error=str(exc)[:500])
+                    _record_task_event(task_id, "gemini_failed", route.role, "failed")
+                    _json(self, 502, {"id": task_id, "status": "failed", "error": str(exc)[:300]})
+                    return
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                _rpc("complete", task_id=task_id, result={
+                    "answer": answer, "provider": provider, "model": model, "task_type": task_type,
+                    "agent_role": route.role, "dispatch_target_provider": route.provider,
+                    "dispatch_target_connector": route.connector, "specialist_connector_used": False,
+                    "dispatch_mode": "authenticated_gemini_inline_queue_fallback",
+                    "execution_mode": "inline_gemini_launch",
+                    "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
+                    "timings_ms": {"model": elapsed_ms},
+                })
+                _record_task_event(task_id, "completed", route.role, "succeeded",
+                                   {"provider": provider, "model": model, "model_ms": elapsed_ms})
+                _json(self, 200, {"id": task_id, "status": "completed", "provider": provider,
+                                  "model": model, "latency_ms": elapsed_ms,
+                                  "status_url": f"/api/tasks/{task_id}"})
+            except httpx.HTTPStatusError:
+                _json(self, 503, {"error": "La persistance de la tâche a échoué."})
+            except Exception:
+                _json(self, 503, {"error": "Le lancement Gemini a échoué pour une raison technique."})
+            return
         if path == "/api/tasks/recover":
             cron_token = os.getenv("CRON_SECRET", "").strip()
             if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
