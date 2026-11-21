@@ -61,3 +61,6 @@ jobs:
 
       - name: Test model-driven repair proposal boundaries
         run: python -m unittest discover -s tests -p "test_repair_agent.py" -v
+
+      - name: Test platform revenue strategy engine
+        run: python -m unittest discover -s tests -p "test_platform_strategy.py" -v
