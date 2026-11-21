@@ -302,6 +302,16 @@ class handler(BaseHTTPRequestHandler):
                 if task_type not in TASK_TYPES or not prompt:
                     _json(self, 409, {"error": "La tâche n'a pas de contenu exécutable valide."})
                     return
+                # If a previous launch failed at the provider, create a fresh auditable retry
+                # rather than mutating terminal history or re-running a completed task.
+                if str(current.get("status", "")).lower() == "failed":
+                    retried = _rpc("create", task_type=task_type, payload=task_payload)
+                    task_id = str(retried.get("id", "")).strip()
+                    if not task_id:
+                        _json(self, 503, {"error": "Impossible de créer une nouvelle tentative traçable."})
+                        return
+                    _record_task_event(task_id, "retry_created", "brain_coordination", "queued",
+                                       {"reason": "previous_provider_unavailable"})
                 from verox_brain import model_client
                 route = select_route(task_type, prompt, task_payload.get("agent_role"))
                 started = _rpc("start", task_id=task_id)
@@ -312,14 +322,26 @@ class handler(BaseHTTPRequestHandler):
                     return
                 started_at = time.monotonic()
                 _record_task_event(task_id, "started", route.role, "running", {"execution_mode": "authenticated_gemini_inline"})
-                try:
-                    answer, provider, model = model_client._generate_gemini(
-                        prompt, SYSTEM_PROMPT, model_client._gemini_key()
-                    )
-                except (ModelConfigurationError, ModelRequestError) as exc:
-                    _rpc("fail", task_id=task_id, error=str(exc)[:500])
-                    _record_task_event(task_id, "gemini_failed", route.role, "failed")
-                    _json(self, 502, {"id": task_id, "status": "failed", "error": str(exc)[:300]})
+                last_error = None
+                for attempt in range(3):
+                    try:
+                        answer, provider, model = model_client._generate_gemini(
+                            prompt, SYSTEM_PROMPT, model_client._gemini_key()
+                        )
+                        last_error = None
+                        break
+                    except (ModelConfigurationError, ModelRequestError) as exc:
+                        last_error = exc
+                        # Retry only transient Gemini 503 responses; do not loop on auth/quota errors.
+                        if "HTTP 503" in str(exc) and attempt < 2:
+                            time.sleep(1 + attempt * 2)
+                            continue
+                        break
+                if last_error is not None:
+                    _rpc("fail", task_id=task_id, error=str(last_error)[:500])
+                    _record_task_event(task_id, "gemini_failed", route.role, "failed",
+                                       {"attempts": min(3, attempt + 1)})
+                    _json(self, 502, {"id": task_id, "status": "failed", "error": str(last_error)[:300]})
                     return
                 elapsed_ms = round((time.monotonic() - started_at) * 1000)
                 _rpc("complete", task_id=task_id, result={
