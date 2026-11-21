@@ -1,7 +1,7 @@
 from __future__ import annotations
 import unittest
 from unittest.mock import Mock
-from verox_brain.browser_worker import BrowserWorker, _extract_public_links, _host, _safe_network_url, _safe_read_request
+from verox_brain.browser_worker import BrowserWorker, _extract_public_links, _host, _safe_network_url, _safe_public_link_url, _safe_read_request
 from verox_brain.source_registry import get_source
 
 class BrowserWorkerTests(unittest.TestCase):
@@ -26,6 +26,10 @@ class BrowserWorkerTests(unittest.TestCase):
         self.assertFalse(_safe_read_request("https://127.0.0.1/admin", "GET", "example.com"))
         self.assertFalse(_safe_read_request("https://example.com/action", "DELETE", "example.com"))
 
+
+    def test_public_link_url_keeps_search_parameters_but_drops_secrets(self):
+        safe = _safe_public_link_url("https://example.com/search?q=SDK&page=2&api_key=private&sort=recent#results")
+        self.assertEqual(safe, "https://example.com/search?q=SDK&page=2&sort=recent")
 
     def test_discovers_public_links_without_following_unregistered_hosts(self):
         links = _extract_public_links([
