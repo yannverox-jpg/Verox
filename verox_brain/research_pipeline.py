@@ -6,6 +6,7 @@ never as verified fact or an instruction to execute external actions.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from typing import Any
 
 from verox_brain.model_client import (
@@ -39,7 +40,12 @@ def complete_research_run(
     captured_at: str | None = None,
 ) -> dict[str, Any]:
     """Analyze collected text when a model is configured, otherwise fail closed."""
-    now = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
+    credential_presence = {
+        name: bool(os.getenv(name, "").strip())
+        for name in ("AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "Gemini")
+    }
+    now = started_at
     evidence = {
         "source_id": source_id,
         "source_url": source_url,
@@ -68,9 +74,10 @@ def complete_research_run(
                 "status": "needs_review",
                 "input_observation_ids": [observation_id] if observation_id else [],
                 "findings": {"evidence": evidence, "analysis": None},
-                "metrics": {"text_chars": len(page_text), "model_available": False},
+                "metrics": {"text_chars": len(page_text), "model_available": False, "credential_presence": credential_presence, "runtime": "browser_worker"},
                 "error": str(exc)[:500],
-                "completed_at": now,
+                "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
         return {"status": "needs_review", "model_available": False}
@@ -93,9 +100,12 @@ def complete_research_run(
                 "text_chars": len(page_text),
                 "model_available": True,
                 "evidence_verified": False,
+                "credential_presence": credential_presence,
+                "runtime": "browser_worker",
             },
             "error": None,
-            "completed_at": now,
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
         },
     )
     return {"status": "needs_review", "model_available": True, "provider": provider, "model": model}
