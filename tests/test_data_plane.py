@@ -44,6 +44,43 @@ class DataPlaneTests(unittest.TestCase):
         self.assertEqual(result["saved_ids"], ["hypothesis-id"])
         self.assertEqual(result["validated_revenue_count"], 0)
 
+    def test_ia2ia_audit_event_is_minimal_and_idempotent(self):
+        store = SupabaseDataPlane(base_url="https://example.supabase.co", service_key="server-secret")
+        calls = []
+        def fake_request(method, table, **kwargs):
+            calls.append((method, table, kwargs))
+            if method == "POST":
+                return [{"event_key": "mission-1:accepted", "status": "accepted", "created_at": "server-time"}]
+            return []
+        store._request = fake_request
+        result = store.record_ia2ia_event({
+            "event_key": "mission-1:accepted", "event_type": "delivery_accepted",
+            "actor_type": "verox_agent", "actor_id": "agent-1",
+            "counterparty_type": "external_agent", "counterparty_id": "agent-2",
+            "status": "accepted", "request_hash": "a" * 64, "result_hash": "b" * 64,
+            "evidence_refs": ["github:commit:abc123"],
+            "economics": {"currency": "EUR", "estimated_minor_units": 12000,
+                          "actual_minor_units": 10000, "payment_status": "not_received"},
+            "metadata": {"api_key": "must-not-persist", "safe": "value"},
+        })
+        self.assertTrue(result["stored"])
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(calls[0][1], "verox_ia2ia_audit_events")
+        self.assertEqual(calls[0][2]["params"]["on_conflict"], "event_key")
+        record = calls[0][2]["body"]
+        self.assertNotIn("api_key", record["metadata"])
+        self.assertEqual(record["economics"]["actual_minor_units"], 10000)
+        self.assertNotIn("created_at", record)
+
+    def test_ia2ia_audit_event_rejects_invalid_hash_and_missing_fields(self):
+        store = SupabaseDataPlane(base_url="https://example.supabase.co", service_key="server-secret")
+        with self.assertRaises(ValueError):
+            store.record_ia2ia_event({"event_key": "x", "event_type": "request", "actor_type": "agent"})
+        with self.assertRaises(ValueError):
+            store.record_ia2ia_event({"event_key": "x", "event_type": "request",
+                                      "actor_type": "agent", "status": "queued",
+                                      "request_hash": "not-a-sha256"})
+
     def test_hash_is_deterministic_and_observation_unverified(self):
         store = SupabaseDataPlane(base_url="https://example.supabase.co",service_key="server-secret")
         calls = []
