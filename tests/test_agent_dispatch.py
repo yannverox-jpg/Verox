@@ -1,6 +1,8 @@
 import unittest
 
-from verox_brain.dispatch import UnknownTaskType, resolve_route, route_status
+from verox_brain.dispatch import (
+    UnknownTaskType, build_role_system_prompt, resolve_route, route_status, select_route,
+)
 
 
 class AgentDispatchTests(unittest.TestCase):
@@ -26,6 +28,18 @@ class AgentDispatchTests(unittest.TestCase):
 
     def test_financial_side_effects_require_approval(self):
         self.assertTrue(resolve_route("sports_analysis").requires_human_approval_for_side_effects)
+
+    def test_natural_language_is_dispatched_to_specialist(self):
+        self.assertEqual(select_route("analysis", "Comparer jockeys et entraîneurs").role, "horse_racing_analysis")
+        self.assertEqual(select_route("analysis", "Comparer fournisseurs et marge produit").role, "mirror_store")
+        self.assertEqual(select_route("code_review", "Réviser le code").role, "software_build")
+        self.assertEqual(select_route("chat", "Bonjour").role, "brain_coordination")
+
+    def test_role_brief_sets_quality_bar_and_limits(self):
+        prompt = build_role_system_prompt(resolve_route("microtask"))
+        self.assertIn("livrable utile", prompt)
+        self.assertIn("validation humaine explicite", prompt)
+        self.assertIn("microtasks", resolve_route("microtask").purpose.lower())
 
 
 if __name__ == "__main__":

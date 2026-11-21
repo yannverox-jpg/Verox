@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -14,10 +15,11 @@ import httpx
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
+from verox_brain.dispatch import select_route
+from verox_brain.queue_config import ROLE_KEYS, queue_topic_for_role
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
-QUEUE_TOPIC = "verox-agent-tasks"
 TASK_TYPES = {"analysis", "research", "chat", "code_review"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
@@ -101,6 +103,36 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         return data
 
 
+def _telemetry_rpc(action: str, *, task_id: str | None = None, event_type: str | None = None,
+                   role: str = "system", status: str = "maintenance", details: dict | None = None) -> dict:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
+    if not url or not anon or not token:
+        raise RuntimeError("Task telemetry is not configured.")
+    with httpx.Client(timeout=12.0) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_task_telemetry_api",
+            headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
+            json={"p_token": token, "p_action": action, "p_task_id": task_id,
+                  "p_event_type": event_type, "p_role": role, "p_status": status,
+                  "p_details": details or {}, "p_occurred_at": datetime.now(timezone.utc).isoformat()},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid task telemetry response.")
+        return data
+
+
+def _record_task_event(task_id: str, event_type: str, role: str, status: str, details: dict | None = None) -> None:
+    try:
+        _telemetry_rpc("event", task_id=task_id, event_type=event_type, role=role, status=status, details=details)
+    except Exception:
+        # Task creation must remain available if telemetry has not been migrated yet.
+        return
+
+
 def _opportunity_rpc(action: str, items: list | None = None) -> dict:
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
@@ -129,7 +161,7 @@ def _public_task_status(task: dict) -> dict:
     result = task.get("result")
     safe_result: dict = {}
     if isinstance(result, dict):
-        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type"):
+        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type", "agent_role", "dispatch_target_provider", "dispatch_target_connector", "dispatch_mode", "specialist_connector_used", "requires_human_approval_for_side_effects"):
             value = result.get(key)
             if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 20_000:
                 safe_result[key] = value
@@ -236,11 +268,132 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
-        # Request bodies, prompts, and credentials must never be logged.
-        super().log_message(fmt, *args)
+        # Request bodies, prompts, credentials, and query tokens must never be logged.
+        safe_args = list(args)
+        if len(safe_args) > 1 and isinstance(safe_args[1], str):
+            parts = safe_args[1].split(" ")
+            if len(parts) >= 2:
+                parts[1] = urlparse(parts[1]).path
+                safe_args[1] = " ".join(parts)
+        super().log_message(fmt, *safe_args)
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        run_match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/run", path)
+        if run_match:
+            from urllib.parse import parse_qs
+            supplied = (parse_qs(urlparse(self.path).query).get("token") or [""])[0].strip()
+            expected = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip()
+            if not expected or not _bearer_matches("Bearer " + supplied, expected):
+                _json(self, 401, {"error": "Authentification de lancement requise."})
+                return
+            if not _gemini_key_configured():
+                _json(self, 503, {"error": "Gemini n'est pas configuré."})
+                return
+            task_id = run_match.group(1)
+            try:
+                current = _rpc("get", task_id=task_id)
+                if current.get("found") is False:
+                    _json(self, 404, {"error": "Tâche introuvable."})
+                    return
+                task_payload = current.get("payload") or {}
+                prompt = str(task_payload.get("text", "")).strip() if isinstance(task_payload, dict) else ""
+                task_type = str(current.get("task_type", "research")).strip().lower()
+                if task_type not in TASK_TYPES or not prompt:
+                    _json(self, 409, {"error": "La tâche n'a pas de contenu exécutable valide."})
+                    return
+                # If a previous launch failed at the provider, create a fresh auditable retry
+                # rather than mutating terminal history or re-running a completed task.
+                if str(current.get("status", "")).lower() == "failed":
+                    retried = _rpc("create", task_type=task_type, payload=task_payload)
+                    task_id = str(retried.get("id", "")).strip()
+                    if not task_id:
+                        _json(self, 503, {"error": "Impossible de créer une nouvelle tentative traçable."})
+                        return
+                    _record_task_event(task_id, "retry_created", "brain_coordination", "queued",
+                                       {"reason": "previous_provider_unavailable"})
+                from verox_brain import model_client
+                route = select_route(task_type, prompt, task_payload.get("agent_role"))
+                started = _rpc("start", task_id=task_id)
+                if started.get("accepted") is not True:
+                    latest = _rpc("get", task_id=task_id)
+                    _json(self, 200, {"id": task_id, "status": latest.get("status", "already_claimed"),
+                                      "message": "Tâche déjà prise en charge; aucune seconde exécution."})
+                    return
+                started_at = time.monotonic()
+                _record_task_event(task_id, "started", route.role, "running", {"execution_mode": "authenticated_gemini_inline"})
+                last_error = None
+                for attempt in range(3):
+                    try:
+                        answer, provider, model = model_client._generate_gemini(
+                            prompt, SYSTEM_PROMPT, model_client._gemini_key()
+                        )
+                        last_error = None
+                        break
+                    except (ModelConfigurationError, ModelRequestError) as exc:
+                        last_error = exc
+                        # Retry only transient Gemini 503 responses; do not loop on auth/quota errors.
+                        if "HTTP 503" in str(exc) and attempt < 2:
+                            time.sleep(1 + attempt * 2)
+                            continue
+                        break
+                if last_error is not None:
+                    _rpc("fail", task_id=task_id, error=str(last_error)[:500])
+                    _record_task_event(task_id, "gemini_failed", route.role, "failed",
+                                       {"attempts": min(3, attempt + 1)})
+                    _json(self, 502, {"id": task_id, "status": "failed", "error": str(last_error)[:300]})
+                    return
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                _rpc("complete", task_id=task_id, result={
+                    "answer": answer, "provider": provider, "model": model, "task_type": task_type,
+                    "agent_role": route.role, "dispatch_target_provider": route.provider,
+                    "dispatch_target_connector": route.connector, "specialist_connector_used": False,
+                    "dispatch_mode": "authenticated_gemini_inline_queue_fallback",
+                    "execution_mode": "inline_gemini_launch",
+                    "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
+                    "timings_ms": {"model": elapsed_ms},
+                })
+                _record_task_event(task_id, "completed", route.role, "succeeded",
+                                   {"provider": provider, "model": model, "model_ms": elapsed_ms})
+                _json(self, 200, {"id": task_id, "status": "completed", "provider": provider,
+                                  "model": model, "latency_ms": elapsed_ms,
+                                  "status_url": f"/api/tasks/{task_id}"})
+            except httpx.HTTPStatusError:
+                _json(self, 503, {"error": "La persistance de la tâche a échoué."})
+            except Exception:
+                _json(self, 503, {"error": "Le lancement Gemini a échoué pour une raison technique."})
+            return
+        if path == "/api/tasks/recover":
+            cron_token = os.getenv("CRON_SECRET", "").strip()
+            if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
+                _json(self, 401, {"error": "Authentification cron requise."})
+                return
+            try:
+                recovered = _telemetry_rpc("recover_stale")
+                tasks = recovered.get("tasks", []) if isinstance(recovered, dict) else []
+                allowed_roles = ROLE_KEYS
+                published = 0
+                failures = 0
+                for item in tasks:
+                    if not isinstance(item, dict) or not item.get("task_id"):
+                        continue
+                    role = str(item.get("agent_role", "brain_coordination"))
+                    if role not in allowed_roles:
+                        role = "brain_coordination"
+                    try:
+                        awaitable = queue_send(queue_topic_for_role(role), {"task_id": str(item["task_id"])})
+                        message_id = asyncio.run(awaitable)
+                        if message_id:
+                            published += 1
+                    except Exception:
+                        failures += 1
+                _json(self, 200 if failures == 0 else 503, {
+                    "status": "completed" if failures == 0 else "partial",
+                    "recovered_candidates": len(tasks), "republished": published, "publish_failures": failures,
+                })
+            except Exception:
+                _json(self, 503, {"error": "La récupération des tâches interrompues a échoué."})
+            return
         if path == "/api/sources":
             # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
             query = urlparse(self.path).query
@@ -378,6 +531,10 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/metrics":
             try:
                 metrics = _rpc("metrics")
+                try:
+                    metrics["agent_telemetry"] = _telemetry_rpc("metrics")
+                except Exception:
+                    metrics["agent_telemetry"] = {"status": "not_configured"}
                 _json(self, 200, metrics)
             except Exception:
                 _json(self, 503, {"error": "Les métriques persistantes sont momentanément indisponibles."})
@@ -413,11 +570,15 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "payload.text est obligatoire et limité à 20 000 caractères."})
                 return
             try:
-                stored_payload = {"text": prompt, "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
+                route = select_route(task_type, prompt)
+                enqueued_at = datetime.now(timezone.utc).isoformat()
+                stored_payload = {"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                                  "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
+                _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": task_type})
                 try:
-                    message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                    message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
@@ -432,6 +593,70 @@ class handler(BaseHTTPRequestHandler):
                     _json(self, 503, {"error": "Le stockage ou la file de tâches est indisponible."})
             except Exception:
                 _json(self, 503, {"error": "Le stockage ou la file de tâches est indisponible."})
+            return
+
+        # Explicit, authenticated inline launch for environments where queue delivery is not yet live.
+        # The task store's atomic queued->running transition prevents duplicate model execution.
+        run_match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/run", path)
+        if run_match:
+            bypass = self.headers.get("x-vercel-protection-bypass", "").strip()
+            expected_bypass = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip()
+            if not expected_bypass or not _bearer_matches("Bearer " + bypass, expected_bypass):
+                _json(self, 401, {"error": "Authentification de lancement requise."})
+                return
+            if not _gemini_key_configured():
+                _json(self, 503, {"error": "Gemini n'est pas configuré pour le lancement direct."})
+                return
+            task_id = run_match.group(1)
+            try:
+                current = _rpc("get", task_id=task_id)
+                if current.get("found") is False:
+                    _json(self, 404, {"error": "Tâche introuvable."})
+                    return
+                task_payload = current.get("payload") or {}
+                prompt = str(task_payload.get("text", "")).strip() if isinstance(task_payload, dict) else ""
+                task_type = str(current.get("task_type", "research")).strip().lower()
+                if task_type not in TASK_TYPES or not prompt:
+                    _json(self, 409, {"error": "La tâche n'a pas de contenu exécutable valide."})
+                    return
+                from verox_brain import model_client
+                route = select_route(task_type, prompt, task_payload.get("agent_role"))
+                started = _rpc("start", task_id=task_id)
+                if started.get("accepted") is not True:
+                    latest = _rpc("get", task_id=task_id)
+                    _json(self, 200, {"id": task_id, "status": latest.get("status", "already_claimed"),
+                                      "message": "La tâche a déjà été prise en charge; aucune seconde exécution n'a été lancée."})
+                    return
+                started_at = time.monotonic()
+                _record_task_event(task_id, "started", route.role, "running", {"execution_mode": "authenticated_gemini_inline"})
+                try:
+                    answer, provider, model = model_client._generate_gemini(
+                        prompt, SYSTEM_PROMPT, model_client._gemini_key()
+                    )
+                except (ModelConfigurationError, ModelRequestError) as exc:
+                    _rpc("fail", task_id=task_id, error=str(exc)[:500])
+                    _record_task_event(task_id, "gemini_failed", route.role, "failed")
+                    _json(self, 502, {"id": task_id, "status": "failed", "error": str(exc)[:300]})
+                    return
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                _rpc("complete", task_id=task_id, result={
+                    "answer": answer, "provider": provider, "model": model, "task_type": task_type,
+                    "agent_role": route.role, "dispatch_target_provider": route.provider,
+                    "dispatch_target_connector": route.connector, "specialist_connector_used": False,
+                    "dispatch_mode": "authenticated_gemini_inline_queue_fallback",
+                    "execution_mode": "inline_gemini_launch",
+                    "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
+                    "timings_ms": {"model": elapsed_ms},
+                })
+                _record_task_event(task_id, "completed", route.role, "succeeded",
+                                   {"provider": provider, "model": model, "model_ms": elapsed_ms})
+                _json(self, 200, {"id": task_id, "status": "completed", "provider": provider,
+                                  "model": model, "latency_ms": elapsed_ms,
+                                  "status_url": f"/api/tasks/{task_id}"})
+            except httpx.HTTPStatusError:
+                _json(self, 503, {"error": "La persistance de la tâche a échoué."})
+            except Exception:
+                _json(self, 503, {"error": "Le lancement Gemini a échoué pour une raison technique."})
             return
 
         if path != "/api/chat":
@@ -450,15 +675,18 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 413, {"error": "Le message dépasse la limite de 20 000 caractères."})
             return
         try:
+            route = select_route("chat", prompt)
+            enqueued_at = datetime.now(timezone.utc).isoformat()
             task = _rpc(
                 "create",
                 task_type="chat",
-                payload={"text": prompt, "_client_ip": _client_ip(self),
-                         "source": "verox_dashboard", "user_initiated": "true"},
+                payload={"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                         "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
+            _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": "chat"})
             try:
-                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
             except Exception:
                 _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                 raise

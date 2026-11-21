@@ -151,26 +151,40 @@ def _generate_huggingface(prompt: str, system_prompt: str) -> tuple[str, str, st
 
 
 def _generate_gemini(prompt: str, system_prompt: str, key: str) -> tuple[str, str, str]:
-    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
-    try:
-        with httpx.Client(timeout=40.0) as client:
-            response = client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-                json={
-                    "systemInstruction": {"parts": [{"text": system_prompt}]},
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1800},
-                },
-            )
-            response.raise_for_status()
-            return _extract_gemini_text(response.json()), "google-gemini-api-fallback", model
-    except httpx.HTTPStatusError as exc:
-        raise ModelRequestError(f"Gemini API HTTP {exc.response.status_code}.") from None
-    except httpx.RequestError:
-        raise ModelRequestError("Gemini API inaccessible; vérifie la connectivité.") from None
-    except (ValueError, TypeError, KeyError):
-        raise ModelRequestError("Réponse Gemini API invalide.") from None
+    configured_model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+    # A temporary overload on the preferred model should not prevent the free Gemini
+    # fallback from completing a task. The provider and model actually used are returned.
+    models = [configured_model]
+    if configured_model != "gemini-3.5-flash-lite":
+        models.append("gemini-3.5-flash-lite")
+    last_status: int | None = None
+    for index, model in enumerate(models):
+        try:
+            with httpx.Client(timeout=40.0) as client:
+                response = client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                    json={
+                        "systemInstruction": {"parts": [{"text": system_prompt}]},
+                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1800},
+                    },
+                )
+                response.raise_for_status()
+                return _extract_gemini_text(response.json()), "google-gemini-api", model
+        except httpx.HTTPStatusError as exc:
+            last_status = exc.response.status_code
+            # Try the next supported Gemini model only for availability/model-ID failures.
+            if last_status in {404, 503} and index < len(models) - 1:
+                continue
+            raise ModelRequestError(f"Gemini API HTTP {last_status}.") from None
+        except httpx.RequestError:
+            if index < len(models) - 1:
+                continue
+            raise ModelRequestError("Gemini API inaccessible; vérifie la connectivité.") from None
+        except (ValueError, TypeError, KeyError):
+            raise ModelRequestError("Réponse Gemini API invalide.") from None
+    raise ModelRequestError(f"Gemini API HTTP {last_status or 503}.")
 
 
 def generate_text(
