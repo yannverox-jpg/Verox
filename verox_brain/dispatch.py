@@ -40,7 +40,7 @@ ALIASES: Final[dict[str, str]] = {
     "build": "software_build", "coding": "software_build", "code_review": "software_build",
     "brain": "brain_coordination", "chat": "brain_coordination",
     "research": "public_research", "osint": "public_research",
-    "revenue": "short_term_revenue",
+    "revenue": "short_term_revenue", "revenue_research": "short_term_revenue",
 }
 
 
