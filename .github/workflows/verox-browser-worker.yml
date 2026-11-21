@@ -52,5 +52,8 @@ jobs:
       - name: Run browser worker policy tests
         run: python -m unittest discover -s tests -p "test_browser_worker.py" -v
 
+      - name: Diagnose core runtime and retry bounded checks
+        run: python -m verox_brain.self_repair --json
+
       - name: Process a bounded batch of read-only jobs
         run: python -m verox_brain.browser_worker --cycle
