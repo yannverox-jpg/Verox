@@ -2,7 +2,7 @@ name: Verox autonomous brain tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/osint-source-registry]
   push:
     branches: [feat/osint-source-registry, feat/brain-self-repair-loop]
 
