@@ -8,13 +8,13 @@ implementation exists. No persistent browser profiles or account sessions.
 """
 from __future__ import annotations
 import argparse, json, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import httpx
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
 from verox_brain.research_pipeline import complete_research_run
-from verox_brain.source_registry import get_source
+from verox_brain.source_registry import get_source, list_sources
 
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
@@ -55,6 +55,50 @@ class BrowserWorker:
 
     def _finish(self, job_id, status, *, audit, error=None, artifacts=None):
         self._rest("PATCH", "verox_browser_jobs", params={"id":f"eq.{job_id}"}, body={"status":status, "completed_at":_now(), "audit":audit, "artifact_refs":artifacts or [], "error":error})
+
+    def seed_public_cycle(self, *, limit=5, cooldown_minutes=60):
+        """Queue a bounded rotation of registered public sources for background research."""
+        registry = list_sources()
+        candidates = [
+            source for source in registry.get("sources", [])
+            if source.get("access") in {"web", "public_web", "web_or_api"}
+        ]
+        if not candidates:
+            return {"queued": 0, "sources": []}
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=cooldown_minutes)).isoformat()
+        ids = [str(source["id"]) for source in candidates]
+        recent = self._rest(
+            "GET", "verox_browser_jobs",
+            params={
+                "select": "source_id,status,created_at",
+                "source_id": "in.(" + ",".join(ids) + ")",
+                "created_at": "gte." + cutoff,
+                "limit": "500",
+            },
+        ) or []
+        seen = {str(row.get("source_id")) for row in recent if isinstance(row, dict)}
+        queued = []
+        for source in candidates:
+            if source["id"] in seen:
+                continue
+            self.store.register_source(source)
+            record = {
+                "task_type": "collect_public_data",
+                "source_id": source["id"],
+                "status": "queued",
+                "policy_mode": "read_only",
+                "requested_capabilities": ["navigate", "read_text"],
+                "input": {"url": source["url"], "request_reason": "scheduled_public_research_cycle"},
+                "artifact_refs": [],
+                "audit": {"created_by": "scheduled_worker", "policy": "read_only", "cycle": "public_source_rotation"},
+            }
+            rows = self._rest("POST", "verox_browser_jobs", body=record)
+            if rows:
+                queued.append(source["id"])
+                seen.add(source["id"])
+            if len(queued) >= max(1, min(int(limit), 5)):
+                break
+        return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
 
     def run_job(self, job):
         job_id, task_type, source_id = str(job.get("id","")), str(job.get("task_type","")), str(job.get("source_id") or "")
@@ -100,8 +144,16 @@ class BrowserWorker:
             evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at})
             run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
             analysis = None
+            if not run_id and evidence.get("observation_id"):
+                analysis_rows = self.store.create_analysis_run(
+                    domain=source.get("domain", "communities"),
+                    subject_key=source_id,
+                    observation_ids=[evidence["observation_id"]],
+                )
+                if analysis_rows and isinstance(analysis_rows, list) and isinstance(analysis_rows[0], dict):
+                    run_id = str(analysis_rows[0].get("id") or "")
             if run_id:
-                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,observation_id=evidence.get('observation_id'),captured_at=captured_at)
+                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,observation_id=evidence.get("observation_id"),captured_at=captured_at)
             self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
             return {"status":"succeeded","observation":evidence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
@@ -130,9 +182,14 @@ class BrowserWorker:
 def main():
     parser = argparse.ArgumentParser(description="Verox read-only browser worker")
     parser.add_argument("--once",action="store_true",help="Process up to five queued jobs and exit")
+    parser.add_argument("--cycle",action="store_true",help="Queue a bounded rotation of public sources, then process it")
     args = parser.parse_args()
     worker = BrowserWorker()
-    if args.once: print(json.dumps(worker.run_once(),ensure_ascii=False))
+    if args.cycle:
+        seeded = worker.seed_public_cycle(limit=5)
+        processed = worker.run_once()
+        print(json.dumps({"seeded": seeded, "worker": processed}, ensure_ascii=False))
+    elif args.once: print(json.dumps(worker.run_once(),ensure_ascii=False))
     else: worker.run_forever()
 
 if __name__ == "__main__": main()
