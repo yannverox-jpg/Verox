@@ -9,4 +9,31 @@ dependencies = [
 
 
 [[tool.vercel.subscribers]]
-entrypoint = "verox_queue_worker:process_agent_task"
+entrypoint = "verox_queue_worker:process_brain_coordination"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_public_research"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_revenue_research"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_microtask"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_service_work"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_mirror_store"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_sports_analysis"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_horse_racing_analysis"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_software_build"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_legacy_agent_task"

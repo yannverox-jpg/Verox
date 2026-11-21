@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -14,10 +15,11 @@ import httpx
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
+from verox_brain.dispatch import select_route
+from verox_brain.queue_config import ROLE_KEYS, queue_topic_for_role
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
-QUEUE_TOPIC = "verox-agent-tasks"
 TASK_TYPES = {"analysis", "research", "chat", "code_review"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
@@ -101,6 +103,36 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         return data
 
 
+def _telemetry_rpc(action: str, *, task_id: str | None = None, event_type: str | None = None,
+                   role: str = "system", status: str = "maintenance", details: dict | None = None) -> dict:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
+    if not url or not anon or not token:
+        raise RuntimeError("Task telemetry is not configured.")
+    with httpx.Client(timeout=12.0) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_task_telemetry_api",
+            headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
+            json={"p_token": token, "p_action": action, "p_task_id": task_id,
+                  "p_event_type": event_type, "p_role": role, "p_status": status,
+                  "p_details": details or {}, "p_occurred_at": datetime.now(timezone.utc).isoformat()},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid task telemetry response.")
+        return data
+
+
+def _record_task_event(task_id: str, event_type: str, role: str, status: str, details: dict | None = None) -> None:
+    try:
+        _telemetry_rpc("event", task_id=task_id, event_type=event_type, role=role, status=status, details=details)
+    except Exception:
+        # Task creation must remain available if telemetry has not been migrated yet.
+        return
+
+
 def _opportunity_rpc(action: str, items: list | None = None) -> dict:
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
@@ -129,7 +161,7 @@ def _public_task_status(task: dict) -> dict:
     result = task.get("result")
     safe_result: dict = {}
     if isinstance(result, dict):
-        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type"):
+        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type", "agent_role", "dispatch_target_provider", "dispatch_target_connector", "dispatch_mode", "specialist_connector_used", "requires_human_approval_for_side_effects"):
             value = result.get(key)
             if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 20_000:
                 safe_result[key] = value
@@ -241,6 +273,37 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/tasks/recover":
+            cron_token = os.getenv("CRON_SECRET", "").strip()
+            if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
+                _json(self, 401, {"error": "Authentification cron requise."})
+                return
+            try:
+                recovered = _telemetry_rpc("recover_stale")
+                tasks = recovered.get("tasks", []) if isinstance(recovered, dict) else []
+                allowed_roles = ROLE_KEYS
+                published = 0
+                failures = 0
+                for item in tasks:
+                    if not isinstance(item, dict) or not item.get("task_id"):
+                        continue
+                    role = str(item.get("agent_role", "brain_coordination"))
+                    if role not in allowed_roles:
+                        role = "brain_coordination"
+                    try:
+                        awaitable = queue_send(queue_topic_for_role(role), {"task_id": str(item["task_id"])})
+                        message_id = asyncio.run(awaitable)
+                        if message_id:
+                            published += 1
+                    except Exception:
+                        failures += 1
+                _json(self, 200 if failures == 0 else 503, {
+                    "status": "completed" if failures == 0 else "partial",
+                    "recovered_candidates": len(tasks), "republished": published, "publish_failures": failures,
+                })
+            except Exception:
+                _json(self, 503, {"error": "La récupération des tâches interrompues a échoué."})
+            return
         if path == "/api/sources":
             # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
             query = urlparse(self.path).query
@@ -378,6 +441,10 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/metrics":
             try:
                 metrics = _rpc("metrics")
+                try:
+                    metrics["agent_telemetry"] = _telemetry_rpc("metrics")
+                except Exception:
+                    metrics["agent_telemetry"] = {"status": "not_configured"}
                 _json(self, 200, metrics)
             except Exception:
                 _json(self, 503, {"error": "Les métriques persistantes sont momentanément indisponibles."})
@@ -413,11 +480,15 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "payload.text est obligatoire et limité à 20 000 caractères."})
                 return
             try:
-                stored_payload = {"text": prompt, "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
+                route = select_route(task_type, prompt)
+                enqueued_at = datetime.now(timezone.utc).isoformat()
+                stored_payload = {"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                                  "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
+                _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": task_type})
                 try:
-                    message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                    message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
@@ -450,15 +521,18 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 413, {"error": "Le message dépasse la limite de 20 000 caractères."})
             return
         try:
+            route = select_route("chat", prompt)
+            enqueued_at = datetime.now(timezone.utc).isoformat()
             task = _rpc(
                 "create",
                 task_type="chat",
-                payload={"text": prompt, "_client_ip": _client_ip(self),
-                         "source": "verox_dashboard", "user_initiated": "true"},
+                payload={"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                         "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
+            _record_task_event(task_id, "enqueued", route.role, "queued", {"task_type": "chat"})
             try:
-                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                message_id = asyncio.run(queue_send(queue_topic_for_role(route.role), {"task_id": task_id}))
             except Exception:
                 _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                 raise
