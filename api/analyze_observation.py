@@ -87,7 +87,8 @@ class handler(BaseHTTPRequestHandler):
             )
 
         try:
-            answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT, task_id=str(data.get("observation_id", "preflight"))[:120])
+            gateway_token = (os.getenv("AI_GATEWAY_API_KEY", "").strip() or os.getenv("VERCEL_OIDC_TOKEN", "").strip() or self.headers.get("x-vercel-oidc-token", "").strip())
+            answer, provider, model = generate_text(prompt, system_prompt=SYSTEM_PROMPT, gateway_token=gateway_token or None, task_id=str(data.get("observation_id", "preflight"))[:120])
         except ModelConfigurationError:
             _json(self, 503, {"error": "ai_not_configured", "model_ready": False})
             return
