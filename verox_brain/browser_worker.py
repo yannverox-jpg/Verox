@@ -33,6 +33,11 @@ def _host(url):
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
+def _safe_network_url(url):
+    """Keep route paths for analysis; never persist query values or fragments."""
+    parsed = urlparse(str(url))
+    return parsed._replace(query="", fragment="").geturl()[:1200]
+
 class BrowserWorker:
     def __init__(self, store=None):
         self.store = store or SupabaseDataPlane()
@@ -126,12 +131,12 @@ class BrowserWorker:
                     if len(network_events) < MAX_NETWORK_EVENTS:
                         parsed_request = urlparse(request.url)
                         if parsed_request.hostname and parsed_request.hostname.lower() == allowed_host:
-                            network_events.append({"kind": "request", "method": request.method, "url": request.url[:1200], "resource_type": request.resource_type})
+                            network_events.append({"kind": "request", "method": request.method, "url": _safe_network_url(request.url), "resource_type": request.resource_type})
                 def record_response(response):
                     if len(network_events) < MAX_NETWORK_EVENTS:
                         parsed_response = urlparse(response.url)
                         if parsed_response.hostname and parsed_response.hostname.lower() == allowed_host:
-                            network_events.append({"kind": "response", "method": response.request.method, "url": response.url[:1200], "status": response.status, "content_type": response.headers.get("content-type", "")[:160]})
+                            network_events.append({"kind": "response", "method": response.request.method, "url": _safe_network_url(response.url), "status": response.status, "content_type": response.headers.get("content-type", "")[:160]})
                 def guard_route(route):
                     try:
                         request = route.request
@@ -151,6 +156,7 @@ class BrowserWorker:
                 page.set_default_navigation_timeout(12_000)
                 page.set_default_timeout(5_000)
                 response = page.goto(target_url, wait_until="domcontentloaded")
+                page.wait_for_timeout(750)  # bounded client-side hydration window
                 final_url = page.url
                 if _host(final_url) != _host(source["url"]): raise ValueError("cross_host_navigation_denied")
                 title = page.title()[:300]
