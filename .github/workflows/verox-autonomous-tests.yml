@@ -32,7 +32,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Compile API and worker modules
-        run: python -m py_compile api/index.py api/browser_jobs.py api/research.py verox_brain/data_plane.py verox_brain/browser_worker.py verox_brain/model_client.py verox_brain/behavioral_analysis.py verox_brain/research_pipeline.py verox_brain/self_repair.py
+        run: python -m py_compile api/index.py api/browser_jobs.py api/research.py verox_brain/data_plane.py verox_brain/browser_worker.py verox_brain/model_client.py verox_brain/behavioral_analysis.py verox_brain/research_pipeline.py verox_brain/self_repair.py verox_brain/recon.py
 
       - name: Test durable data-plane sanitization and hashing
         run: python -m unittest discover -s tests -p "test_data_plane.py" -v
