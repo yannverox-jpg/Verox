@@ -129,7 +129,7 @@ def _public_task_status(task: dict) -> dict:
     result = task.get("result")
     safe_result: dict = {}
     if isinstance(result, dict):
-        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type"):
+        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type", "agent_role", "dispatch_target_provider", "dispatch_target_connector", "dispatch_mode", "specialist_connector_used", "requires_human_approval_for_side_effects"):
             value = result.get(key)
             if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 20_000:
                 safe_result[key] = value
