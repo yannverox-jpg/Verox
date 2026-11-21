@@ -14,10 +14,11 @@ import httpx
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
+from verox_brain.dispatch import select_route
 from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
-QUEUE_TOPIC = "verox-agent-tasks"
+QUEUE_TOPIC_PREFIX = "verox-agent-"
 TASK_TYPES = {"analysis", "research", "chat", "code_review"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
@@ -413,11 +414,14 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "payload.text est obligatoire et limité à 20 000 caractères."})
                 return
             try:
-                stored_payload = {"text": prompt, "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
+                route = select_route(task_type, prompt)
+                enqueued_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+                stored_payload = {"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                                  "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"}
                 task = _rpc("create", task_type=task_type, payload=stored_payload)
                 task_id = str(task["id"])
                 try:
-                    message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                    message_id = asyncio.run(queue_send(QUEUE_TOPIC_PREFIX + route.role, {"task_id": task_id}))
                 except Exception:
                     _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                     raise
@@ -450,15 +454,17 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 413, {"error": "Le message dépasse la limite de 20 000 caractères."})
             return
         try:
+            route = select_route("chat", prompt)
+            enqueued_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
             task = _rpc(
                 "create",
                 task_type="chat",
-                payload={"text": prompt, "_client_ip": _client_ip(self),
-                         "source": "verox_dashboard", "user_initiated": "true"},
+                payload={"text": prompt, "agent_role": route.role, "enqueued_at": enqueued_at,
+                         "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
             try:
-                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                message_id = asyncio.run(queue_send(QUEUE_TOPIC_PREFIX + route.role, {"task_id": task_id}))
             except Exception:
                 _rpc("fail", task_id=task_id, error="Impossible de placer la tâche dans la file durable.")
                 raise
