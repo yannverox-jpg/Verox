@@ -34,3 +34,6 @@ entrypoint = "verox_queue_worker:process_horse_racing_analysis"
 
 [[tool.vercel.subscribers]]
 entrypoint = "verox_queue_worker:process_software_build"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_queue_worker:process_legacy_agent_task"
