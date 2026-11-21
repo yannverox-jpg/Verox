@@ -24,7 +24,7 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "api/index.py", "api/browser_jobs.py", "api/research.py",
         "verox_brain/data_plane.py", "verox_brain/browser_worker.py",
         "verox_brain/model_client.py", "verox_brain/behavioral_analysis.py",
-        "verox_brain/research_pipeline.py", "verox_brain/self_repair.py", "verox_brain/recon.py", "verox_brain/causal_lab.py", "verox_brain/repair_sandbox.py", "verox_brain/platform_probe.py")),
+        "verox_brain/research_pipeline.py", "verox_brain/self_repair.py", "verox_brain/recon.py", "verox_brain/causal_lab.py", "verox_brain/repair_sandbox.py", "verox_brain/platform_probe.py", "verox_brain/repair_agent.py")),
     ("test_data_plane", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_data_plane.py", "-v")),
     ("test_browser_policy", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_browser_worker.py", "-v")),
     ("test_behavioral_analysis", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_behavioral_analysis.py", "-v")),
@@ -33,7 +33,7 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),
     ("test_causal_lab", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_causal_lab.py", "-v")),
     ("test_repair_sandbox", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_sandbox.py", "-v")),
-    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),
+    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),\n    ("test_repair_agent", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_agent.py", "-v")),
 )
 
 @dataclass
@@ -159,7 +159,7 @@ def _next_action(category: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Verox's bounded self-diagnostic cycle.")
     parser.add_argument("--attempts", type=int, default=MAX_ATTEMPTS, help="Attempts per fixed check (1-3).")
-    parser.add_argument("--json", action="store_true", help="Emit a machine-readable report.")
+    parser.add_argument("--json", action="store_true", help="Emit a machine-readable report.")\n    parser.add_argument("--propose-repairs", action="store_true", help="Ask the configured model for one sandbox-validated patch if checks fail.")
     args = parser.parse_args()
     report = run_recovery_cycle(max_attempts=args.attempts)
     if args.json:
