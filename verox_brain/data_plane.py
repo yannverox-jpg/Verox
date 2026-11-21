@@ -76,6 +76,49 @@ class SupabaseDataPlane:
             observation_id = existing[0].get("id") if existing and isinstance(existing[0], dict) else None
         return {"content_hash": digest, "observation_id": observation_id, "stored": bool(rows), "verification_status": "unverified"}
 
+    def upsert_ai_verified_opportunity(self, *, title, summary, source_name, source_url, department,
+                                       observation_id, analysis_run_id, model_used, confidence_score,
+                                       is_actionable, score):
+        """Persist only a model-backed opportunity; DB trigger revalidates linked evidence."""
+        title = str(title).strip()[:300]
+        source_url = str(source_url).strip()[:2000]
+        if not title or not source_url.startswith("https://"):
+            raise ValueError("verified opportunity requires a title and HTTPS source URL")
+        if not observation_id or not analysis_run_id or not str(model_used).strip():
+            raise ValueError("verified opportunity requires linked observation, analysis and model")
+        confidence = float(confidence_score)
+        if not 0.6 <= confidence <= 1.0 or is_actionable is not True:
+            raise ValueError("verified opportunity failed the confidence/actionability gate")
+        canonical_title = " ".join(title.split()).lower()
+        dedupe_key = hashlib.md5((canonical_title + "|" + source_url.lower()).encode("utf-8")).hexdigest()
+        allowed_departments = {"microtasks_services", "trading", "sports_horse_betting", "ecommerce"}
+        if department not in allowed_departments:
+            department = "microtasks_services"
+        record = {
+            "dedupe_key": dedupe_key,
+            "title": title,
+            "summary": str(summary).strip()[:1500],
+            "source_name": str(source_name or "Unknown source")[:120],
+            "source_url": source_url,
+            "department": department,
+            "matched_keywords": [],
+            "score": max(0, min(100, int(round(float(score))))),
+            "status": "ai_verified",
+            "observation_id": observation_id,
+            "analysis_run_id": analysis_run_id,
+            "model_used": str(model_used).strip()[:200],
+            "confidence_score": confidence,
+            "is_actionable": True,
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return self._request(
+            "POST", "verox_opportunities",
+            params={"on_conflict": "dedupe_key"},
+            body=record,
+            prefer="resolution=merge-duplicates,return=representation",
+        )
+
     def create_analysis_run(self, *, domain, subject_key=None, observation_ids=None, prompt_version="verox-research-v1"):
         record = {"domain": domain, "subject_key": (subject_key or "")[:200] or None, "status": "queued", "prompt_version": prompt_version[:100], "input_observation_ids": (observation_ids or [])[:200], "findings": {}, "metrics": {}}
         return self._request("POST", "verox_analysis_runs", body=record, prefer="return=representation")
