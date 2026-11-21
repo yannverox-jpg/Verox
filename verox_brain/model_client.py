@@ -213,6 +213,9 @@ def generate_text(
     token = _gateway_token(gateway_token)
     errors: list[str] = []
 
+    if not token:
+        _trace("gateway", os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL), "skipped_no_token", time.monotonic(), task_id=task_id, fallback_reason="gateway_token_unavailable")
+
     if token:
         started = time.monotonic()
         gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
@@ -223,7 +226,7 @@ def generate_text(
         except ModelRequestError as exc:
             errors.append(str(exc))
             message = str(exc)
-            status = next((int(part) for part in message.split() if part.isdigit() and len(part) == 3), "provider_error")
+            status = next((int(part.strip(".,:;")) for part in message.split() if part.strip(".,:;").isdigit() and len(part.strip(".,:;")) == 3), "provider_error")
             _trace("gateway", gateway_model, status, started, task_id=task_id, fallback_reason="gateway_failed")
 
     # PocketPal is an opt-in on-device connector. A Vercel function can only reach
