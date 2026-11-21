@@ -4,20 +4,32 @@ on:
   pull_request:
     paths:
       - "api/**"
+      - "verox_queue_worker.py"
+      - "verox_brain/dispatch.py"
+      - "verox_brain/queue_config.py"
+      - "tests/test_verox_durable_queue_config.py"
+      - "tests/test_queue_config.py"
       - "queues/**"
       - "requirements.txt"
       - "pyproject.toml"
       - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - "supabase/migrations/*verox_task_telemetry_and_recovery.sql"
       - "vercel.json"
       - ".github/workflows/vercel-durable-agent-queue.yml"
   push:
     branches: [main]
     paths:
       - "api/**"
+      - "verox_queue_worker.py"
+      - "verox_brain/dispatch.py"
+      - "verox_brain/queue_config.py"
+      - "tests/test_verox_durable_queue_config.py"
+      - "tests/test_queue_config.py"
       - "queues/**"
       - "requirements.txt"
       - "pyproject.toml"
       - "supabase/migrations/*verox_durable_agent_queue.sql"
+      - "supabase/migrations/*verox_task_telemetry_and_recovery.sql"
       - "vercel.json"
       - ".github/workflows/vercel-durable-agent-queue.yml"
 
@@ -30,7 +42,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile runtime modules
-        run: python -m py_compile api/index.py queues/agent_tasks.py
+        run: python -m py_compile api/index.py verox_queue_worker.py verox_brain/dispatch.py verox_brain/queue_config.py
       - name: Validate JSON and TOML configuration
         run: |
           python -m json.tool vercel.json >/dev/null
@@ -38,15 +50,21 @@ jobs:
           import tomllib
           with open("pyproject.toml", "rb") as f:
               cfg = tomllib.load(f)
-          assert cfg["tool"]["vercel"]["subscribers"][0]["entrypoint"] == "verox_queue_worker:process_agent_task"
+          subscribers = {x["entrypoint"] for x in cfg["tool"]["vercel"]["subscribers"]}
+          assert len(subscribers) == 9, subscribers
+          assert "verox_queue_worker:process_microtask" in subscribers
+          assert "verox_queue_worker:process_horse_racing_analysis" in subscribers
           assert any(x.startswith("vercel-queue==") for x in cfg["project"]["dependencies"])
           PY
-      - name: Install test dependency
-        run: python -m pip install httpx==0.28.1
-      - name: Test free-first model selection
+      - name: Install test dependencies
+        run: python -m pip install httpx==0.28.1 vercel-queue==0.10.0
+      - name: Test durable queue configuration and free-first model selection
         run: python -m unittest discover -s tests -p 'test_verox_durable_queue_config.py'
+      - name: Test role queue bounds
+        run: python -m unittest discover -s tests -p 'test_queue_config.py'
       - name: Verify task safety boundaries
         run: |
-          grep -q "TASK_TYPES = {\"analysis\", \"research\", \"chat\", \"code_review\"}" api/index.py
-          grep -q "max_attempts=3" verox_queue_worker.py
-          grep -q "rate limit exceeded" supabase/migrations/*verox_durable_agent_queue.sql
+          grep -q '"source": "verox_dashboard"' api/index.py
+          grep -q 'max_attempts=MAX_ATTEMPTS' verox_queue_worker.py
+          grep -q 'rate limit exceeded' supabase/migrations/*verox_durable_agent_queue.sql
+          grep -q "p_action = 'recover_stale'" supabase/migrations/*verox_task_telemetry_and_recovery.sql
