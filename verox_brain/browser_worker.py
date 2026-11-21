@@ -213,6 +213,47 @@ class BrowserWorker:
                 break
         return {"queued": len(queued), "sources": queued, "cooldown_minutes": cooldown_minutes}
 
+    def _known_public_sources(self):
+        """Merge the curated registry with Supabase catalog entries without reviving disabled sources."""
+        curated = {str(item.get("id")): dict(item) for item in list_sources().get("sources", []) if item.get("id")}
+        rows = self._rest("GET", "verox_sources", params={
+            "select": "source_id,domain,name,canonical_url,access_mode,status,trust_level,enabled,metadata",
+            "limit": "1000",
+        }) or []
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("source_id"):
+                continue
+            source_id = str(row["source_id"])
+            if row.get("status") in {"disabled", "blocked"} or row.get("access_mode") != "public_only":
+                curated.pop(source_id, None)
+                continue
+            curated[source_id] = {
+                "id": source_id, "name": str(row.get("name") or source_id),
+                "domain": str(row.get("domain") or "communities"),
+                "kind": "discovered_public_site", "url": str(row.get("canonical_url") or ""),
+                "access": "public_web", "notes": "Supabase public source catalog entry",
+            }
+        return [source for source in curated.values() if source.get("access") in {"web", "public_web", "web_or_api"}]
+
+    def _resolve_source(self, source_id):
+        """Resolve curated or discovered sources while honoring database disable/block status."""
+        source_id = str(source_id or "")
+        rows = self._rest("GET", "verox_sources", params={
+            "select": "source_id,domain,name,canonical_url,access_mode,status,trust_level,enabled,metadata",
+            "source_id": "eq." + source_id, "limit": "1",
+        }) or []
+        if rows and isinstance(rows[0], dict):
+            row = rows[0]
+            if row.get("status") in {"disabled", "blocked"} or row.get("access_mode") != "public_only":
+                return None
+            return {
+                "id": str(row.get("source_id")), "name": str(row.get("name") or source_id),
+                "domain": str(row.get("domain") or "communities"), "kind": "discovered_public_site",
+                "url": str(row.get("canonical_url") or ""), "access": "public_web",
+                "notes": "Supabase public source catalog entry",
+            }
+        return get_source(source_id)
+
     def _queue_discovered_links(self, source, discovered_links, *, limit=3):
         """Queue bounded page reads and inert file downloads under the owning source."""
         from pathlib import PurePosixPath
@@ -222,9 +263,29 @@ class BrowserWorker:
         eligible = []
         for link in discovered_links:
             url = str(link.get("url", ""))
-            target_source = _registered_source_for_url(url)
-            if not link.get("registered_public_source") or not target_source or not url:
+            target_source = _registered_source_for_url(url, self._known_public_sources())
+            if not url:
                 continue
+            if not target_source:
+                # Automatically catalog a newly discovered public HTTPS host as an unverified
+                # source candidate. The resulting job remains bounded and read-only.
+                try:
+                    host = _host(url)
+                except ValueError:
+                    continue
+                import hashlib
+                source_id = "discovered_" + hashlib.sha256(host.encode()).hexdigest()[:16]
+                target_source = {
+                    "id": source_id, "name": host[:200],
+                    "domain": source.get("domain", "communities"),
+                    "kind": "discovered_public_site", "url": url,
+                    "access": "public_web",
+                    "notes": "Unverified public source discovered from " + str(source.get("id", "unknown"))[:100],
+                }
+                try:
+                    self.store.register_source(target_source)
+                except Exception:
+                    continue
             if target_source["id"] == source.get("id") and url == source.get("url"):
                 continue
             suffix = PurePosixPath(unquote(urlparse(url).path)).suffix.lower()
@@ -332,7 +393,7 @@ class BrowserWorker:
 
     def run_job(self, job):
         job_id, task_type, source_id = str(job.get("id","")), str(job.get("task_type","")), str(job.get("source_id") or "")
-        source = get_source(source_id)
+        source = self._resolve_source(source_id)
         allowed_types = ALLOWED_JOB_TYPES | {"download_public_file"}
         if task_type not in allowed_types:
             self._finish(job_id, "failed", error="job_type_not_allowlisted", audit={"policy":"read_only", "decision":"denied"})
@@ -342,7 +403,7 @@ class BrowserWorker:
             return {"status":"denied","reason":"source_not_public_allowlisted"}
         target_url = str((job.get("input") or {}).get("url") or source["url"])
         try:
-            if not _is_registered_public_url(target_url): raise ValueError("target_host_not_registered")
+            if not _is_registered_public_url(target_url) and _host(target_url) != _host(source["url"]): raise ValueError("target_host_not_registered")
             if task_type == "download_public_file":
                 return self._download_public_file(job_id, source, target_url)
             with sync_playwright() as playwright:
