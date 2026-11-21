@@ -259,7 +259,7 @@ async function loadOpportunities(){
 }
 document.getElementById("refresh-opportunities")?.addEventListener("click",loadOpportunities);
 async function checkHealth(){try{const r=await fetch("/api/health",{cache:"no-store"});const d=await r.json();document.getElementById("connection-status").textContent=d.ok?"Cerveau Vercel configuré":"Configuration IA à vérifier";document.getElementById("security-status").textContent="Gemini gratuit : "+(d.gemini_configured?"clé configurée":"clé gratuite requise")+" · AI Gateway : "+(d.ai_gateway_api_key_configured?"clé API configurée":"bloqué par la vérification de carte")+" · Supabase : "+(d.database_verified?"connexion vérifiée":d.supabase_configured?"variables présentes, connexion non vérifiée":"non configurée")+" · File de tâches : "+(d.background_workflows||"état inconnu");document.getElementById("model-status").textContent="Cerveau Vercel : "+(d.ok?"prêt":"clé IA gratuite à configurer")+" · L’exécution durable reste à certifier."}catch(_){document.getElementById("connection-status").textContent="Backend indisponible";}}
-startConversation();loadCatalog();loadOpportunities();refreshMetrics();checkHealth();setInterval(refreshMetrics,15000);setInterval(checkHealth,30000);setInterval(loadOpportunities,60000);
+showPage("applications");startConversation();loadCatalog();loadOpportunities();refreshMetrics();checkHealth();setInterval(refreshMetrics,15000);setInterval(checkHealth,30000);setInterval(loadOpportunities,60000);
 </script>
 </body>
 </html>
