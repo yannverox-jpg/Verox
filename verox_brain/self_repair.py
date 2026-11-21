@@ -33,7 +33,8 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("test_repository_recon", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_recon.py", "-v")),
     ("test_causal_lab", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_causal_lab.py", "-v")),
     ("test_repair_sandbox", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_sandbox.py", "-v")),
-    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),\n    ("test_repair_agent", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_agent.py", "-v")),
+    ("test_platform_probe", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_platform_probe.py", "-v")),
+    ("test_repair_agent", (sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_repair_agent.py", "-v")),
 )
 
 @dataclass
@@ -159,9 +160,13 @@ def _next_action(category: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Verox's bounded self-diagnostic cycle.")
     parser.add_argument("--attempts", type=int, default=MAX_ATTEMPTS, help="Attempts per fixed check (1-3).")
-    parser.add_argument("--json", action="store_true", help="Emit a machine-readable report.")\n    parser.add_argument("--propose-repairs", action="store_true", help="Ask the configured model for one sandbox-validated patch if checks fail.")
+    parser.add_argument("--json", action="store_true", help="Emit a machine-readable report.")
+    parser.add_argument("--propose-repairs", action="store_true", help="Ask the configured model for one sandbox-validated patch if checks fail.")
     args = parser.parse_args()
     report = run_recovery_cycle(max_attempts=args.attempts)
+    if args.propose_repairs and report["unresolved"]:
+        from verox_brain.repair_agent import propose_and_validate_patch
+        report["repair_proposal"] = propose_and_validate_patch(report["unresolved"][0])
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
