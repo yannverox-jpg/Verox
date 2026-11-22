@@ -51,7 +51,7 @@ class SupabaseFinancialApprovalAdapter:
         self._agent_name = agent_name
         self._stage_name = stage_name
 
-    def _request(self, method: str, path: str, *, params=None, body=None) -> Any:
+    def _request(self, method: str, path: str, *, params=None, body=None, prefer: str | None = None) -> Any:
         base_url, service_key = _resolve_server_rest_config(self._data_plane)
         url = f"{base_url}/rest/v1/{path.lstrip('/')}"
         if params:
@@ -59,16 +59,16 @@ class SupabaseFinancialApprovalAdapter:
         payload = None if body is None else json.dumps(
             body, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         ).encode("utf-8")
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if prefer:
+            headers["Prefer"] = prefer
         request = urllib.request.Request(
-            url,
-            data=payload,
-            method=method.upper(),
-            headers={
-                "apikey": service_key,
-                "Authorization": f"Bearer {service_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            url, data=payload, method=method.upper(), headers=headers
         )
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
@@ -153,9 +153,10 @@ class SupabaseFinancialApprovalAdapter:
         run_id = str(audit_payload.get("run_id") or "").strip()
         if not source_event_id or not run_id:
             raise FinancialAuthorizationError("T6 refusal audit lacks required identifiers.")
-        self._request(
+        inserted = self._request(
             "POST",
             "nexus_runtime_events",
+            prefer="return=representation",
             body={
                 "event_id": "evt_guard_" + hashlib.sha256(
                     (run_id + ":" + source_event_id + ":" + str(audit_payload.get("status"))).encode()
@@ -173,6 +174,8 @@ class SupabaseFinancialApprovalAdapter:
                 "metadata": audit_payload.get("metadata") or {},
             },
         )
+        if not isinstance(inserted, list) or len(inserted) != 1:
+            raise FinancialAuthorizationError("T6 refusal audit insert was not confirmed.")
 
     def build_guard(self, intent: FinancialOperationIntent) -> ServerHumanApprovalGuard:
         return ServerHumanApprovalGuard(
