@@ -27,7 +27,7 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn('_rpc("fail", task_id=task_id, error=safe_error)', api)
         self.assertIn('safe_message = re.sub(', api)
         self.assertIn('[:180]', api)
-        self.assertLess(api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'), api.index('request.headers.get("x-vercel-oidc-token", "").strip()'))
+        self.assertLess(api.index('request.headers.get("x-vercel-oidc-token", "").strip()'), api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'))
         self.assertIn("time.sleep(1)", api)
 
     def test_worker_retries_and_bounds_concurrency(self):
