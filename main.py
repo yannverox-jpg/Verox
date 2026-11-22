@@ -49,6 +49,15 @@ def _supabase_base_url(value: str) -> str:
 
 
 
+def _gemini_api_key() -> tuple[str, str | None]:
+    """Read supported server-side Gemini key aliases without exposing their values."""
+    for name in ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "Gemini"):
+        value = os.getenv(name, "").strip()
+        if value:
+            return value, name
+    return "", None
+
+
 # ==============================================================================
 # 1. PASSERELLE RÉSEAU & GÉOLOCALISATION FIXE (SUISSE / FRANCFORT)
 # ==============================================================================
@@ -619,15 +628,16 @@ class CognitiveBrain:
 
     async def probe_gemini(self) -> bool:
         """Vérifie réellement l'API de secours au démarrage sans bloquer le service."""
-        if not os.getenv("GEMINI_API_KEY", "").strip():
+        if not _gemini_api_key()[0]:
             return False
         response = await self.ask_gemini("Test technique de démarrage. Réponds uniquement OK.", [])
         return bool(response)
 
     async def ask_gemini(self, user_query: str, evidence: List[Dict[str, Any]] = None) -> Optional[str]:
         """Modèle de secours via Gemini API; la clé reste exclusivement côté serveur."""
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        api_key, key_source = _gemini_api_key()
         if not api_key:
+            logger.warning("Gemini fallback indisponible: aucune clé Gemini n'est configurée dans Render.")
             return None
         model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
         context = json.dumps((evidence or [])[:8], ensure_ascii=False)[:18000]
@@ -645,7 +655,7 @@ class CognitiveBrain:
         )
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
                 response = await client.post(
                     endpoint,
                     headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
@@ -999,6 +1009,9 @@ async def run_worker(worker_id: int = 0):
                             answer = str(provider_result.get("evidence") or "").strip() if provider_result else ""
                         else:
                             answer = await brain.ask_gemini(query, evidence or [])
+
+                        if not answer or not str(answer).strip():
+                            raise RuntimeError("Aucun modèle IA n'a produit de réponse exploitable. Vérifier la clé Gemini et le modèle.")
 
                         result = {
                             "answer": answer or "",
