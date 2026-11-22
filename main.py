@@ -16,6 +16,7 @@ from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
 from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
 from verox_brain.market import market_catalog, resolve_market
+from verox_brain.ephemeral_agents import active_mission_agents, retire_mission_agents, spawn_mission_agents
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -967,6 +968,8 @@ def run_dashboard():
                     "interfaces": [{"url": public_url + "/api/market/resolve", "protocol": "HTTP+JSON", "method": "POST"}],
                     "authentication": {"required": bool(os.getenv("VEROX_MARKET_API_TOKEN")), "type": "Bearer" if os.getenv("VEROX_MARKET_API_TOKEN") else "none"}
                 })
+            if parsed.path == "/api/market/instances":
+                return self._json(200, active_mission_agents())
             if parsed.path == "/api/market/catalog":
                 catalog = market_catalog()
                 catalog["url"] = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com")
@@ -1048,14 +1051,14 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
-            if request_path not in {"/api/chat", "/api/market/resolve"}:
+            if request_path not in {"/api/chat", "/api/market/resolve", "/api/market/spawn", "/api/market/retire"}:
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 1 or length > 20000:
                     return self._json(400, {"error": "Taille de requête invalide"})
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
-                if request_path == "/api/market/resolve":
+                if request_path in {"/api/market/resolve", "/api/market/spawn", "/api/market/retire"}:
                     market_token = os.getenv("VEROX_MARKET_API_TOKEN", "").strip()
                     if market_token:
                         import hmac
@@ -1063,6 +1066,25 @@ def run_dashboard():
                         expected = "Bearer " + market_token
                         if not hmac.compare_digest(supplied, expected):
                             return self._json(401, {"error": "Authentification agent requise."})
+                if request_path == "/api/market/spawn":
+                    query = str(body.get("query", body.get("text", ""))).strip()
+                    try:
+                        result = spawn_mission_agents(
+                            query=query,
+                            count=body.get("count", 3),
+                            ttl_seconds=body.get("ttl_seconds", 180),
+                            mission_id=body.get("mission_id"),
+                        )
+                    except ValueError as exc:
+                        return self._json(400, {"error": str(exc)})
+                    return self._json(202, result)
+                if request_path == "/api/market/retire":
+                    try:
+                        result = retire_mission_agents(str(body.get("mission_id", "")))
+                    except ValueError as exc:
+                        return self._json(400, {"error": str(exc)})
+                    return self._json(200, result)
+                if request_path == "/api/market/resolve":
                     query = str(body.get("query", body.get("text", ""))).strip()
                     if not query or len(query) > 8000:
                         return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
