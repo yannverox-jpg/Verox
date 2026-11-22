@@ -249,7 +249,10 @@ def scan_feeds(
     """
     proof_mode = any(value is not None for value in (run_id, data_plane, source_ids_by_feed_url))
     if proof_mode and (not str(run_id or "").strip() or data_plane is None or source_ids_by_feed_url is None):
-        raise ValueError("Proof mode requires the real run_id, data_plane, and registered source IDs by feed URL.")
+        from verox_brain.server_proof_recorder import ProofIntegrityError
+        raise ProofIntegrityError(
+            "Proof mode requires the real run_id, data_plane, and registered source IDs by feed URL."
+        )
     clean_run_id = str(run_id or "").strip()
     configured = feeds if feeds is not None else load_feeds()
     if not configured:
