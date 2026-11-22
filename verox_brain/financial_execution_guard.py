@@ -117,7 +117,9 @@ class ServerHumanApprovalGuard:
 
     def _audit(self, status: str, intent: FinancialOperationIntent, fingerprint: str, reason: str) -> None:
         if self._record_audit_event is None:
-            return
+            raise FinancialAuthorizationError(
+                "Authorization audit is not configured; execution denied."
+            )
         try:
             self._record_audit_event({
                 "run_id": intent.run_id,
