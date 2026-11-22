@@ -1258,7 +1258,22 @@ def run_dashboard():
                                 rows_existing = existing.json()
                                 if rows_existing:
                                     return self._json(202, {"id": rows_existing[0]["id"], "status": rows_existing[0]["status"], "deduplicated": True, "result_url": "/api/tasks/" + rows_existing[0]["id"]})
-                            task = {"task_key": task_key, "task_type": task_type, "status": "queued", "payload": {"text": query, "source": "agent_market", "mission_id": str(body.get("mission_id", ""))[:100], "product_id": str(body.get("product_id", "async-task-execution"))[:100]}}
+                            task = {
+                                "task_key": task_key,
+                                "task_type": task_type,
+                                "status": "queued",
+                                "department_id": str(body.get("department_id", ""))[:80] or None,
+                                "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
+                                "mission_id": str(body.get("mission_id", ""))[:100] or None,
+                                "payload": {
+                                    "text": query,
+                                    "source": "agent_market",
+                                    "department_id": str(body.get("department_id", ""))[:80] or None,
+                                    "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
+                                    "mission_id": str(body.get("mission_id", ""))[:100] or None,
+                                    "product_id": str(body.get("product_id", "async-task-execution"))[:100],
+                                },
+                            }
                             response = client.post(supabase_url + "/rest/v1/nexus_tasks", json=task, headers={**supabase_headers, "Prefer": "return=representation"})
                             response.raise_for_status()
                             rows = response.json()
@@ -1349,9 +1364,22 @@ def run_dashboard():
                     if fallback:
                         return self._json(200, {"answer": fallback, "mode": "gemini_fallback"})
                     return self._json(503, {"error": "Supabase n'est pas configuré et Gemini n'est pas disponible."})
-                task = {"task_key": task_key, "task_type": task_type,
-                        "status": "queued", "payload": {"text": query, "email": email,
-                        "source": "verox_dashboard"}}
+                task = {
+                    "task_key": task_key,
+                    "task_type": task_type,
+                    "status": "queued",
+                    "department_id": str(body.get("department_id", ""))[:80] or None,
+                    "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
+                    "mission_id": str(body.get("mission_id", ""))[:100] or None,
+                    "payload": {
+                        "text": query,
+                        "email": email,
+                        "source": "verox_dashboard",
+                        "department_id": str(body.get("department_id", ""))[:80] or None,
+                        "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
+                        "mission_id": str(body.get("mission_id", ""))[:100] or None,
+                    },
+                }
                 with httpx.Client(timeout=10.0) as client:
                     response = client.post(url + "/rest/v1/nexus_tasks",
                         json=task, headers={**headers, "Prefer": "return=representation"})
