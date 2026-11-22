@@ -1,9 +1,4 @@
-"""Fail-closed runtime envelope and financial authorization guards.
-
-A2A execution intentionally remains disabled until the canonical orchestrator and
-the public.verox_a2a_traces schema are present and verified. Never silently route
-an A2A envelope through CognitiveBrain.
-"""
+"""Runtime envelope classification and fail-closed execution guards."""
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -50,6 +45,14 @@ def require_financial_authorization(
     at execution time. A model recommendation or boolean flag is not sufficient.
     """
     normalized = str(action or "").strip().lower()
+    aliases = {
+        "trade_order": "trade_order", "place_order": "trade_order",
+        "submit_order": "trade_order", "execute_trade": "trade_order",
+        "bet": "bet", "place_bet": "bet", "submit_bet": "bet", "wager": "bet",
+        "transfer": "transfer", "send_funds": "transfer", "withdraw": "transfer",
+        "withdrawal": "transfer", "deposit": "transfer",
+    }
+    normalized = aliases.get(normalized, normalized)
     if normalized not in {"trade_order", "bet", "transfer"}:
         return
     if not callable(authorization_verifier):
