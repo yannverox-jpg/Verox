@@ -325,6 +325,8 @@ class handler(BaseHTTPRequestHandler):
                 else "none"
             )
             started = time.monotonic()
+            previous_model = os.environ.get("GEMINI_MODEL")
+            os.environ["GEMINI_MODEL"] = "gemini-3.1-flash-lite"
             try:
                 answer, provider, model = generate_text(
                     "Réponds exactement VEROX_ROUTER_OK.",
@@ -335,6 +337,7 @@ class handler(BaseHTTPRequestHandler):
                     "ok": bool(answer.strip()),
                     "provider": provider,
                     "model": model,
+                    "gemini_model_tested": "gemini-3.1-flash-lite",
                     "token_source": token_source,
                     "latency_ms": round((time.monotonic() - started) * 1000, 1),
                     "marker_match": "VEROX_ROUTER_OK" in answer,
@@ -343,10 +346,16 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 502, {
                     "ok": False,
                     "stage": "model_router",
+                    "gemini_model_tested": "gemini-3.1-flash-lite",
                     "token_source": token_source,
                     "error": str(exc)[:300],
                     "latency_ms": round((time.monotonic() - started) * 1000, 1),
                 })
+            finally:
+                if previous_model is None:
+                    os.environ.pop("GEMINI_MODEL", None)
+                else:
+                    os.environ["GEMINI_MODEL"] = previous_model
             return
         if path == "/api/health":
             gateway_auth_available = bool(_gateway_token(self))
