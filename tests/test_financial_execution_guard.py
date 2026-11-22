@@ -79,9 +79,11 @@ def test_exact_approval_is_consumed_before_executor_runs():
 def test_fingerprint_mismatch_blocks_and_does_not_consume():
     operation = intent()
     consumed = []
+    audit_events = []
     guard = ServerHumanApprovalGuard(
         fetch_approval=lambda auth_id, fp: [approval_for(intent(amount="999"))],
         consume_approval=lambda *_: consumed.append(True) or True,
+        record_audit_event=audit_events.append,
     )
     with pytest.raises(FinancialAuthorizationError, match="exact operation"):
         guard.verify_and_consume_for_execution(intent=operation, authorization_id="approval-1")
@@ -96,8 +98,11 @@ def test_expired_approval_blocks():
         approved_at_utc=(old - timedelta(minutes=1)).isoformat(),
         expires_at_utc=old.isoformat(),
     )
+    audit_events = []
     guard = ServerHumanApprovalGuard(
-        fetch_approval=lambda *_: [record], consume_approval=lambda *_: True
+        fetch_approval=lambda *_: [record],
+        consume_approval=lambda *_: True,
+        record_audit_event=audit_events.append,
     )
     with pytest.raises(FinancialAuthorizationError, match="expired"):
         guard.verify_and_consume_for_execution(intent=operation, authorization_id="approval-1")
