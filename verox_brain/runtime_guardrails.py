@@ -63,8 +63,13 @@ def require_financial_authorization(
 
 
 async def execute_a2a_pipeline_step(*, task, client, supabase_url, headers):
-    """Fail closed until the canonical A2A orchestrator and trace contract exist."""
-    raise RuntimeGuardError(
-        "a2a_execution_disabled: canonical orchestrator and trace persistence "
-        "contract are not implemented/verified"
-    )
+    """Delegate A2A messages to the canonical validator/evidence/trace/router pipeline."""
+    try:
+        from verox_brain.a2a_adapters import execute_a2a_pipeline_step as run_pipeline
+        return await run_pipeline(
+            task=task, client=client, supabase_url=supabase_url, headers=headers
+        )
+    except RuntimeGuardError:
+        raise
+    except Exception as exc:
+        raise RuntimeGuardError(f"a2a_pipeline_failed_closed: {type(exc).__name__}: {exc}") from exc
