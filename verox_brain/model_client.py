@@ -218,13 +218,16 @@ def generate_text(
     """Use Vercel AI Gateway first; try explicitly enabled connectors, then Gemini keys."""
     token = _gateway_token(gateway_token)
     errors: list[str] = []
+    gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
+    gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
 
-    if not token:
-        _trace("gateway", os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL), "skipped_no_token", time.monotonic(), task_id=task_id, fallback_reason="gateway_token_unavailable")
+    if not gateway_enabled:
+        _trace("gateway", gateway_model, "skipped_disabled", time.monotonic(), task_id=task_id, fallback_reason="gateway_disabled_by_configuration")
+    elif not token:
+        _trace("gateway", gateway_model, "skipped_no_token", time.monotonic(), task_id=task_id, fallback_reason="gateway_token_unavailable")
 
-    if token:
+    if token and gateway_enabled:
         started = time.monotonic()
-        gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
         try:
             result = _generate_gateway(prompt, system_prompt, token)
             _trace("gateway", result[2], 200, started, task_id=task_id)
