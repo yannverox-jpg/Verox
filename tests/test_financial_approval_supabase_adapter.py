@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from verox_brain.financial_approval_supabase_adapter import SupabaseFinancialApprovalAdapter
+from verox_brain.financial_execution_guard import (
+    FinancialOperationIntent,
+    compute_operation_fingerprint,
+    execute_financial_action_guarded,
+)
+
+
+class FakeDataPlane:
+    base_url = "https://example.supabase.co"
+    service_key = "server-only-test-key"
+
+
+def make_intent():
+    return FinancialOperationIntent(
+        domain="trading",
+        operation_type="place_order",
+        run_id="run-adapter-test",
+        event_id="evt-adapter-test",
+        target="EURUSD",
+        amount="10.00",
+        currency="USD",
+        evidence_id="evidence-test",
+        parameters={"side": "buy", "quantity": "1"},
+    )
+
+
+def test_fetch_approval_uses_actual_data_plane_configuration(monkeypatch):
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    seen = {}
+
+    def fake_request(method, path, *, params=None, body=None):
+        seen.update(method=method, path=path, params=params, body=body)
+        return [{"authorization_id": "auth-1", "status": "approved"}]
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    rows = adapter.fetch_approval("auth-1", "a" * 64)
+
+    assert rows[0]["authorization_id"] == "auth-1"
+    assert seen["method"] == "GET"
+    assert seen["path"] == "verox_financial_authorizations"
+    assert seen["params"]["authorization_id"] == "eq.auth-1"
+
+
+def test_consume_approval_requires_atomic_success_and_matching_fingerprint(monkeypatch):
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    intent = make_intent()
+    fingerprint = compute_operation_fingerprint(intent)
+    seen = {}
+
+    def fake_rpc(function_name, *, params=None, timeout=None):
+        seen.update(function_name=function_name, params=params, timeout=timeout)
+        return [{
+            "consumed": True,
+            "operation_fingerprint": fingerprint,
+            "reason": "consumed_atomically",
+        }]
+
+    monkeypatch.setattr(adapter._data_plane, "rpc", fake_rpc, raising=False)
+    assert adapter.consume_approval("auth-1", fingerprint, intent=intent) is True
+    assert seen["function_name"] == "consume_human_financial_authorization"
+    assert seen["params"]["p_authorization_id"] == "auth-1"
+    assert seen["params"]["p_operation_fingerprint"] == fingerprint
+    assert seen["timeout"] == adapter._timeout
+
+    monkeypatch.setattr(adapter._data_plane, "rpc", lambda *args, **kwargs: [{
+        "consumed": True,
+        "operation_fingerprint": "b" * 64,
+        "reason": "consumed_atomically",
+    }], raising=False)
+    assert adapter.consume_approval("auth-1", fingerprint, intent=intent) is False
+
+
+def test_adapter_guard_consumes_before_executor(monkeypatch):
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    intent = make_intent()
+    fingerprint = compute_operation_fingerprint(intent)
+    now = datetime.now(timezone.utc)
+    calls = []
+
+    def fake_request(method, path, *, params=None, body=None):
+        assert method == "GET"
+        return [{
+            "authorization_id": "auth-1",
+            "operation_fingerprint": fingerprint,
+            "status": "approved",
+            "approved_by": "human-test",
+            "approved_at_utc": (now - timedelta(seconds=1)).isoformat(),
+            "expires_at_utc": (now + timedelta(minutes=1)).isoformat(),
+            "consumed_at_utc": None,
+        }]
+
+    def fake_rpc(function_name, *, params=None, timeout=None):
+        assert function_name == "consume_human_financial_authorization"
+        calls.append("consumed")
+        return [{
+            "consumed": True,
+            "operation_fingerprint": fingerprint,
+            "reason": "consumed_atomically",
+        }]
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    monkeypatch.setattr(adapter._data_plane, "rpc", fake_rpc, raising=False)
+    result = execute_financial_action_guarded(
+        guard=adapter.build_guard(intent),
+        intent=intent,
+        authorization_id="auth-1",
+        executor_fn=lambda verified: (calls.append("executor"), verified.status)[1],
+    )
+
+    assert result == "consumed"
+    assert calls == ["consumed", "executor"]
+
+
+
+def test_refusal_audit_requires_confirmed_insert(monkeypatch):
+    from verox_brain.financial_execution_guard import FinancialAuthorizationError
+
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    seen = {}
+
+    def fake_request(method, path, *, params=None, body=None, prefer=None):
+        seen.update(method=method, path=path, body=body, prefer=prefer)
+        return [{"event_id": body["event_id"]}]
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    adapter.record_audit_event({
+        "run_id": "run-audit",
+        "event_id": "evt-audit",
+        "status": "blocked",
+        "action": "place_order",
+        "target": "EURUSD",
+        "metadata": {"reason": "test"},
+    })
+    assert seen["method"] == "POST"
+    assert seen["path"] == "nexus_runtime_events"
+    assert seen["prefer"] == "return=representation"
+
+
+def test_refusal_audit_missing_confirmation_fails_closed(monkeypatch):
+    from verox_brain.financial_execution_guard import FinancialAuthorizationError
+
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    monkeypatch.setattr(
+        adapter,
+        "_request",
+        lambda method, path, *, params=None, body=None, prefer=None: None,
+    )
+    try:
+        adapter.record_audit_event({
+            "run_id": "run-audit",
+            "event_id": "evt-audit",
+            "status": "blocked",
+            "action": "place_order",
+            "target": "EURUSD",
+            "metadata": {"reason": "test"},
+        })
+    except FinancialAuthorizationError as exc:
+        assert "not confirmed" in str(exc)
+    else:
+        raise AssertionError("missing audit confirmation must fail closed")

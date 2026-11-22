@@ -7,7 +7,7 @@ from verox_a2a_runtime_guard import (
     ServerEvidenceVerifier,
     execute_a2a_pipeline_step,
 )
-from test_verox_a2a_validator import _base_discovery_message
+from tests.test_verox_a2a_validator import _base_discovery_message
 
 
 @dataclass(frozen=True)
@@ -87,3 +87,20 @@ class RuntimeGuardTests(TestCase):
             execute_a2a_pipeline_step(self.raw, self.repo, self.verifier, self.router)
         self.repo.insert_trace_message.assert_not_called()
         self.router.route_after_persist.assert_not_called()
+
+
+    def test_trace_persistence_failure_stops_before_routing(self):
+        self.repo.insert_trace_message.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "persistance du message A2A"):
+            execute_a2a_pipeline_step(self.raw, self.repo, self.verifier, self.router)
+        self.repo.insert_trace_message.assert_called_once()
+        self.router.route_after_persist.assert_not_called()
+        self.repo.record_rejection.assert_called_once()
+
+    def test_trace_insert_exception_stops_before_routing(self):
+        self.repo.insert_trace_message.side_effect = RuntimeError("simulated database outage")
+        with self.assertRaisesRegex(RuntimeError, "simulated database outage"):
+            execute_a2a_pipeline_step(self.raw, self.repo, self.verifier, self.router)
+        self.repo.insert_trace_message.assert_called_once()
+        self.router.route_after_persist.assert_not_called()
+        self.repo.record_rejection.assert_called_once()

@@ -17,6 +17,7 @@ from playwright_stealth import Stealth
 from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
 from verox_brain.market import market_catalog, resolve_market
 from verox_brain.ephemeral_agents import active_mission_agents, retire_mission_agents, spawn_mission_agents
+from verox_brain.runtime_guardrails import classify_task_envelope, execute_a2a_pipeline_step, guard_declared_financial_action, RuntimeGuardError
 
 MARKET_PRODUCT_CATALOG = {
     "name": "Verox Agent Market",
@@ -964,6 +965,25 @@ async def run_worker(worker_id: int = 0):
                     )
                     try:
                         payload = task.get("payload") or {}
+                        guard_declared_financial_action(task)
+                        envelope_type = classify_task_envelope(task)
+                        if envelope_type == "a2a_message":
+                            # No generic CognitiveBrain fallback is permitted for A2A.
+                            result = await execute_a2a_pipeline_step(
+                                task=task, client=client, supabase_url=supabase_url, headers=headers
+                            )
+                            if not isinstance(result, dict):
+                                raise RuntimeGuardError("a2a_pipeline_returned_invalid_result")
+                            if lost_lease.is_set():
+                                logger.warning("Résultat A2A non publié: bail perdu task_id=%s", task_id)
+                                continue
+                            committed = await _finalize_claimed_task(
+                                client, supabase_url, headers, task_id, worker_name,
+                                "succeeded", result, None
+                            )
+                            if not committed:
+                                logger.error("Finalisation A2A non confirmée task_id=%s", task_id)
+                            continue
                         query = str(payload.get("text") or payload.get("query") or "").strip()
                         email = str(payload.get("email") or "").strip()
                         task_type = str(task.get("task_type") or "cognitive_chat").strip().lower()
@@ -1272,6 +1292,18 @@ def run_dashboard():
                     task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
                     if not query or len(query) > 8000:
                         return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
+                    try:
+                        guard_declared_financial_action({"task_type": task_type, "payload": body})
+                        classify_task_envelope({
+                            "task_type": task_type,
+                            "payload": {
+                                **body,
+                                "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
+                                "text": query,
+                            },
+                        })
+                    except RuntimeGuardError as exc:
+                        return self._json(403 if "financial_authorization" in str(exc) or "human_authorization" in str(exc) else 400, {"error": str(exc)})
                     if task_type not in {"cognitive_chat", "chat", "general_chat"}:
                         try:
                             resolve_route(task_type)
@@ -1301,6 +1333,7 @@ def run_dashboard():
                                 "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
                                 "mission_id": str(body.get("mission_id", ""))[:100] or None,
                                 "payload": {
+                                    "envelope_type": str(body.get("envelope_type", body.get("kind", "generic_task"))).strip().lower(),
                                     "text": query,
                                     "source": "agent_market",
                                     "department_id": str(body.get("department_id", ""))[:80] or None,
@@ -1378,6 +1411,23 @@ def run_dashboard():
                 query = str(body.get("text", "")).strip()
                 email = str(body.get("email", "")).strip()
                 task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
+                try:
+                    guard_declared_financial_action({"task_type": task_type, "payload": body})
+                    envelope_type = classify_task_envelope({
+                        "task_type": task_type,
+                        "payload": {
+                            **body,
+                            "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
+                            "text": query,
+                        },
+                    })
+                except RuntimeGuardError as exc:
+                    return self._json(403 if "financial_authorization" in str(exc) or "human_authorization" in str(exc) else 400, {"error": str(exc)})
+                if envelope_type == "a2a_message":
+                    return self._json(503, {
+                        "error": "Le pipeline A2A canonique n'est pas disponible; aucun fallback générique n'a été exécuté.",
+                        "envelope_type": "a2a_message",
+                    })
                 if not query:
                     return self._json(400, {"error": "Le message est vide"})
                 if task_type not in {"cognitive_chat", "chat", "general_chat"}:
@@ -1407,6 +1457,7 @@ def run_dashboard():
                     "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
                     "mission_id": str(body.get("mission_id", ""))[:100] or None,
                     "payload": {
+                        "envelope_type": envelope_type,
                         "text": query,
                         "email": email,
                         "source": "verox_dashboard",
