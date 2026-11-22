@@ -314,6 +314,35 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
+        if path == "/api/queue-smoke":
+            # Temporary preview-only smoke: enqueue one harmless model task to verify
+            # Supabase persistence -> Vercel Queue -> model router -> Supabase result.
+            try:
+                task = _rpc(
+                    "create",
+                    task_type="chat",
+                    payload={
+                        "text": "Verox end-to-end smoke test. Réponds uniquement VEROX_QUEUE_OK. Aucune action externe.",
+                        "_client_ip": _client_ip(self),
+                        "source": "preview_queue_smoke",
+                        "user_initiated": "true",
+                    },
+                )
+                task_id = str(task["id"])
+                try:
+                    message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                except Exception:
+                    _rpc("fail", task_id=task_id, error="Impossible de placer la tâche de test dans la file durable.")
+                    raise
+                _json(self, 202, {
+                    "id": task_id,
+                    "status": "queued",
+                    "queue_message_id": message_id,
+                    "status_url": f"/api/tasks/{task_id}",
+                })
+            except Exception:
+                _json(self, 503, {"ok": False, "stage": "queue_smoke", "error": "Impossible de créer ou placer la tâche de test."})
+            return
         if path == "/api/health":
             gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
             gateway_auth_available = bool(_gateway_token(self))
