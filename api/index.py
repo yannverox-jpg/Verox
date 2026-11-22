@@ -325,7 +325,7 @@ class handler(BaseHTTPRequestHandler):
                     payload={
                         "text": "Verox end-to-end smoke test. Réponds uniquement VEROX_QUEUE_OK. Aucune action externe.",
                         "_client_ip": _client_ip(self),
-                        "source": "preview_queue_smoke",
+                        "source": "verox_dashboard",
                         "user_initiated": "true",
                     },
                 )
