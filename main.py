@@ -1056,6 +1056,13 @@ def run_dashboard():
                     return self._json(400, {"error": "Taille de requête invalide"})
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if request_path == "/api/market/resolve":
+                    market_token = os.getenv("VEROX_MARKET_API_TOKEN", "").strip()
+                    if market_token:
+                        import hmac
+                        supplied = self.headers.get("Authorization", "")
+                        expected = "Bearer " + market_token
+                        if not hmac.compare_digest(supplied, expected):
+                            return self._json(401, {"error": "Authentification agent requise."})
                     query = str(body.get("query", body.get("text", ""))).strip()
                     if not query or len(query) > 8000:
                         return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
