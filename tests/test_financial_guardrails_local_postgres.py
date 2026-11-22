@@ -12,10 +12,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-psycopg = pytest.importorskip(
-    "psycopg", reason="the dedicated local-PostgreSQL workflow installs psycopg"
-)
-from psycopg.rows import dict_row
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:
+    # unittest discovery imports every test module in the generic quality job;
+    # only the dedicated PostgreSQL workflow installs this optional driver.
+    psycopg = None
+    dict_row = None
 
 
 SOURCE = "verox_t1_t6_integration_test"
@@ -96,6 +100,7 @@ def cleanup(row):
         conn.commit()
 
 
+@pytest.mark.skipif(psycopg is None, reason="the dedicated local-PostgreSQL workflow installs psycopg")
 def test_t3_expired_approval_is_persisted_as_expired():
     row = None
     try:
@@ -123,6 +128,7 @@ def test_t3_expired_approval_is_persisted_as_expired():
             cleanup(row)
 
 
+@pytest.mark.skipif(psycopg is None, reason="the dedicated local-PostgreSQL workflow installs psycopg")
 def test_t5_concurrent_consumption_is_atomic_and_audited_once():
     row = None
     try:
