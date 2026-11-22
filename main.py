@@ -929,142 +929,145 @@ async def run_worker(worker_id: int = 0):
                 lost_lease = asyncio.Event()
                 try:
                     claim_response = await client.post(
-                    f"{supabase_url}/rest/v1/rpc/claim_next_nexus_task",
-                    json={"p_worker_id": worker_name, "p_lease_seconds": lease_seconds},
-                    headers=headers,
-                )
-                claim_response.raise_for_status()
-                claimed = claim_response.json()
-                if isinstance(claimed, dict):
-                    task = claimed
-                elif isinstance(claimed, list) and claimed:
-                    task = claimed[0]
+                        f"{supabase_url}/rest/v1/rpc/claim_next_nexus_task",
+                        json={"p_worker_id": worker_name, "p_lease_seconds": lease_seconds},
+                        headers=headers,
+                    )
+                    claim_response.raise_for_status()
+                    claimed = claim_response.json()
+                    if isinstance(claimed, dict):
+                        task = claimed
+                    elif isinstance(claimed, list) and claimed:
+                        task = claimed[0]
 
-                if not task:
-                    await asyncio.sleep(0.75)
-                    continue
+                    if not task:
+                        await asyncio.sleep(0.75)
+                        continue
 
-                task_id = task["id"]
-                heartbeat = asyncio.create_task(
-                    _task_heartbeat(
-                        client, supabase_url, headers, task_id, worker_name,
-                        lease_seconds, lost_lease
-                    ),
-                    name=f"verox-heartbeat-{str(task_id)[:8]}",
-                )
-                try:
-                    payload = task.get("payload") or {}
-                    query = str(payload.get("text") or payload.get("query") or "").strip()
-                    email = str(payload.get("email") or "").strip()
-                    task_type = str(task.get("task_type") or "cognitive_chat").strip().lower()
-                    if not query:
-                        raise ValueError("Le champ payload.text ou payload.query est requis.")
+                    task_id = task["id"]
+                    heartbeat = asyncio.create_task(
+                        _task_heartbeat(
+                            client, supabase_url, headers, task_id, worker_name,
+                            lease_seconds, lost_lease
+                        ),
+                        name=f"verox-heartbeat-{str(task_id)[:8]}",
+                    )
+                    try:
+                        payload = task.get("payload") or {}
+                        query = str(payload.get("text") or payload.get("query") or "").strip()
+                        email = str(payload.get("email") or "").strip()
+                        task_type = str(task.get("task_type") or "cognitive_chat").strip().lower()
+                        if not query:
+                            raise ValueError("Le champ payload.text ou payload.query est requis.")
 
-                    route = None
-                    provider_filter = None
-                    if task_type not in {"cognitive_chat", "chat", "general_chat"}:
-                        route = resolve_route(task_type)
-                        if route.connector in {"grok", "gemini", "claude", "gpt"}:
-                            provider_filter = route.provider
-                        elif route.role != "brain_coordination":
+                        route = None
+                        provider_filter = None
+                        if task_type not in {"cognitive_chat", "chat", "general_chat"}:
+                            route = resolve_route(task_type)
+                            if route.connector in {"grok", "gemini", "claude", "gpt"}:
+                                provider_filter = route.provider
+                            elif route.role != "brain_coordination":
+                                raise RuntimeError(
+                                    f"Connecteur requis non intégré au worker: {route.connector}. "
+                                    "La tâche est arrêtée plutôt que simulée."
+                                )
+
+                        evidence = await brain.run(query, email, provider_filter=provider_filter)
+                        if route and provider_filter and not any(
+                            provider_filter.lower() in str(item.get("connector", "")).lower()
+                            and "résultat web" in str(item.get("title", "")).lower()
+                            for item in (evidence or [])
+                        ):
                             raise RuntimeError(
-                                f"Connecteur requis non intégré au worker: {route.connector}. "
-                                "La tâche est arrêtée plutôt que simulée."
+                                f"Le fournisseur {route.provider} n'a pas retourné de résultat vérifiable. "
+                                "Vérifier la session Playwright et relancer la tâche."
                             )
 
-                    evidence = await brain.run(query, email, provider_filter=provider_filter)
-                    if route and provider_filter and not any(
-                        provider_filter.lower() in str(item.get("connector", "")).lower()
-                        and "résultat web" in str(item.get("title", "")).lower()
-                        for item in (evidence or [])
-                    ):
-                        raise RuntimeError(
-                            f"Le fournisseur {route.provider} n'a pas retourné de résultat vérifiable. "
-                            "Vérifier la session Playwright et relancer la tâche."
-                        )
-
-                    gemini_fallback = next(
-                        (item for item in (evidence or []) if item.get("connector") == "Gemini fallback"),
-                        None,
-                    )
-                    if gemini_fallback:
-                        answer = str(gemini_fallback.get("evidence") or "").strip()
-                    elif provider_filter:
-                        provider_result = next(
-                            (item for item in (evidence or [])
-                             if provider_filter.lower() in str(item.get("connector", "")).lower()
-                             and "résultat web" in str(item.get("title", "")).lower()),
+                        gemini_fallback = next(
+                            (item for item in (evidence or []) if item.get("connector") == "Gemini fallback"),
                             None,
                         )
-                        answer = str(provider_result.get("evidence") or "").strip() if provider_result else ""
-                    else:
-                        answer = await brain.ask_gemini(query, evidence or [])
+                        if gemini_fallback:
+                            answer = str(gemini_fallback.get("evidence") or "").strip()
+                        elif provider_filter:
+                            provider_result = next(
+                                (item for item in (evidence or [])
+                                 if provider_filter.lower() in str(item.get("connector", "")).lower()
+                                 and "résultat web" in str(item.get("title", "")).lower()),
+                                None,
+                            )
+                            answer = str(provider_result.get("evidence") or "").strip() if provider_result else ""
+                        else:
+                            answer = await brain.ask_gemini(query, evidence or [])
 
-                    result = {
-                        "answer": answer or "",
-                        "provider": (route.provider if route and provider_filter else ("gemini" if answer else "connectors")),
-                        "task_type": task_type,
-                        "department_id": task.get("department_id") or payload.get("department_id"),
-                        "strategy_id": task.get("strategy_id") or payload.get("strategy_id"),
-                        "mission_id": task.get("mission_id") or payload.get("mission_id"),
-                        "routed_role": route.role if route else "general_cognitive_chat",
-                        "route_connector": route.connector if route else None,
-                        "evidence": evidence or [],
-                        "evidence_count": len(evidence or []),
-                    }
-                    if lost_lease.is_set():
-                        logger.warning("Résultat non publié: bail perdu task_id=%s", task_id)
-                        continue
-                    committed = await _finalize_claimed_task(
-                        client, supabase_url, headers, task_id, worker_name,
-                        "succeeded", result, None
-                    )
-                    if committed:
-                        await client.post(
-                            f"{supabase_url}/rest/v1/nexus_execution_events",
-                            json={
-                                "task_id": task_id, "event_type": "task_succeeded", "severity": "info",
-                                "message": "CognitiveBrain a terminé la tâche.",
-                                "details": {
-                                    "task_type": task_type,
-                                    "department_id": result["department_id"],
-                                    "strategy_id": result["strategy_id"],
-                                    "mission_id": result["mission_id"],
-                                    "evidence_count": result["evidence_count"],
-                                },
-                            },
-                            headers={**headers, "Prefer": "return=minimal"},
-                        )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    logger.exception("Échec de la tâche cognitive %s", task_id)
-                    error_result = {"error": str(exc)[:1000], "evidence": []}
-                    if not lost_lease.is_set():
+                        result = {
+                            "answer": answer or "",
+                            "provider": (route.provider if route and provider_filter else ("gemini" if answer else "connectors")),
+                            "task_type": task_type,
+                            "department_id": task.get("department_id") or payload.get("department_id"),
+                            "strategy_id": task.get("strategy_id") or payload.get("strategy_id"),
+                            "mission_id": task.get("mission_id") or payload.get("mission_id"),
+                            "routed_role": route.role if route else "general_cognitive_chat",
+                            "route_connector": route.connector if route else None,
+                            "evidence": evidence or [],
+                            "evidence_count": len(evidence or []),
+                        }
+                        if lost_lease.is_set():
+                            logger.warning("Résultat non publié: bail perdu task_id=%s", task_id)
+                            continue
                         committed = await _finalize_claimed_task(
                             client, supabase_url, headers, task_id, worker_name,
-                            "failed", error_result, str(exc)[:2000]
+                            "succeeded", result, None
                         )
                         if committed:
                             await client.post(
                                 f"{supabase_url}/rest/v1/nexus_execution_events",
                                 json={
-                                    "task_id": task_id, "event_type": "task_failed", "severity": "error",
-                                    "message": "Échec de la tâche CognitiveBrain.",
-                                    "details": {"error": str(exc)[:1000]},
+                                    "task_id": task_id, "event_type": "task_succeeded", "severity": "info",
+                                    "message": "CognitiveBrain a terminé la tâche.",
+                                    "details": {
+                                        "task_type": task_type,
+                                        "department_id": result["department_id"],
+                                        "strategy_id": result["strategy_id"],
+                                        "mission_id": result["mission_id"],
+                                        "evidence_count": result["evidence_count"],
+                                    },
                                 },
                                 headers={**headers, "Prefer": "return=minimal"},
                             )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.exception("Erreur du worker cognitif %s (%s)", worker_name, type(exc).__name__)
-                await asyncio.sleep(2)
-            finally:
-                if heartbeat is not None:
-                    heartbeat.cancel()
-                    await asyncio.gather(heartbeat, return_exceptions=True)
-
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.exception("Échec de la tâche cognitive %s", task_id)
+                        error_result = {"error": str(exc)[:1000], "evidence": []}
+                        if not lost_lease.is_set():
+                            committed = await _finalize_claimed_task(
+                                client, supabase_url, headers, task_id, worker_name,
+                                "failed", error_result, str(exc)[:2000]
+                            )
+                            if committed:
+                                await client.post(
+                                    f"{supabase_url}/rest/v1/nexus_execution_events",
+                                    json={
+                                        "task_id": task_id, "event_type": "task_failed", "severity": "error",
+                                        "message": "Échec de la tâche CognitiveBrain.",
+                                        "details": {"error": str(exc)[:1000]},
+                                    },
+                                    headers={**headers, "Prefer": "return=minimal"},
+                                )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception("Erreur du worker cognitif %s (%s)", worker_name, type(exc).__name__)
+                    await asyncio.sleep(2)
+                finally:
+                    if heartbeat is not None:
+                        heartbeat.cancel()
+                        await asyncio.gather(heartbeat, return_exceptions=True)
+        finally:
+            if reclaim_task is not None:
+                reclaim_task.cancel()
+                await asyncio.gather(reclaim_task, return_exceptions=True)
 
 
 def run_dashboard():
