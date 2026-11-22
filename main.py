@@ -897,13 +897,13 @@ async def run_worker(worker_id: int = 0):
             logger.info("Registre CognitiveBrain chargé : %s extensions classées.", extension_count)
         except Exception:
             logger.exception("Impossible de charger le registre des extensions")
-        if os.getenv("GEMINI_API_KEY", "").strip():
+        if _gemini_api_key()[0]:
             if await brain.probe_gemini():
                 logger.info("Gemini API de secours vérifiée au démarrage.")
             else:
                 logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
         else:
-            logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
+            logger.warning("Clé Gemini absente (GEMINI_API_KEY, GEMINI_API_KEY_2 ou Gemini).")
 
     supabase_url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -1125,7 +1125,7 @@ def run_dashboard():
                     return self._json(200, {
                         "ok": True,
                         "database": "connected",
-                        "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+                        "gemini_fallback_configured": bool(_gemini_api_key()[0]),
                         "extension_count": extension_count
                     })
                 except Exception as exc:
