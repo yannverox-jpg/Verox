@@ -79,6 +79,7 @@ def _post_openai_compatible(
     system_prompt: str,
     provider: str,
     timeout: float = 45.0,
+    trust_env: bool = True,
 ) -> tuple[str, str, str]:
     parsed = urlparse(base_url)
     if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
@@ -90,7 +91,9 @@ def _post_openai_compatible(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        # Provider credentials (including Vercel OIDC tokens) must never be interpreted
+        # as proxy configuration inherited from an unrelated environment variable.
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=trust_env) as client:
             response = client.post(
                 url,
                 headers=headers,
@@ -127,6 +130,7 @@ def _generate_gateway(prompt: str, system_prompt: str, token: str) -> tuple[str,
         prompt=prompt,
         system_prompt=system_prompt,
         provider="vercel-ai-gateway",
+        trust_env=False,
     )
 
 
