@@ -15,6 +15,7 @@ import httpx
 from playwright.async_api import async_playwright, Page, BrowserContext
 from playwright_stealth import Stealth
 from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
+from verox_brain.market import market_catalog, resolve_market
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -951,6 +952,12 @@ def run_dashboard():
                         "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
                         "error": str(exc)[:250]
                     })
+            if parsed.path in ("/.well-known/agent-card.json", "/api/market/catalog"):
+                catalog = market_catalog()
+                catalog["url"] = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com")
+                return self._json(200, catalog)
+            if parsed.path == "/api/market/resolve":
+                return self._json(405, {"error": "Utiliser POST pour résoudre une requête d'agent."})
             if parsed.path == "/api/agents":
                 agents = [route_status(task_type) for task_type in sorted(ROUTES)]
                 return self._json(200, {"agents": agents, "count": len(agents)})
@@ -1025,13 +1032,25 @@ def run_dashboard():
             return super().do_GET()
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/chat":
+            request_path = urlparse(self.path).path
+            if request_path not in {"/api/chat", "/api/market/resolve"}:
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 1 or length > 20000:
                     return self._json(400, {"error": "Taille de requête invalide"})
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
+                if request_path == "/api/market/resolve":
+                    query = str(body.get("query", body.get("text", ""))).strip()
+                    if not query or len(query) > 8000:
+                        return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
+                    started = __import__("time").perf_counter()
+                    result = resolve_market(query, limit=body.get("limit", 3))
+                    result["lookup_latency_ms"] = round((__import__("time").perf_counter() - started) * 1000, 3)
+                    result["mode"] = "local_deterministic_registry"
+                    result["execution_started"] = False
+                    result["note"] = "La résolution classe les capacités déclarées; elle ne prouve pas qu'un fournisseur externe est connecté ni qu'une tâche a été exécutée."
+                    return self._json(200, result)
                 query = str(body.get("text", "")).strip()
                 email = str(body.get("email", "")).strip()
                 task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
