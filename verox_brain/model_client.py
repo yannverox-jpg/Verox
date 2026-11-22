@@ -215,17 +215,28 @@ def generate_text(
     gateway_token: str | None = None,
     task_id: str | None = None,
 ) -> tuple[str, str, str]:
-    """Use Vercel AI Gateway first; try explicitly enabled connectors, then Gemini keys."""
-    token = _gateway_token(gateway_token)
+    """Prefer the explicitly configured Gemini API; use Gateway and opt-in connectors as fallbacks."""
     errors: list[str] = []
+
+    # Gemini is the primary brain when a server-side Gemini key is configured.
+    gemini_key, gemini_key_source = _gemini_key_with_source()
+    if gemini_key:
+        try:
+            return _generate_gemini(
+                prompt, system_prompt, gemini_key,
+                task_id=task_id, key_source=gemini_key_source,
+            )
+        except ModelRequestError as exc:
+            errors.append(str(exc))
+
+    # Vercel AI Gateway remains a fallback, not the primary route.
+    token = _gateway_token(gateway_token)
     gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
     gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
-
     if not gateway_enabled:
         _trace("gateway", gateway_model, "skipped_disabled", time.monotonic(), task_id=task_id, fallback_reason="gateway_disabled_by_configuration")
     elif not token:
         _trace("gateway", gateway_model, "skipped_no_token", time.monotonic(), task_id=task_id, fallback_reason="gateway_token_unavailable")
-
     if token and gateway_enabled:
         started = time.monotonic()
         try:
@@ -238,31 +249,23 @@ def generate_text(
             status = next((int(part.strip(".,:;")) for part in message.split() if part.strip(".,:;").isdigit() and len(part.strip(".,:;")) == 3), "provider_error")
             _trace("gateway", gateway_model, status, started, task_id=task_id, fallback_reason="gateway_failed")
 
-    # PocketPal is an opt-in on-device connector. A Vercel function can only reach
-    # it through a securely exposed HTTPS endpoint; a private LAN URL will not work.
+    # Optional connectors remain explicitly opt-in.
     if os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() == "true":
         try:
             return _generate_pocketpal(prompt, system_prompt)
         except (ModelConfigurationError, ModelRequestError) as exc:
             errors.append(str(exc))
 
-    # Hugging Face Inference Providers may incur usage charges; never enable implicitly.
     if os.getenv("VEROX_HF_ENABLED", "").strip().lower() == "true":
         try:
             return _generate_huggingface(prompt, system_prompt)
         except (ModelConfigurationError, ModelRequestError) as exc:
             errors.append(str(exc))
 
-    gemini_key, gemini_key_source = _gemini_key_with_source()
-    if gemini_key:
-        try:
-            return _generate_gemini(prompt, system_prompt, gemini_key, task_id=task_id, key_source=gemini_key_source)
-        except ModelRequestError as exc:
-            errors.append(str(exc))
-
     if errors:
         raise ModelRequestError("Aucun moteur IA n'a répondu : " + " ; ".join(errors[:4]))
     raise ModelConfigurationError(
-        "Aucune authentification IA disponible. Configure le Gateway Vercel; "
-        "Hugging Face et PocketPal restent désactivés par défaut. Aucun modèle payant n'est activé automatiquement."
+        "Aucune authentification IA disponible. Configure GEMINI_API_KEY (prioritaire) "
+        "ou AI_GATEWAY_API_KEY / l'authentification OIDC Vercel. "
+        "Hugging Face et PocketPal restent désactivés par défaut."
     )
