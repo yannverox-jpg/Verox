@@ -59,9 +59,11 @@ def test_missing_authorization_fails_closed():
 def test_exact_approval_is_consumed_before_executor_runs():
     operation = intent()
     consumed = []
+    audit_events = []
     guard = ServerHumanApprovalGuard(
         fetch_approval=lambda auth_id, fp: [approval_for(operation)],
         consume_approval=lambda auth_id, fp: consumed.append((auth_id, fp)) is None,
+        record_audit_event=audit_events.append,
     )
     result = execute_financial_action_guarded(
         guard=guard,
@@ -71,6 +73,7 @@ def test_exact_approval_is_consumed_before_executor_runs():
     )
     assert result == ("consumed", compute_operation_fingerprint(operation))
     assert len(consumed) == 1
+    assert audit_events[0]["status"] == "authorized"
 
 
 def test_fingerprint_mismatch_blocks_and_does_not_consume():
@@ -121,3 +124,16 @@ def test_audit_write_failure_fails_closed():
             authorization_id=None,
         )
 
+
+
+
+def test_missing_audit_sink_blocks_even_when_approval_is_valid():
+    operation = intent()
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=lambda *_: [approval_for(operation)],
+        consume_approval=lambda *_: True,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="audit"):
+        guard.verify_and_consume_for_execution(
+            intent=operation, authorization_id="approval-1"
+        )
