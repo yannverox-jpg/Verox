@@ -69,10 +69,12 @@ def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
 
 
 def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
+    # Prefer the short-lived token injected into the current Vercel request.
+    # A build-time VERCEL_OIDC_TOKEN can be stale by runtime.
     return (
         os.getenv("AI_GATEWAY_API_KEY", "").strip()
-        or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
         or (request.headers.get("x-vercel-oidc-token", "").strip() if request else "")
+        or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
     )
 
 
