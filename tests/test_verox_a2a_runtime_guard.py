@@ -7,7 +7,7 @@ from verox_a2a_runtime_guard import (
     ServerEvidenceVerifier,
     execute_a2a_pipeline_step,
 )
-from test_verox_a2a_validator import _base_discovery_message
+from tests.test_verox_a2a_validator import _base_discovery_message
 
 
 @dataclass(frozen=True)
