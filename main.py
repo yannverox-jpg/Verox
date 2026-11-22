@@ -24,6 +24,15 @@ logging.basicConfig(
 logger = logging.getLogger("CognitiveBrain")
 
 
+def _supabase_base_url(value: str) -> str:
+    """Normalise SUPABASE_URL whether configured as project root or with /rest/v1."""
+    url = (value or "").strip().rstrip("/")
+    while url.lower().endswith("/rest/v1"):
+        url = url[:-8].rstrip("/")
+    return url
+
+
+
 # ==============================================================================
 # 1. PASSERELLE RÉSEAU & GÉOLOCALISATION FIXE (SUISSE / FRANCFORT)
 # ==============================================================================
@@ -638,7 +647,7 @@ class CognitiveBrain:
 
     async def save_to_supabase(self, query: str, evidence: List[Dict[str, Any]]):
         """Archive la mémoire du cerveau dans le schéma PostgreSQL canonique Nexus/Verox."""
-        supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+        supabase_url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
         if not supabase_url or not supabase_key:
             logger.warning("[Supabase] Mémoire distante ignorée: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY manquants.")
@@ -769,7 +778,7 @@ async def run_worker():
             logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
     else:
         logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
         logger.error("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis. Le serveur HTTP reste disponible, mais le worker est en attente de configuration.")
@@ -903,7 +912,7 @@ def run_dashboard():
 
     class DashboardHandler(SimpleHTTPRequestHandler):
         def _supabase(self):
-            url = os.getenv("SUPABASE_URL", "").rstrip("/")
+            url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
             key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
             if not url or not key:
                 raise RuntimeError("Le backend Supabase n'est pas configuré côté serveur.")
