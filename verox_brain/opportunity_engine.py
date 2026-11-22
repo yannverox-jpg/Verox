@@ -353,7 +353,7 @@ def scan_feeds(
                         "RSS capture proof failed (run_id=%s, event_id=%s, error_type=%s)",
                         clean_run_id, event_id, type(exc).__name__,
                     )
-                    raise
+                    raise ProofIntegrityError("RSS capture proof persistence failed.") from exc
                 proof_recorded += 1
                 leads.append(lead)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
@@ -363,7 +363,14 @@ def scan_feeds(
     enabled = os.getenv("VEROX_WORLD_BANK_PROCUREMENT_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
     if procurement_error is None and enabled:
         fetched += 1
-        leads.extend(procurement_leads)
+        if proof_mode:
+            # World Bank JSON capture has no integrated, registered-source proof producer yet.
+            # Do not expose these unproven leads in proof mode.
+            proof_blocked += len(procurement_leads)
+            if procurement_leads:
+                errors.append({"source": "World Bank Procurement Notices", "error": "proof_producer_not_integrated"})
+        else:
+            leads.extend(procurement_leads)
     elif procurement_error:
         errors.append({"source": "World Bank Procurement Notices", "error": procurement_error})
     deduped: dict[str, Opportunity] = {}
