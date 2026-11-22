@@ -315,7 +315,8 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
         if path == "/api/gateway-smoke":
-            # Temporary preview-only diagnostic: direct Gateway call, no fallback.
+            # Temporary preview-only diagnostic: exercise the real model router and
+            # expose provider/model metadata only, never credentials or response text.
             token = _gateway_token(self)
             token_source = (
                 "api_key" if os.getenv("AI_GATEWAY_API_KEY", "").strip()
@@ -323,38 +324,29 @@ class handler(BaseHTTPRequestHandler):
                 else "environment_oidc" if os.getenv("VERCEL_OIDC_TOKEN", "").strip()
                 else "none"
             )
-            if not token:
-                _json(self, 503, {"ok": False, "stage": "authentication", "token_source": token_source})
-                return
             started = time.monotonic()
             try:
-                with httpx.Client(timeout=45.0, follow_redirects=False, trust_env=False) as client:
-                    response = client.post(
-                        "https://ai-gateway.vercel.sh/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                        json={
-                            "model": os.getenv("VEROX_AI_GATEWAY_MODEL", "vmc/verox-free-brain"),
-                            "messages": [
-                                {"role": "system", "content": "Test technique bref; aucune action externe."},
-                                {"role": "user", "content": "Réponds exactement VEROX_GATEWAY_OK."},
-                            ],
-                            "temperature": 0,
-                            "max_tokens": 30,
-                        },
-                    )
-                payload = {"ok": response.is_success, "gateway_status": response.status_code,
-                           "token_source": token_source, "latency_ms": round((time.monotonic() - started) * 1000, 1)}
-                if response.is_success:
-                    data = response.json()
-                    answer = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))
-                    payload["marker_match"] = "VEROX_GATEWAY_OK" in answer
-                else:
-                    payload["gateway_error"] = response.text[:400]
-                _json(self, 200 if response.is_success else 502, payload)
-            except Exception as exc:
-                _json(self, 502, {"ok": False, "stage": "gateway_request",
-                                  "token_source": token_source, "error_type": type(exc).__name__,
-                                  "latency_ms": round((time.monotonic() - started) * 1000, 1)})
+                answer, provider, model = generate_text(
+                    "Réponds exactement VEROX_ROUTER_OK.",
+                    "Test technique bref. Ne fais aucune action externe.",
+                    gateway_token=token,
+                )
+                _json(self, 200, {
+                    "ok": bool(answer.strip()),
+                    "provider": provider,
+                    "model": model,
+                    "token_source": token_source,
+                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                    "marker_match": "VEROX_ROUTER_OK" in answer,
+                })
+            except (ModelConfigurationError, ModelRequestError) as exc:
+                _json(self, 502, {
+                    "ok": False,
+                    "stage": "model_router",
+                    "token_source": token_source,
+                    "error": str(exc)[:300],
+                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                })
             return
         if path == "/api/health":
             gateway_auth_available = bool(_gateway_token(self))
