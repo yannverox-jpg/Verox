@@ -17,7 +17,7 @@ from playwright_stealth import Stealth
 from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_status
 from verox_brain.market import market_catalog, resolve_market
 from verox_brain.ephemeral_agents import active_mission_agents, retire_mission_agents, spawn_mission_agents
-from verox_brain.runtime_guardrails import classify_task_envelope, execute_a2a_pipeline_step, RuntimeGuardError
+from verox_brain.runtime_guardrails import classify_task_envelope, execute_a2a_pipeline_step, guard_declared_financial_action, RuntimeGuardError
 
 MARKET_PRODUCT_CATALOG = {
     "name": "Verox Agent Market",
@@ -965,6 +965,7 @@ async def run_worker(worker_id: int = 0):
                     )
                     try:
                         payload = task.get("payload") or {}
+                        guard_declared_financial_action(task)
                         envelope_type = classify_task_envelope(task)
                         if envelope_type == "a2a_message":
                             # No generic CognitiveBrain fallback is permitted for A2A.
@@ -1292,15 +1293,17 @@ def run_dashboard():
                     if not query or len(query) > 8000:
                         return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
                     try:
+                        guard_declared_financial_action({"task_type": task_type, "payload": body})
                         classify_task_envelope({
                             "task_type": task_type,
                             "payload": {
+                                **body,
                                 "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
                                 "text": query,
                             },
                         })
                     except RuntimeGuardError as exc:
-                        return self._json(400, {"error": str(exc)})
+                        return self._json(403 if "financial_authorization" in str(exc) or "human_authorization" in str(exc) else 400, {"error": str(exc)})
                     if task_type not in {"cognitive_chat", "chat", "general_chat"}:
                         try:
                             resolve_route(task_type)
@@ -1409,15 +1412,17 @@ def run_dashboard():
                 email = str(body.get("email", "")).strip()
                 task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
                 try:
+                    guard_declared_financial_action({"task_type": task_type, "payload": body})
                     envelope_type = classify_task_envelope({
                         "task_type": task_type,
                         "payload": {
+                            **body,
                             "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
                             "text": query,
                         },
                     })
                 except RuntimeGuardError as exc:
-                    return self._json(400, {"error": str(exc)})
+                    return self._json(403 if "financial_authorization" in str(exc) or "human_authorization" in str(exc) else 400, {"error": str(exc)})
                 if envelope_type == "a2a_message":
                     return self._json(503, {
                         "error": "Le pipeline A2A canonique n'est pas disponible; aucun fallback générique n'a été exécuté.",
