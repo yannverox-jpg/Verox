@@ -779,21 +779,23 @@ class CognitiveBrain:
 
 
 
-async def run_worker():
+async def run_worker(worker_id: int = 0):
     """Consomme la file canonique public.nexus_tasks et écrit les résultats dans PostgreSQL."""
     brain = CognitiveBrain()
-    try:
-        extension_count = brain.initialize_extensions()
-        logger.info("Registre CognitiveBrain chargé : %s extensions classées.", extension_count)
-    except Exception:
-        logger.exception("Impossible de charger le registre des extensions")
-    if os.getenv("GEMINI_API_KEY", "").strip():
-        if await brain.probe_gemini():
-            logger.info("Gemini API de secours vérifiée au démarrage.")
+    if worker_id == 0:
+        try:
+            extension_count = brain.initialize_extensions()
+            logger.info("Registre CognitiveBrain chargé : %s extensions classées.", extension_count)
+        except Exception:
+            logger.exception("Impossible de charger le registre des extensions")
+        if os.getenv("GEMINI_API_KEY", "").strip():
+            if await brain.probe_gemini():
+                logger.info("Gemini API de secours vérifiée au démarrage.")
+            else:
+                logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
         else:
-            logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
-    else:
-        logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
+            logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
+    logger.info("Worker asynchrone %s prêt à consommer la file.", worker_id)
     supabase_url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
@@ -1208,11 +1210,25 @@ def run_dashboard():
     ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), DashboardHandler).serve_forever()
 
 
+def _worker_concurrency(value: str | None = None) -> int:
+    """Bound worker parallelism to protect external services and database resources."""
+    raw = os.getenv("VEROX_WORKER_CONCURRENCY", "3") if value is None else value
+    try:
+        return max(1, min(8, int(raw)))
+    except (TypeError, ValueError):
+        return 3
+
+
 async def run_server():
     dashboard_task = asyncio.create_task(asyncio.to_thread(run_dashboard))
+    worker_count = _worker_concurrency()
+    logger.info("Démarrage de %s workers asynchrones bornés.", worker_count)
+    workers = [asyncio.create_task(run_worker(worker_id=index)) for index in range(worker_count)]
     try:
-        await run_worker()
+        await asyncio.gather(*workers)
     finally:
+        for worker in workers:
+            worker.cancel()
         dashboard_task.cancel()
 
 
