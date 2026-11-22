@@ -228,7 +228,6 @@ def generate_text(
 
     if token and gateway_enabled:
         started = time.monotonic()
-        gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
         try:
             result = _generate_gateway(prompt, system_prompt, token)
             _trace("gateway", result[2], 200, started, task_id=task_id)
