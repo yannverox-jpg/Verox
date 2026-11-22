@@ -56,6 +56,39 @@ class SupabaseDataPlane:
         except httpx.HTTPError as exc:
             raise DataPlaneError(f"Supabase data-plane request failed ({type(exc).__name__}).") from None
 
+    def rpc(self, function_name: str, *, params: dict[str, Any] | None = None, timeout: float = 5.0) -> Any:
+        """Call a privileged PostgREST RPC endpoint using server-side credentials only.
+
+        This intentionally bypasses _request's table-name quoting: RPC routes contain
+        a literal /rpc/ path segment. Mutations are never retried automatically.
+        """
+        import re
+
+        if not isinstance(function_name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name):
+            raise ValueError("Invalid Supabase RPC function name.")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0 or timeout > 30:
+            raise ValueError("RPC timeout must be greater than 0 and at most 30 seconds.")
+        # This module is server-only; credentials are read from this trusted data-plane
+        # instance and are never included in errors or returned values.
+        endpoint = f"{self.base_url}/rest/v1/rpc/{quote(function_name, safe='')}"
+        headers = {
+            "apikey": self.service_key,
+            "Authorization": f"Bearer {self.service_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {} if params is None else params
+        if not isinstance(payload, dict):
+            raise TypeError("RPC params must be a JSON object.")
+        try:
+            with httpx.Client(timeout=float(timeout), follow_redirects=False, trust_env=False) as client:
+                response = client.post(endpoint, json=payload, headers=headers)
+                response.raise_for_status()
+                return response.json() if response.content else None
+        except httpx.HTTPError as exc:
+            # Do not retry: a timed-out mutation may already have committed.
+            raise DataPlaneError(f"Supabase RPC request failed ({type(exc).__name__}).") from None
+
     def register_source(self, source):
         source_id, url = str(source.get("id", "")).strip(), str(source.get("url", "")).strip()
         if not source_id or not url.startswith("https://"): raise ValueError("A registered source ID and HTTPS URL are required.")
