@@ -73,3 +73,39 @@ async def execute_a2a_pipeline_step(*, task, client, supabase_url, headers):
         raise
     except Exception as exc:
         raise RuntimeGuardError(f"a2a_pipeline_failed_closed: {type(exc).__name__}: {exc}") from exc
+
+
+_FINANCIAL_ACTION_ALIASES = {
+    "trade_order", "place_order", "submit_order", "execute_trade",
+    "bet", "place_bet", "submit_bet", "wager",
+    "transfer", "send_funds", "withdraw", "withdrawal", "deposit",
+}
+
+
+def guard_declared_financial_action(task: Mapping[str, Any]) -> None:
+    """Block declared financial side effects until a real-time authorization verifier is wired.
+
+    This is deliberately fail-closed. It is not a substitute for authorization at
+    the concrete broker/bookmaker/payment adapter; it prevents the current generic
+    worker/fallback from attempting an explicitly declared financial action.
+    """
+    payload = task.get("payload")
+    if not isinstance(payload, Mapping):
+        return
+    task_type = str(task.get("task_type") or "").strip().lower()
+    candidates = [
+        payload.get("financial_action"),
+        payload.get("action_type"),
+        payload.get("operation"),
+    ]
+    next_action = payload.get("next_action")
+    if isinstance(next_action, Mapping):
+        candidates.append(next_action.get("action_type"))
+    declared = {str(value or "").strip().lower() for value in candidates}
+    action = next((value for value in declared if value in _FINANCIAL_ACTION_ALIASES), None)
+    if action is None and task_type in _FINANCIAL_ACTION_ALIASES:
+        action = task_type
+    if action:
+        # No server-side, fresh human-authorization verifier has been integrated
+        # with a real execution adapter yet; never treat payload flags as approval.
+        require_financial_authorization(action, payload, authorization_verifier=None)
