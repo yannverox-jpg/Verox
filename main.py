@@ -1136,6 +1136,33 @@ def run_dashboard():
                             return self._json(502, {"error": "La file n’a retourné aucun identifiant de tâche."})
                         task_id = rows[0]["id"]
                         return self._json(202, {"id": task_id, "status": rows[0]["status"], "accepted": True, "deduplicated": False, "result_url": "/api/tasks/" + task_id, "delivery": "asynchronous", "note": "La tâche est persistée; son résultat dépend du worker et des connecteurs réellement configurés."})
+                    except httpx.HTTPStatusError as exc:
+                        # A concurrent request may insert the same unique task_key after our
+                        # initial lookup. On PostgREST's uniqueness conflict, re-read and
+                        # return the canonical task instead of surfacing a transient 503.
+                        if exc.response.status_code == 409 and idempotency_key:
+                            try:
+                                with httpx.Client(timeout=4.0) as retry_client:
+                                    existing = retry_client.get(
+                                        supabase_url + "/rest/v1/nexus_tasks",
+                                        params={"task_key": "eq." + task_key, "select": "id,status", "limit": "1"},
+                                        headers=supabase_headers,
+                                    )
+                                    existing.raise_for_status()
+                                    rows_existing = existing.json()
+                                if rows_existing:
+                                    existing_id = rows_existing[0]["id"]
+                                    return self._json(202, {
+                                        "id": existing_id,
+                                        "status": rows_existing[0]["status"],
+                                        "accepted": True,
+                                        "deduplicated": True,
+                                        "result_url": "/api/tasks/" + existing_id,
+                                    })
+                            except Exception as retry_exc:
+                                logger.warning("Relecture après collision d'idempotence impossible (%s).", type(retry_exc).__name__)
+                        logger.warning("Soumission agent-market impossible (HTTP %s).", exc.response.status_code)
+                        return self._json(503, {"error": "Soumission persistante indisponible; réessayer avec la même idempotency_key.", "retryable": True})
                     except Exception as exc:
                         logger.warning("Soumission agent-market impossible (%s).", type(exc).__name__)
                         return self._json(503, {"error": "Soumission persistante indisponible; réessayer avec la même idempotency_key.", "retryable": True})
