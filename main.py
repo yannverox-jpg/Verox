@@ -969,6 +969,12 @@ def run_dashboard():
                     "authentication": {"required": bool(os.getenv("VEROX_MARKET_API_TOKEN")), "type": "Bearer" if os.getenv("VEROX_MARKET_API_TOKEN") else "none"}
                 })
             if parsed.path == "/api/market/instances":
+                market_token = os.getenv("VEROX_MARKET_API_TOKEN", "").strip()
+                if not market_token:
+                    return self._json(503, {"error": "VEROX_MARKET_API_TOKEN doit être configuré pour accéder aux instances de mission."})
+                import hmac
+                if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + market_token):
+                    return self._json(401, {"error": "Authentification agent requise."})
                 return self._json(200, active_mission_agents())
             if parsed.path == "/api/market/catalog":
                 catalog = market_catalog()
@@ -1060,6 +1066,8 @@ def run_dashboard():
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if request_path in {"/api/market/resolve", "/api/market/spawn", "/api/market/retire"}:
                     market_token = os.getenv("VEROX_MARKET_API_TOKEN", "").strip()
+                    if request_path in {"/api/market/spawn", "/api/market/retire"} and not market_token:
+                        return self._json(503, {"error": "VEROX_MARKET_API_TOKEN doit être configuré avant de créer ou retirer des agents."})
                     if market_token:
                         import hmac
                         supplied = self.headers.get("Authorization", "")
