@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from verox_a2a_runtime_guard import TrustedEvidenceRecord
 
 
 class ProofIntegrityError(RuntimeError):
@@ -39,7 +38,7 @@ class ObservationProofContext:
 
 
 @dataclass
-class VerifiedServerEvidence(TrustedEvidenceRecord):
+class VerifiedServerEvidence:
     evidence_id: str
     ref: str
     content_hash: str
