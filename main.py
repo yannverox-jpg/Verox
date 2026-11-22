@@ -1239,8 +1239,8 @@ def run_dashboard():
                     return self._json(400, {"error": "Identifiant de tâche invalide"})
                 except Exception as exc:
                     return self._json(503, {"error": str(exc)[:250]})
-            if parsed.path in ("/", "/index.html", "/nexus_dashboard.html"):
-                self.path = "/nexus_dashboard.html"
+            if parsed.path in ("/", "/index.html"):
+                self.path = "/index.html"
             return super().do_GET()
 
         def do_POST(self):

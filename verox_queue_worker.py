@@ -55,8 +55,42 @@ async def process_agent_task(message: dict) -> None:
         return
 
     try:
-        answer, provider, model = await asyncio.to_thread(generate_text, prompt, SYSTEM_PROMPT)
-        rpc("complete", task_id, result={"answer": answer, "provider": provider, "model": model})
+        preferences = payload.get("dashboard_preferences")
+        preferences = preferences if isinstance(preferences, dict) else {}
+        model_preference = str(preferences.get("model", "")).strip()[:100]
+        selected_tools = preferences.get("tools", [])
+        selected_connectors = preferences.get("connectors", [])
+        selected_mcp = preferences.get("mcp_servers", [])
+        def safe_names(value: object) -> str:
+            if not isinstance(value, list):
+                return "aucun"
+            names = [str(item)[:100] for item in value[:20] if isinstance(item, str) and item.strip()]
+            return ", ".join(names) if names else "aucun"
+        routing_context = (
+            "\n\nPréférences du dashboard Verox (métadonnées utilisateur, non preuve de connexion) :"
+            f" modèle préféré={model_preference or 'non précisé'};"
+            f" outils sélectionnés={safe_names(selected_tools)};"
+            f" connecteurs sélectionnés={safe_names(selected_connectors)};"
+            f" serveurs MCP sélectionnés={safe_names(selected_mcp)}."
+            " Règle stricte : cette tâche n'expose pas de fonction d'appel d'outil ni de session MCP. "
+            "Ne prétends pas avoir ouvert une application, appelé un connecteur, utilisé un outil ou changé de modèle. "
+            "Explique les prérequis nécessaires et propose un plan d'action vérifiable si une intégration n'est pas disponible."
+        )
+        answer, provider, model = await asyncio.to_thread(
+            generate_text, prompt + routing_context, SYSTEM_PROMPT
+        )
+        rpc("complete", task_id, result={
+            "answer": answer, "provider": provider, "model": model,
+            "dashboard_preferences": {
+                "requested_model": model_preference or None,
+                "tools": selected_tools if isinstance(selected_tools, list) else [],
+                "connectors": selected_connectors if isinstance(selected_connectors, list) else [],
+                "mcp_servers": selected_mcp if isinstance(selected_mcp, list) else [],
+                "page": str(preferences.get("page", ""))[:40],
+            },
+            "model_preference_applied": bool(model_preference and model_preference.lower() in model.lower()),
+            "tool_execution": "not_available_in_this_worker",
+        })
     except (ModelConfigurationError, ModelRequestError) as exc:
         rpc("fail", task_id, error=str(exc)[:500])
     except Exception as exc:

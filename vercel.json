@@ -20,7 +20,7 @@
     },
     {
       "source": "/",
-      "destination": "/nexus_dashboard.html"
+      "destination": "/index.html"
     }
   ],
   "crons": [
