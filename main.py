@@ -867,6 +867,17 @@ async def _reclaim_expired_tasks(client, supabase_url, headers):
         logger.warning("Reprise de %d tâche(s) au bail expiré.", len(reclaimed))
 
 
+async def _reclaim_loop(client, supabase_url, headers, interval_seconds):
+    while True:
+        try:
+            await _reclaim_expired_tasks(client, supabase_url, headers)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Balayage des baux expirés indisponible (%s).", type(exc).__name__)
+        await asyncio.sleep(interval_seconds)
+
+
 async def run_worker(worker_id: int = 0):
     """Consomme la file Supabase avec réservation atomique, leases et finalisation protégée."""
     brain = CognitiveBrain()
@@ -904,17 +915,20 @@ async def run_worker(worker_id: int = 0):
     logger.info("Worker %s prêt; lease=%ss.", worker_name, lease_seconds)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=8.0)) as client:
-        last_reclaim = 0.0
-        while True:
-            task = None
-            heartbeat = None
-            lost_lease = asyncio.Event()
-            try:
-                if worker_id == 0 and asyncio.get_running_loop().time() - last_reclaim >= reclaim_interval:
-                    await _reclaim_expired_tasks(client, supabase_url, headers)
-                    last_reclaim = asyncio.get_running_loop().time()
-
-                claim_response = await client.post(
+        reclaim_task = (
+            asyncio.create_task(
+                _reclaim_loop(client, supabase_url, headers, reclaim_interval),
+                name="verox-lease-reclaimer",
+            )
+            if worker_id == 0 else None
+        )
+        try:
+            while True:
+                task = None
+                heartbeat = None
+                lost_lease = asyncio.Event()
+                try:
+                    claim_response = await client.post(
                     f"{supabase_url}/rest/v1/rpc/claim_next_nexus_task",
                     json={"p_worker_id": worker_name, "p_lease_seconds": lease_seconds},
                     headers=headers,
