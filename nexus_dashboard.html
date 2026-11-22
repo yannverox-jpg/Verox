@@ -73,7 +73,62 @@ body{background:radial-gradient(ellipse at 50% -20%,#172943 0%,#080d16 56%);font
 @media(max-width:800px){.center-pages{padding:16px}.dashboard-hero{flex-direction:column}.hero-meta{align-items:flex-start}.financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid,.dashboard-lower{grid-template-columns:1fr}.dashboard-lower .app-list{grid-template-columns:1fr 1fr}}
 @media(max-width:420px){.financial-kpis{grid-template-columns:1fr 1fr;gap:7px}.financial-kpis .stat-card{padding:11px}.financial-kpis .stat-value{font-size:18px}.finance-mini-kpis{grid-template-columns:1fr}.dashboard-bar-label{font-size:8px}}
 
- .app-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.app-action{display:inline-flex;align-items:center;justify-content:center;border:1px solid #30445f;background:#15243a;color:#dceaff;text-decoration:none;border-radius:8px;padding:7px 9px;font-size:11px}.app-action:hover{border-color:var(--cyan);color:#fff}.app-action:disabled{opacity:.55;cursor:wait}.source-result{margin:10px 0 0!important;padding:9px;border:1px solid #2a4059;border-radius:8px;background:#0b1421;color:#b7c9df!important;font-size:11px!important;overflow-wrap:anywhere}\n/* Mobile-first navigation and compact Android layout */\n@media(max-width:800px){\n html,body{width:100%;max-width:100%;min-height:100%;height:auto;overflow-x:hidden}\n body{font-size:14px}\n .app,.app:has(.sidebar.collapsed){width:100%;min-width:0;min-height:100dvh;height:auto;display:flex;flex-direction:column}\n .sidebar,.sidebar.collapsed{width:100%;min-width:0;flex:0 0 auto;position:relative}\n .brand{height:56px;padding:0 14px}\n .nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:8px;overflow:visible}\n .nav-label{display:none!important}\n .nav-btn,.sidebar.collapsed .nav-btn{width:100%;min-width:0;min-height:42px;white-space:normal;justify-content:flex-start;gap:7px;padding:8px;font-size:11px;line-height:1.2;margin:0}\n .nav-btn i,.sidebar.collapsed .nav-btn i{width:16px;flex:0 0 16px;font-size:13px}\n .nav-text{white-space:normal;overflow-wrap:anywhere}\n .sidebar-foot{display:block!important;padding:8px 12px}\n .workspace{width:100%;min-width:0;min-height:0;height:auto;overflow:visible;border-right:0;border-bottom:1px solid var(--line)}\n .topbar{position:sticky;top:0;z-index:5;padding:0 14px;height:54px;flex:0 0 54px}\n .center-pages{width:100%;min-width:0;flex:initial;min-height:0;padding:15px 12px 22px;overflow:visible}\n .history{flex:initial;max-height:130px;overflow:auto;padding:8px 12px}\n .chat-stream{flex:initial;min-height:0;max-height:42dvh;overflow:auto;padding:10px 12px}\n .composer{position:sticky;bottom:0;z-index:4;padding:8px;background:#111a2aee;backdrop-filter:blur(10px)}\n .composer input{font-size:16px}\n .visual{width:100%;min-width:0;min-height:0;overflow:visible}\n .visual-head{height:54px;padding:0 14px}\n .visual-content{padding:12px;overflow:visible}\n .dashboard-hero h2,.welcome h2{font-size:21px}\n .financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n .financial-kpis .stat-card{min-width:0;padding:11px}\n .dashboard-grid,.dashboard-lower,.metric-grid{grid-template-columns:minmax(0,1fr)}\n .dashboard-lower .app-list,.application-workspace .app-list{grid-template-columns:minmax(0,1fr)}\n .panel,.stat-card{min-width:0}\n .app-list{grid-template-columns:minmax(0,1fr)}\n .sidebar.collapsed .brand-name{display:inline}\n .sidebar.collapsed .nav-text{display:inline}\n .sidebar.collapsed .sidebar-foot{display:block!important}\n}\n@media(max-width:380px){.nav{grid-template-columns:repeat(2,minmax(0,1fr))}.financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-bar-label{font-size:8px}.center-pages{padding-left:10px;padding-right:10px}}\n</style>
+ .app-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.app-action{display:inline-flex;align-items:center;justify-content:center;border:1px solid #30445f;background:#15243a;color:#dceaff;text-decoration:none;border-radius:8px;padding:7px 9px;font-size:11px}.app-action:hover{border-color:var(--cyan);color:#fff}.app-action:disabled{opacity:.55;cursor:wait}.source-result{margin:10px 0 0!important;padding:9px;border:1px solid #2a4059;border-radius:8px;background:#0b1421;color:#b7c9df!important;font-size:11px!important;overflow-wrap:anywhere}\n/* Mobile-first navigation and compact Android layout */\n@media(max-width:800px){\n html,body{width:100%;max-width:100%;min-height:100%;height:auto;overflow-x:hidden}\n body{font-size:14px}\n .app,.app:has(.sidebar.collapsed){width:100%;min-width:0;min-height:100dvh;height:auto;display:flex;flex-direction:column}\n .sidebar,.sidebar.collapsed{width:100%;min-width:0;flex:0 0 auto;position:relative}\n .brand{height:56px;padding:0 14px}\n .nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:8px;overflow:visible}\n .nav-label{display:none!important}\n .nav-btn,.sidebar.collapsed .nav-btn{width:100%;min-width:0;min-height:42px;white-space:normal;justify-content:flex-start;gap:7px;padding:8px;font-size:11px;line-height:1.2;margin:0}\n .nav-btn i,.sidebar.collapsed .nav-btn i{width:16px;flex:0 0 16px;font-size:13px}\n .nav-text{white-space:normal;overflow-wrap:anywhere}\n .sidebar-foot{display:block!important;padding:8px 12px}\n .workspace{width:100%;min-width:0;min-height:0;height:auto;overflow:visible;border-right:0;border-bottom:1px solid var(--line)}\n .topbar{position:sticky;top:0;z-index:5;padding:0 14px;height:54px;flex:0 0 54px}\n .center-pages{width:100%;min-width:0;flex:initial;min-height:0;padding:15px 12px 22px;overflow:visible}\n .history{flex:initial;max-height:130px;overflow:auto;padding:8px 12px}\n .chat-stream{flex:initial;min-height:0;max-height:42dvh;overflow:auto;padding:10px 12px}\n .composer{position:sticky;bottom:0;z-index:4;padding:8px;background:#111a2aee;backdrop-filter:blur(10px)}\n .composer input{font-size:16px}\n .visual{width:100%;min-width:0;min-height:0;overflow:visible}\n .visual-head{height:54px;padding:0 14px}\n .visual-content{padding:12px;overflow:visible}\n .dashboard-hero h2,.welcome h2{font-size:21px}\n .financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n .financial-kpis .stat-card{min-width:0;padding:11px}\n .dashboard-grid,.dashboard-lower,.metric-grid{grid-template-columns:minmax(0,1fr)}\n .dashboard-lower .app-list,.application-workspace .app-list{grid-template-columns:minmax(0,1fr)}\n .panel,.stat-card{min-width:0}\n .app-list{grid-template-columns:minmax(0,1fr)}\n .sidebar.collapsed .brand-name{display:inline}\n .sidebar.collapsed .nav-text{display:inline}\n .sidebar.collapsed .sidebar-foot{display:block!important}\n}\n@media(max-width:380px){.nav{grid-template-columns:repeat(2,minmax(0,1fr))}.financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-bar-label{font-size:8px}.center-pages{padding-left:10px;padding-right:10px}}\n
+/* Verox Android workspace: real drawer + focused work/chat views */
+.mobile-menu-trigger,.mobile-workspace-nav,.drawer-scrim{display:none}
+@media(max-width:800px){
+ body{overflow-x:hidden;padding-bottom:68px}
+ .app,.app:has(.sidebar.collapsed){display:block;width:100%;min-width:0;min-height:100dvh;height:auto}
+ .sidebar,.sidebar.collapsed{position:fixed;inset:0 auto 0 0;z-index:60;width:min(86vw,320px);height:100dvh;min-height:0;max-height:100dvh;transform:translateX(-105%);transition:transform .22s ease;box-shadow:18px 0 55px #0008;border-right:1px solid #2b3b52;overflow:hidden}
+ .sidebar.mobile-open{transform:translateX(0)}
+ .sidebar .brand{height:62px;flex:0 0 62px}
+ .sidebar .sidebar-toggle{display:none}
+ .sidebar .nav{display:block;overflow-y:auto;overflow-x:hidden;padding:12px;max-height:calc(100dvh - 112px)}
+ .sidebar .nav-label{display:block!important;padding:14px 10px 7px}
+ .sidebar .nav-btn,.sidebar.collapsed .nav-btn{width:100%;min-height:46px;display:flex;justify-content:flex-start;gap:12px;padding:11px 12px;font-size:13px;white-space:normal}
+ .sidebar .nav-text,.sidebar.collapsed .nav-text{display:inline}
+ .sidebar .sidebar-foot{display:block!important}
+ .drawer-scrim{position:fixed;inset:0;z-index:55;background:#02050bcc;backdrop-filter:blur(2px)}
+ body.drawer-open .drawer-scrim{display:block}
+ .workspace{width:100%;min-height:calc(100dvh - 120px);height:auto;overflow:visible;border:0;background:transparent}
+ .topbar{height:62px;position:sticky;top:0;z-index:20;padding:0 14px;background:#0a111df2;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}
+ .mobile-menu-trigger{display:inline-grid;place-items:center;flex:0 0 40px;width:40px;height:40px;border-radius:12px}
+ .topbar>div{flex:1;min-width:0}
+ .topbar h1{font-size:16px}
+ .center-pages{display:block;width:100%;min-height:calc(100dvh - 130px);padding:18px 14px 28px;overflow:visible;border:0}
+ .history,.chat-stream{display:none}
+ body.mobile-view-chat .center-pages{display:none}
+ body.mobile-view-chat .history{display:block;max-height:22dvh;overflow:auto;padding:10px 14px;border-bottom:1px solid var(--line)}
+ body.mobile-view-chat .chat-stream{display:flex;min-height:calc(100dvh - 210px);max-height:none;overflow:visible;padding:14px;gap:14px;border:0}
+ body.mobile-view-chat .messages{gap:12px}
+ body.mobile-view-chat .message{max-width:94%;font-size:14px;line-height:1.55}
+ body.mobile-view-chat .composer{position:sticky;bottom:74px;z-index:25;padding:10px;border-radius:14px;background:#111a2af5;box-shadow:0 8px 30px #0005}
+ body.mobile-view-chat .hint{padding-bottom:16px}
+ .visual{display:none!important}
+ .mobile-workspace-nav{display:grid;position:fixed;z-index:40;left:10px;right:10px;bottom:10px;grid-template-columns:1fr 1fr;gap:6px;padding:6px;border:1px solid #2a3b52;border-radius:16px;background:#0c1422f2;box-shadow:0 8px 32px #0008;backdrop-filter:blur(16px)}
+ .mobile-workspace-nav button{display:flex;align-items:center;justify-content:center;gap:9px;min-height:46px;border:1px solid transparent;border-radius:11px;background:transparent;color:#91a2bb;font-weight:650;font-size:13px}
+ .mobile-workspace-nav button[aria-pressed="true"]{background:linear-gradient(135deg,#1b3550,#17263a);border-color:#31536c;color:#f2f7ff}
+ .mobile-workspace-nav button[aria-pressed="true"] i{color:var(--cyan)}
+ .financial-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .dashboard-grid,.dashboard-lower,.metric-grid{grid-template-columns:minmax(0,1fr)}
+ .dashboard-lower .app-list,.application-workspace .app-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .app-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .panel,.stat-card,.app-tile{min-width:0}
+ .welcome h2,.dashboard-hero h2{font-size:22px}
+ .dashboard-hero{flex-direction:column}
+ .hero-meta{align-items:flex-start}
+}
+@media(max-width:420px){
+ .center-pages{padding:14px 11px 24px}
+ .financial-kpis{gap:7px}
+ .financial-kpis .stat-card{padding:10px}
+ .financial-kpis .stat-value{font-size:18px}
+ .app-list,.dashboard-lower .app-list,.application-workspace .app-list{grid-template-columns:minmax(0,1fr)}
+ .dashboard-bar-label{font-size:8px}
+}
+@media(prefers-reduced-motion:reduce){.sidebar{transition:none}}
+
+</style>
 </head>
 <body>
 <div class="app">
@@ -99,7 +154,7 @@ body{background:radial-gradient(ellipse at 50% -20%,#172943 0%,#080d16 56%);font
  <div class="sidebar-foot"><span class="status-dot"></span><span id="connection-status">Vérification des services…</span></div>
 </aside>
 <section class="workspace">
- <header class="topbar"><div><div class="eyebrow">POSTE DE COMMANDE</div><h1 id="workspace-title">Dashboard</h1></div><button class="icon-btn" id="new-chat" title="Nouvelle conversation" aria-label="Nouvelle conversation"><i class="fa-solid fa-plus"></i></button></header>
+ <header class="topbar"><button class="icon-btn mobile-menu-trigger" id="mobile-menu-trigger" type="button" aria-label="Ouvrir le menu" aria-expanded="false"><i class="fa-solid fa-bars"></i></button><div><div class="eyebrow">ESPACE DE TRAVAIL</div><h1 id="workspace-title">Dashboard</h1></div><button class="icon-btn" id="new-chat" title="Nouvelle conversation" aria-label="Nouvelle conversation"><i class="fa-solid fa-plus"></i></button></header>
  <div class="visual-content center-pages">
   <section class="page active" id="page-dashboard">
    <div class="dashboard-hero">
@@ -168,6 +223,8 @@ body{background:radial-gradient(ellipse at 50% -20%,#172943 0%,#080d16 56%);font
  </div>
 </main>
 </div>
+<div class="drawer-scrim" id="drawer-scrim" aria-hidden="true"></div>
+<nav class="mobile-workspace-nav" aria-label="Espaces Verox"><button type="button" id="mobile-work-tab" aria-pressed="true"><i class="fa-solid fa-grid-2"></i><span>Travail</span></button><button type="button" id="mobile-chat-tab" aria-pressed="false"><i class="fa-solid fa-message"></i><span>Conversation</span></button></nav>
 <script>
 const chatBox=document.getElementById("chat-box"),historyList=document.getElementById("history-list");
 const conversations=[];let activeConversation=null,metricsCache=null,catalogCache=null;
@@ -181,7 +238,16 @@ async function watchTask(id,node){const start=Date.now();while(Date.now()-start<
 async function sendMessage(textOverride){const input=document.getElementById("user-input"),query=(textOverride??input.value).trim();if(!query)return;input.value="";if(!activeConversation)startConversation();addMessage("user",query);recordMessage("user",query);const result=addMessage("assistant","Transmission de la demande à Verox…");try{const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:query})});const task=await response.json();if(!response.ok)throw new Error(task.error||"La demande a été refusée par le backend.");if(task.answer){result.textContent=task.answer;recordMessage("assistant",task.answer);return;}if(!task.id)throw new Error("Le backend n'a pas retourné d'identifiant de tâche.");await watchTask(task.id,result);}catch(e){const message="Transmission impossible : "+e.message;result.textContent=message;recordMessage("assistant",message);}}
 document.getElementById("chat-form").addEventListener("submit",e=>{e.preventDefault();sendMessage();});
 document.getElementById("new-chat").addEventListener("click",startConversation);
-document.getElementById("sidebar-toggle").addEventListener("click",()=>{const s=document.getElementById("sidebar");s.classList.toggle("collapsed");document.querySelector("#sidebar-toggle i").className=s.classList.contains("collapsed")?"fa-solid fa-angles-right":"fa-solid fa-angles-left";});
+const sidebar=document.getElementById("sidebar"),menuTrigger=document.getElementById("mobile-menu-trigger"),drawerScrim=document.getElementById("drawer-scrim");
+function closeMobileDrawer(){sidebar.classList.remove("mobile-open");document.body.classList.remove("drawer-open");menuTrigger?.setAttribute("aria-expanded","false");}
+menuTrigger?.addEventListener("click",()=>{const open=!sidebar.classList.contains("mobile-open");sidebar.classList.toggle("mobile-open",open);document.body.classList.toggle("drawer-open",open);menuTrigger.setAttribute("aria-expanded",String(open));});
+drawerScrim?.addEventListener("click",closeMobileDrawer);
+document.getElementById("sidebar-toggle").addEventListener("click",()=>{if(matchMedia("(max-width: 800px)").matches){closeMobileDrawer();return;}sidebar.classList.toggle("collapsed");document.querySelector("#sidebar-toggle i").className=sidebar.classList.contains("collapsed")?"fa-solid fa-angles-right":"fa-solid fa-angles-left";});
+function setMobileSpace(space){const chat=space==="chat";document.body.classList.toggle("mobile-view-chat",chat);document.getElementById("mobile-work-tab")?.setAttribute("aria-pressed",String(!chat));document.getElementById("mobile-chat-tab")?.setAttribute("aria-pressed",String(chat));if(chat)document.getElementById("user-input")?.focus({preventScroll:true});}
+document.getElementById("mobile-work-tab")?.addEventListener("click",()=>setMobileSpace("work"));
+document.getElementById("mobile-chat-tab")?.addEventListener("click",()=>setMobileSpace("chat"));
+document.querySelectorAll(".nav-btn[data-page],.nav-shortcut[data-page]").forEach(button=>button.addEventListener("click",()=>{if(matchMedia("(max-width: 800px)").matches){closeMobileDrawer();setMobileSpace("work");}}));
+
 const validPages=new Set(["dashboard","cognitive","applications","opportunities","revenue","automation","connectors","models","development","resources","search","security"]);function showPage(page,updateUrl=true){if(!validPages.has(page))page="dashboard";document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id==="page-"+page));document.querySelectorAll(".nav-btn[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));const titles={dashboard:"Dashboard",cognitive:"Cognitive Brain",applications:"Applications",opportunities:"Opportunités",revenue:"Revenus",automation:"Automatisations",connectors:"Plugins & connecteurs",models:"IA & modèles",development:"Développement",resources:"Ressources",search:"Recherche",security:"Sécurité"};document.getElementById("workspace-title").textContent=titles[page];document.getElementById("visual-title").textContent=page==="dashboard"?"Vue opérationnelle":titles[page];if(updateUrl&&location.hash!=="#"+page)history.pushState({page},"","#"+page);if(page==="cognitive")refreshMetrics();if(page==="opportunities")loadOpportunities();const active=document.querySelector(".nav-btn[data-page=\""+page+"\"]");if(active&&window.matchMedia("(max-width: 800px)").matches)active.scrollIntoView({block:"nearest",inline:"nearest"});}
 document.querySelectorAll("[data-page]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));window.addEventListener("hashchange",()=>showPage(location.hash.slice(1),false));window.addEventListener("popstate",()=>showPage(location.hash.slice(1),false));
 function renderApplications(items){
