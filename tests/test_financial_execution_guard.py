@@ -103,3 +103,21 @@ def test_expired_approval_blocks():
 def test_non_finite_amount_is_rejected():
     with pytest.raises(FinancialAuthorizationError):
         compute_operation_fingerprint(intent(amount=float("nan")))
+
+def test_audit_write_failure_fails_closed():
+    operation = intent()
+
+    def fail_audit(_payload):
+        raise RuntimeError("audit backend unavailable")
+
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=lambda *_: [],
+        consume_approval=lambda *_: True,
+        record_audit_event=fail_audit,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="audit failed"):
+        guard.verify_and_consume_for_execution(
+            intent=operation,
+            authorization_id=None,
+        )
+
