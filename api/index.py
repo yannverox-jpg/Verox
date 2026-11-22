@@ -447,6 +447,10 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 400, {"error": "JSON invalide ou trop volumineux."})
             return
         prompt = str(payload.get("text", "")).strip()
+        preferred_provider = str(payload.get("provider", "gemini")).strip().lower()
+        if preferred_provider not in {"gemini", "auto"}:
+            _json(self, 400, {"error": "Ce déploiement prend actuellement en charge Gemini pour le chat direct."})
+            return
         if not prompt:
             _json(self, 400, {"error": "Le message ne peut pas être vide."})
             return
@@ -457,8 +461,8 @@ class handler(BaseHTTPRequestHandler):
             task = _rpc(
                 "create",
                 task_type="chat",
-                payload={"text": prompt, "_client_ip": _client_ip(self),
-                         "source": "verox_dashboard", "user_initiated": "true"},
+                payload={"text": prompt, "provider": "gemini",
+                         "_client_ip": _client_ip(self), "source": "verox_dashboard", "user_initiated": "true"},
             )
             task_id = str(task["id"])
             try:
