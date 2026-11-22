@@ -952,7 +952,22 @@ def run_dashboard():
                         "gemini_fallback_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
                         "error": str(exc)[:250]
                     })
-            if parsed.path in ("/.well-known/agent-card.json", "/api/market/catalog"):
+            if parsed.path == "/.well-known/agent-card.json":
+                public_url = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com").rstrip("/")
+                return self._json(200, {
+                    "name": "Verox Agent Market",
+                    "description": "Low-latency agent-to-agent capability discovery and specialist routing.",
+                    "url": public_url + "/api/market/resolve",
+                    "version": "1.0.0",
+                    "capabilities": {"streaming": False, "pushNotifications": False},
+                    "skills": [
+                        {"id": "market-discovery", "name": "Market discovery", "description": "Search declared specialist capabilities and return ranked routing candidates."},
+                        {"id": "agent-routing", "name": "Low-latency routing", "description": "Rank specialist agents locally without calling external providers."}
+                    ],
+                    "interfaces": [{"url": public_url + "/api/market/resolve", "protocol": "HTTP+JSON", "method": "POST"}],
+                    "authentication": {"required": bool(os.getenv("VEROX_MARKET_API_TOKEN")), "type": "Bearer" if os.getenv("VEROX_MARKET_API_TOKEN") else "none"}
+                })
+            if parsed.path == "/api/market/catalog":
                 catalog = market_catalog()
                 catalog["url"] = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com")
                 return self._json(200, catalog)
