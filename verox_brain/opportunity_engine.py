@@ -348,13 +348,12 @@ def scan_feeds(
                     if not isinstance(saved, dict) or saved.get("verified_evidence") is None:
                         raise ProofIntegrityError("Server proof was not returned after persistence.")
                 except Exception as exc:
-                    # Fail closed: this lead is not added to the downstream result.
-                    proof_blocked += 1
+                    # Fail closed and surface the failure to the caller; never silently fall back.
                     logger.error(
-                        "RSS candidate blocked after proof failure (run_id=%s, event_id=%s, error_type=%s)",
+                        "RSS capture proof failed (run_id=%s, event_id=%s, error_type=%s)",
                         clean_run_id, event_id, type(exc).__name__,
                     )
-                    continue
+                    raise
                 proof_recorded += 1
                 leads.append(lead)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
