@@ -1295,7 +1295,7 @@ def run_dashboard():
                         classify_task_envelope({
                             "task_type": task_type,
                             "payload": {
-                                "envelope_type": body.get("envelope_type", "generic_task"),
+                                "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
                                 "text": query,
                             },
                         })
@@ -1330,7 +1330,7 @@ def run_dashboard():
                                 "strategy_id": str(body.get("strategy_id", ""))[:120] or None,
                                 "mission_id": str(body.get("mission_id", ""))[:100] or None,
                                 "payload": {
-                                    "envelope_type": str(body.get("envelope_type", "generic_task")).strip().lower(),
+                                    "envelope_type": str(body.get("envelope_type", body.get("kind", "generic_task"))).strip().lower(),
                                     "text": query,
                                     "source": "agent_market",
                                     "department_id": str(body.get("department_id", ""))[:80] or None,
@@ -1412,7 +1412,7 @@ def run_dashboard():
                     envelope_type = classify_task_envelope({
                         "task_type": task_type,
                         "payload": {
-                            "envelope_type": body.get("envelope_type", "generic_task"),
+                            "envelope_type": body.get("envelope_type", body.get("kind", "generic_task")),
                             "text": query,
                         },
                     })
