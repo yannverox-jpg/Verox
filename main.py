@@ -1291,6 +1291,16 @@ def run_dashboard():
                     task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
                     if not query or len(query) > 8000:
                         return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
+                    try:
+                        classify_task_envelope({
+                            "task_type": task_type,
+                            "payload": {
+                                "envelope_type": body.get("envelope_type", "generic_task"),
+                                "text": query,
+                            },
+                        })
+                    except RuntimeGuardError as exc:
+                        return self._json(400, {"error": str(exc)})
                     if task_type not in {"cognitive_chat", "chat", "general_chat"}:
                         try:
                             resolve_route(task_type)
