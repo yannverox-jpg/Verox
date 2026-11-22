@@ -1,6 +1,7 @@
 """Server-only Supabase adapter for one-time human financial approvals (T6)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.error
@@ -135,12 +136,10 @@ class SupabaseFinancialApprovalAdapter:
         )
 
     def record_audit_event(self, audit_payload: dict[str, Any]) -> None:
-        # The success audit is written atomically by the RPC. Guard denial already blocks
-        # execution; avoid secondary inserts with collision-prone event IDs.
+        # The success audit is written atomically by the RPC. The guard now propagates
+        # any refusal-audit write failure as FinancialAuthorizationError (fail-closed).
         if str(audit_payload.get("status") or "").lower() == "authorized":
             return
-        # A denied action stays denied even if this secondary audit write fails.
-        # The guard currently treats denied-event audit as best-effort.
         source_event_id = str(audit_payload.get("event_id") or "").strip()
         run_id = str(audit_payload.get("run_id") or "").strip()
         if not source_event_id or not run_id:
@@ -149,7 +148,7 @@ class SupabaseFinancialApprovalAdapter:
             "POST",
             "nexus_runtime_events",
             body={
-                "event_id": "evt_guard_" + __import__("hashlib").sha256(
+                "event_id": "evt_guard_" + hashlib.sha256(
                     (run_id + ":" + source_event_id + ":" + str(audit_payload.get("status"))).encode()
                 ).hexdigest()[:32],
                 "run_id": run_id,
