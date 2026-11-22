@@ -993,11 +993,15 @@ async def run_worker(worker_id: int = 0):
                                 "Vérifier la session Playwright et relancer la tâche."
                             )
 
+                        requested_provider = str(payload.get("provider", "")).strip().lower()
                         gemini_fallback = next(
                             (item for item in (evidence or []) if item.get("connector") == "Gemini fallback"),
                             None,
                         )
-                        if gemini_fallback:
+                        if task_type in {"chat", "cognitive_chat", "general_chat"} and requested_provider == "gemini":
+                            # Explicit dashboard provider choice: use the Gemini API key configured server-side.
+                            answer = await brain.ask_gemini(query, evidence or [])
+                        elif gemini_fallback:
                             answer = str(gemini_fallback.get("evidence") or "").strip()
                         elif provider_filter:
                             provider_result = next(
@@ -1015,7 +1019,8 @@ async def run_worker(worker_id: int = 0):
 
                         result = {
                             "answer": answer or "",
-                            "provider": (route.provider if route and provider_filter else ("gemini" if answer else "connectors")),
+                            "provider": ("gemini" if task_type in {"chat", "cognitive_chat", "general_chat"} and requested_provider == "gemini" else (route.provider if route and provider_filter else ("gemini" if answer else "connectors"))),
+                            "model": (os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash") if requested_provider == "gemini" else None,
                             "task_type": task_type,
                             "department_id": task.get("department_id") or payload.get("department_id"),
                             "strategy_id": task.get("strategy_id") or payload.get("strategy_id"),
