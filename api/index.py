@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from verox_brain.model_client import ModelConfigurationError, ModelRequestError, _generate_gateway, generate_text
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
 from vercel.queue import send as queue_send
@@ -69,8 +69,8 @@ def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
 
 
 def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
-    # Prefer the short-lived token injected into the current Vercel request.
-    # A build-time VERCEL_OIDC_TOKEN can be stale by runtime.
+    # Prefer the fresh short-lived OIDC token attached to this request over any
+    # build-time token, which may be stale by runtime.
     return (
         os.getenv("AI_GATEWAY_API_KEY", "").strip()
         or (request.headers.get("x-vercel-oidc-token", "").strip() if request else "")
@@ -314,50 +314,8 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
-        if path == "/api/gateway-smoke":
-            # Temporary preview-only diagnostic: exercise the real model router and
-            # expose provider/model metadata only, never credentials or response text.
-            token = _gateway_token(self)
-            token_source = (
-                "api_key" if os.getenv("AI_GATEWAY_API_KEY", "").strip()
-                else "request_oidc_header" if self.headers.get("x-vercel-oidc-token", "").strip()
-                else "environment_oidc" if os.getenv("VERCEL_OIDC_TOKEN", "").strip()
-                else "none"
-            )
-            started = time.monotonic()
-            previous_model = os.environ.get("GEMINI_MODEL")
-            os.environ["GEMINI_MODEL"] = "gemini-3.1-flash-lite"
-            try:
-                answer, provider, model = generate_text(
-                    "Réponds exactement VEROX_ROUTER_OK.",
-                    "Test technique bref. Ne fais aucune action externe.",
-                    gateway_token=token,
-                )
-                _json(self, 200, {
-                    "ok": bool(answer.strip()),
-                    "provider": provider,
-                    "model": model,
-                    "gemini_model_tested": "gemini-3.1-flash-lite",
-                    "token_source": token_source,
-                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
-                    "marker_match": "VEROX_ROUTER_OK" in answer,
-                })
-            except (ModelConfigurationError, ModelRequestError) as exc:
-                _json(self, 502, {
-                    "ok": False,
-                    "stage": "model_router",
-                    "gemini_model_tested": "gemini-3.1-flash-lite",
-                    "token_source": token_source,
-                    "error": str(exc)[:300],
-                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
-                })
-            finally:
-                if previous_model is None:
-                    os.environ.pop("GEMINI_MODEL", None)
-                else:
-                    os.environ["GEMINI_MODEL"] = previous_model
-            return
         if path == "/api/health":
+            gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
             gateway_auth_available = bool(_gateway_token(self))
             pocketpal_ready = (
                 os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() == "true"
@@ -368,7 +326,7 @@ class handler(BaseHTTPRequestHandler):
                 and (_configured("HF_TOKEN") or _configured("HUGGINGFACEHUB_API_TOKEN"))
             )
             model_ready = (
-                (gateway_auth_available and _configured("VEROX_AI_GATEWAY_MODEL"))
+                (gateway_enabled and gateway_auth_available and _configured("VEROX_AI_GATEWAY_MODEL"))
                 or _gemini_key_configured()
                 or pocketpal_ready
                 or huggingface_ready
@@ -384,6 +342,7 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 200, {
                 "ok": model_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
                 "gemini_configured": _gemini_key_configured(),
+                "ai_gateway_enabled": gateway_enabled,
                 "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),
                 "ai_gateway_oidc_available": gateway_auth_available,
                 "huggingface_enabled": os.getenv("VEROX_HF_ENABLED", "").strip().lower() == "true",
@@ -401,7 +360,7 @@ class handler(BaseHTTPRequestHandler):
             # Catalogue presence is not a claim that a platform account is connected.
             items = [
                 {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key", "category": "connector"},
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": "configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth", "category": "connector"},
+                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": ("configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth") if os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"} else "disabled_by_configuration", "category": "connector"},
                 {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "disabled_or_unverified", "category": "connector"},
                 {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "disabled_or_unverified", "category": "connector"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration", "category": "connector"},
