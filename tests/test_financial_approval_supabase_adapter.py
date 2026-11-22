@@ -52,26 +52,26 @@ def test_consume_approval_requires_atomic_success_and_matching_fingerprint(monke
     fingerprint = compute_operation_fingerprint(intent)
     seen = {}
 
-    def fake_request(method, path, *, params=None, body=None):
-        seen.update(method=method, path=path, body=body)
+    def fake_rpc(function_name, *, params=None, timeout=None):
+        seen.update(function_name=function_name, params=params, timeout=timeout)
         return [{
             "consumed": True,
             "operation_fingerprint": fingerprint,
             "reason": "consumed_atomically",
         }]
 
-    monkeypatch.setattr(adapter, "_request", fake_request)
+    monkeypatch.setattr(adapter._data_plane, "rpc", fake_rpc, raising=False)
     assert adapter.consume_approval("auth-1", fingerprint, intent=intent) is True
-    assert seen["method"] == "POST"
-    assert seen["path"] == "rpc/consume_human_financial_authorization"
-    assert seen["body"]["p_authorization_id"] == "auth-1"
-    assert seen["body"]["p_operation_fingerprint"] == fingerprint
+    assert seen["function_name"] == "consume_human_financial_authorization"
+    assert seen["params"]["p_authorization_id"] == "auth-1"
+    assert seen["params"]["p_operation_fingerprint"] == fingerprint
+    assert seen["timeout"] == adapter._timeout
 
-    monkeypatch.setattr(adapter, "_request", lambda *args, **kwargs: [{
+    monkeypatch.setattr(adapter._data_plane, "rpc", lambda *args, **kwargs: [{
         "consumed": True,
         "operation_fingerprint": "b" * 64,
         "reason": "consumed_atomically",
-    }])
+    }], raising=False)
     assert adapter.consume_approval("auth-1", fingerprint, intent=intent) is False
 
 
@@ -83,26 +83,28 @@ def test_adapter_guard_consumes_before_executor(monkeypatch):
     calls = []
 
     def fake_request(method, path, *, params=None, body=None):
-        if method == "GET":
-            return [{
-                "authorization_id": "auth-1",
-                "operation_fingerprint": fingerprint,
-                "status": "approved",
-                "approved_by": "human-test",
-                "approved_at_utc": (now - timedelta(seconds=1)).isoformat(),
-                "expires_at_utc": (now + timedelta(minutes=1)).isoformat(),
-                "consumed_at_utc": None,
-            }]
-        if path == "rpc/consume_human_financial_authorization":
-            calls.append("consumed")
-            return [{
-                "consumed": True,
-                "operation_fingerprint": fingerprint,
-                "reason": "consumed_atomically",
-            }]
-        return None
+        assert method == "GET"
+        return [{
+            "authorization_id": "auth-1",
+            "operation_fingerprint": fingerprint,
+            "status": "approved",
+            "approved_by": "human-test",
+            "approved_at_utc": (now - timedelta(seconds=1)).isoformat(),
+            "expires_at_utc": (now + timedelta(minutes=1)).isoformat(),
+            "consumed_at_utc": None,
+        }]
+
+    def fake_rpc(function_name, *, params=None, timeout=None):
+        assert function_name == "consume_human_financial_authorization"
+        calls.append("consumed")
+        return [{
+            "consumed": True,
+            "operation_fingerprint": fingerprint,
+            "reason": "consumed_atomically",
+        }]
 
     monkeypatch.setattr(adapter, "_request", fake_request)
+    monkeypatch.setattr(adapter._data_plane, "rpc", fake_rpc, raising=False)
     result = execute_financial_action_guarded(
         guard=adapter.build_guard(intent),
         intent=intent,
