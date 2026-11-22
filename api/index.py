@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, _generate_gateway, generate_text
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
 from vercel.queue import send as queue_send
@@ -311,6 +311,35 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Configuration des sources d'opportunités invalide."})
             except Exception:
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
+            return
+        if path == "/api/gateway-smoke":
+            # Temporary preview-only diagnostic: make one direct, free-model Gateway call
+            # without provider fallbacks, and expose no credentials or model response text.
+            token = _gateway_token(self)
+            if not token:
+                _json(self, 503, {"ok": False, "stage": "authentication", "error": "No Gateway token available."})
+                return
+            started = time.monotonic()
+            try:
+                answer, provider, model = _generate_gateway(
+                    "Réponds exactement VEROX_GATEWAY_OK.",
+                    "Test technique bref. Ne fais aucune action externe.",
+                    token,
+                )
+                _json(self, 200, {
+                    "ok": bool(answer.strip()),
+                    "provider": provider,
+                    "model": model,
+                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                    "marker_match": "VEROX_GATEWAY_OK" in answer,
+                })
+            except (ModelConfigurationError, ModelRequestError) as exc:
+                _json(self, 502, {
+                    "ok": False,
+                    "stage": "gateway_request",
+                    "error": str(exc)[:250],
+                    "latency_ms": round((time.monotonic() - started) * 1000, 1),
+                })
             return
         if path == "/api/health":
             gateway_auth_available = bool(_gateway_token(self))
