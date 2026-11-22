@@ -28,12 +28,15 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn('safe_message = re.sub(', api)
         self.assertIn('[:180]', api)
         self.assertLess(api.index('request.headers.get("x-vercel-oidc-token", "").strip()'), api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'))
+        self.assertIn("httpx.Client(timeout=12.0, trust_env=False)", api)
+        self.assertIn("httpx.Client(timeout=15.0, trust_env=False)", api)
         self.assertIn("time.sleep(1)", api)
 
     def test_worker_retries_and_bounds_concurrency(self):
         worker = (ROOT / "verox_queue_worker.py").read_text()
         self.assertIn("max_attempts=3", worker)
         self.assertIn("max_concurrency=3", worker)
+        self.assertIn("httpx.Client(timeout=15.0, trust_env=False)", worker)
         self.assertIn("verox_queue_subscriber_invoked", worker)
         self.assertIn("verox_queue_task_claimed", worker)
         self.assertIn('rpc("complete", task_id', worker)

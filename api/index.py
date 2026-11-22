@@ -90,7 +90,7 @@ def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = Non
         "p_task_type": task_type, "p_payload": payload or {},
         "p_result": result, "p_error": error, "p_status": None,
     }
-    with httpx.Client(timeout=12.0) as client:
+    with httpx.Client(timeout=12.0, trust_env=False) as client:
         response = client.post(
             f"{url}/rest/v1/rpc/verox_task_api",
             headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
@@ -109,7 +109,7 @@ def _opportunity_rpc(action: str, items: list | None = None) -> dict:
     token = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
     if not url or not anon or not token:
         raise RuntimeError("Opportunity persistence is not configured.")
-    with httpx.Client(timeout=15.0) as client:
+    with httpx.Client(timeout=15.0, trust_env=False) as client:
         response = client.post(
             f"{url}/rest/v1/rpc/verox_opportunity_api",
             headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
