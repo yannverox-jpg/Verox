@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Conservative static audit for unguarded financial side-effect call sites.
+"""Conservative AST audit for likely unguarded financial side-effect call sites.
 
-This is a heuristic safety net, not proof that all external effects are discovered.
-It scans Python source for known order/bet/transfer submission calls and requires
-the containing function to invoke execute_financial_action_guarded. Human review
-and runtime integration tests remain required.
+Heuristic only: indirect/dynamic calls and effects hidden in external libraries
+cannot be proven safe by this scan. Concrete execution adapters need runtime tests.
 """
 from __future__ import annotations
 
@@ -14,10 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PARTS = {".git", ".venv", "venv", "__pycache__", "tests"}
-EXCLUDED_FILES = {
-    "financial_execution_guard.py",
-    "financial_approval_supabase_adapter.py",
-}
+EXCLUDED_FILES = {"financial_execution_guard.py", "financial_approval_supabase_adapter.py"}
 GUARD_NAMES = {"execute_financial_action_guarded"}
 SIDE_EFFECT_NAMES = {
     "order_send", "place_order", "submit_order", "create_order",
@@ -36,10 +31,35 @@ def call_name(node: ast.Call) -> str:
     return ""
 
 
-def function_nodes(tree: ast.AST):
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            yield node
+class _DirectCallVisitor(ast.NodeVisitor):
+    """Collect calls in one scope without attributing nested scopes to parents."""
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = call_name(node)
+        if name:
+            self.names.add(name)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+
+def _scope_calls(node: ast.AST) -> set[str]:
+    visitor = _DirectCallVisitor()
+    for child in ast.iter_child_nodes(node):
+        visitor.visit(child)
+    return visitor.names
 
 
 def audit_file(path: Path) -> list[str]:
@@ -47,22 +67,34 @@ def audit_file(path: Path) -> list[str]:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
     except (OSError, SyntaxError, UnicodeError) as exc:
-        return [f"{path.relative_to(ROOT)}: unable to audit ({type(exc).__name__})"]
+        try:
+            label = str(path.relative_to(ROOT))
+        except ValueError:
+            label = str(path)
+        return [f"{label}: unable to audit ({type(exc).__name__})"]
 
     findings: list[str] = []
-    functions = list(function_nodes(tree))
-    for fn in functions:
-        calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)]
-        names = {call_name(n) for n in calls}
-        sinks = sorted(names & SIDE_EFFECT_NAMES)
-        if not sinks:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            names = _scope_calls(node)
+            label = getattr(node, "name", "<lambda>")
+            line = getattr(node, "lineno", 1)
+        elif isinstance(node, ast.Module):
+            names = _scope_calls(node)
+            label = "<module>"
+            line = 1
+        else:
             continue
-        if not (names & GUARD_NAMES):
-            line = getattr(fn, "lineno", 1)
+
+        sinks = sorted(names & SIDE_EFFECT_NAMES)
+        if sinks and not (names & GUARD_NAMES):
+            try:
+                file_label = str(path.relative_to(ROOT))
+            except ValueError:
+                file_label = str(path)
             findings.append(
-                f"{path.relative_to(ROOT)}:{line}: {getattr(fn, 'name', '<lambda>')} "
-                f"contains possible financial side effect(s) {', '.join(sinks)} "
-                "without execute_financial_action_guarded in the same function"
+                f"{file_label}:{line}: {label} contains possible financial side effect(s) "
+                f"{', '.join(sinks)} without execute_financial_action_guarded in the same scope"
             )
     return findings
 
@@ -73,7 +105,7 @@ def main() -> int:
         relative = path.relative_to(ROOT)
         if any(part in EXCLUDED_PARTS for part in relative.parts):
             continue
-        if path.name in EXCLUDED_FILES or path == Path(__file__):
+        if path.name in EXCLUDED_FILES or path.resolve() == Path(__file__).resolve():
             continue
         files.append(path)
 
@@ -84,7 +116,7 @@ def main() -> int:
         return 1
 
     print(f"PASS: no recognized unguarded financial side-effect call sites found in {len(files)} Python files.")
-    print("LIMITATION: static name-based scan only; it does not prove production wiring or detect every indirect/dynamic side effect.")
+    print("LIMITATION: static name-based scan only; indirect/dynamic side effects and real adapter wiring require separate verification.")
     return 0
 
 
