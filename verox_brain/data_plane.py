@@ -1,6 +1,6 @@
 """Server-side Supabase data-plane client for Verox. Never use in browser code."""
 from __future__ import annotations
-import hashlib, json, os
+import hashlib, json, os, uuid
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -133,7 +133,7 @@ class SupabaseDataPlane:
                 compute_canonical_sha256,
             )
             try:
-                observation_id = str(__import__("uuid").UUID(str(observation_id)))
+                observation_id = str(uuid.UUID(str(observation_id)))
             except (ValueError, TypeError, AttributeError) as exc:
                 raise ProofIntegrityError("Persisted observation ID is not a valid UUID.") from exc
             if str(persisted.get("source_id")) != str(source_id):
