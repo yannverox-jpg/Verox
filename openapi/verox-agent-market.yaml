@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: Verox Agent Market API
+  version: 1.1.0
+  description: >-
+    Machine-to-machine capability discovery, deterministic routing, and asynchronous
+    task submission. Catalog entries describe capabilities; provider execution is
+    only confirmed by the returned task status and result.
+servers:
+  - url: https://verox-juqt.onrender.com
+paths:
+  /.well-known/agent-card.json:
+    get:
+      operationId: discoverVeroxAgentMarket
+      summary: Discover Verox and its integration interfaces
+      responses:
+        '200':
+          description: Agent discovery card
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/market/products:
+    get:
+      operationId: listVeroxProducts
+      summary: List machine-readable Verox products
+      responses:
+        '200':
+          description: Product and integration catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [name, version, products, protocols]
+                properties:
+                  name: {type: string}
+                  version: {type: string}
+                  products:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, delivery, endpoint, purpose]
+                      properties:
+                        id: {type: string}
+                        name: {type: string}
+                        delivery: {type: string, enum: [synchronous, asynchronous]}
+                        endpoint: {type: string}
+                        result_endpoint: {type: string}
+                        purpose: {type: string}
+                        url: {type: string, format: uri}
+                  protocols:
+                    type: array
+                    items: {type: string}
+  /api/market/catalog:
+    get:
+      operationId: listVeroxCapabilities
+      summary: List declared specialist capabilities and connector status
+      responses:
+        '200':
+          description: Capability catalog; not proof of external execution
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/market/resolve:
+    post:
+      operationId: resolveVeroxCapability
+      summary: Resolve a request to ranked specialist candidates
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: {type: string, minLength: 1, maxLength: 8000}
+                limit: {type: integer, minimum: 1, maximum: 8, default: 3}
+      responses:
+        '200':
+          description: Ranked local routing candidates; no provider call is implied
+        '400': {description: Invalid request}
+        '401': {description: Invalid bearer token when authentication is enabled}
+  /api/market/submit:
+    post:
+      operationId: submitVeroxTask
+      summary: Persist a task and return immediately for asynchronous processing
+      description: >-
+        Requires VEROX_MARKET_API_TOKEN configured on the server and supplied as
+        a bearer token. Use idempotency_key for safe retries. Never include API
+        keys, passwords, cookies, payment credentials, or private session data in
+        the task payload.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: {type: string, minLength: 1, maxLength: 8000}
+                task_type:
+                  type: string
+                  default: cognitive_chat
+                  enum: [cognitive_chat, chat, general_chat, short_term_revenue, sports_analysis, horse_racing_analysis, mirror_store, microtask, service_work, brain_coordination, software_build]
+                idempotency_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                  pattern: '^[A-Za-z0-9_.:-]+$'
+                mission_id: {type: string, maxLength: 100}
+                product_id: {type: string, maxLength: 100}
+      responses:
+        '202':
+          description: Task accepted for asynchronous processing
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, accepted, delivery, result_url]
+                properties:
+                  id: {type: string, format: uuid}
+                  status: {type: string, enum: [queued]}
+                  accepted: {type: boolean}
+                  deduplicated: {type: boolean}
+                  delivery: {type: string, enum: [asynchronous]}
+                  result_url: {type: string}
+                  note: {type: string}
+        '400': {description: Invalid task or task type}
+        '401': {description: Missing or invalid bearer token}
+        '503': {description: Persistent queue or required configuration unavailable}
+  /api/tasks/{task_id}:
+    get:
+      operationId: getVeroxTask
+      summary: Poll asynchronous task status and result
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current task status and result when available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string, format: uuid}
+                  status: {type: string, enum: [queued, running, succeeded, failed, cancelled, needs_approval]}
+                  result: {type: object}
+                  error: {type: string}
+        '404': {description: Task not found}
+        '503': {description: Persistent queue unavailable}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: VEROX_MARKET_API_TOKEN
