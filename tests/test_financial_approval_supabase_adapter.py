@@ -114,3 +114,52 @@ def test_adapter_guard_consumes_before_executor(monkeypatch):
 
     assert result == "consumed"
     assert calls == ["consumed", "executor"]
+
+
+
+def test_refusal_audit_requires_confirmed_insert(monkeypatch):
+    from verox_brain.financial_execution_guard import FinancialAuthorizationError
+
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    seen = {}
+
+    def fake_request(method, path, *, params=None, body=None, prefer=None):
+        seen.update(method=method, path=path, body=body, prefer=prefer)
+        return [{"event_id": body["event_id"]}]
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    adapter.record_audit_event({
+        "run_id": "run-audit",
+        "event_id": "evt-audit",
+        "status": "blocked",
+        "action": "place_order",
+        "target": "EURUSD",
+        "metadata": {"reason": "test"},
+    })
+    assert seen["method"] == "POST"
+    assert seen["path"] == "nexus_runtime_events"
+    assert seen["prefer"] == "return=representation"
+
+
+def test_refusal_audit_missing_confirmation_fails_closed(monkeypatch):
+    from verox_brain.financial_execution_guard import FinancialAuthorizationError
+
+    adapter = SupabaseFinancialApprovalAdapter(FakeDataPlane())
+    monkeypatch.setattr(
+        adapter,
+        "_request",
+        lambda method, path, *, params=None, body=None, prefer=None: None,
+    )
+    try:
+        adapter.record_audit_event({
+            "run_id": "run-audit",
+            "event_id": "evt-audit",
+            "status": "blocked",
+            "action": "place_order",
+            "target": "EURUSD",
+            "metadata": {"reason": "test"},
+        })
+    except FinancialAuthorizationError as exc:
+        assert "not confirmed" in str(exc)
+    else:
+        raise AssertionError("missing audit confirmation must fail closed")
