@@ -41,6 +41,38 @@ class GatewayProxyIsolationTests(unittest.TestCase):
         )
 
 
+class FreeFallbackRoutingTests(unittest.TestCase):
+    def test_gateway_can_be_disabled_and_free_gemini_is_used_directly(self):
+        fake_response = MagicMock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "réponse gratuite"}]}}]
+        }
+        fake_client = MagicMock()
+        fake_client.__enter__.return_value = fake_client
+        fake_client.__exit__.return_value = False
+        fake_client.post.return_value = fake_response
+
+        with patch.dict(
+            "os.environ",
+            {
+                "VEROX_AI_GATEWAY_ENABLED": "false",
+                "AI_GATEWAY_API_KEY": "gateway-test-secret",
+                "GEMINI_API_KEY": "gemini-test-secret",
+                "GEMINI_MODEL": "gemini-3.1-flash-lite",
+            },
+            clear=True,
+        ):
+            with patch("verox_brain.model_client.httpx.Client", return_value=fake_client) as client_ctor:
+                answer, provider, model = generate_text("test")
+
+        self.assertEqual(answer, "réponse gratuite")
+        self.assertEqual(provider, "google-gemini-api-fallback")
+        self.assertEqual(model, "gemini-3.1-flash-lite")
+        client_ctor.assert_called_once()
+        self.assertIn("gemini-3.1-flash-lite:generateContent", fake_client.post.call_args.args[0])
+
+
 class GeminiCredentialCompatibilityTests(unittest.TestCase):
     def _assert_key_alias_used(self, variable_name: str) -> None:
         fake_response = MagicMock()
