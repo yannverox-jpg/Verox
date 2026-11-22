@@ -318,8 +318,14 @@ class handler(BaseHTTPRequestHandler):
             # Temporary preview-only diagnostic: make one direct, free-model Gateway call
             # without provider fallbacks, and expose no credentials or model response text.
             token = _gateway_token(self)
+            token_source = (
+                "api_key" if os.getenv("AI_GATEWAY_API_KEY", "").strip()
+                else "request_oidc_header" if self.headers.get("x-vercel-oidc-token", "").strip()
+                else "environment_oidc" if os.getenv("VERCEL_OIDC_TOKEN", "").strip()
+                else "none"
+            )
             if not token:
-                _json(self, 503, {"ok": False, "stage": "authentication", "error": "No Gateway token available."})
+                _json(self, 503, {"ok": False, "stage": "authentication", "token_source": token_source, "error": "No Gateway token available."})
                 return
             started = time.monotonic()
             try:
@@ -332,6 +338,7 @@ class handler(BaseHTTPRequestHandler):
                     "ok": bool(answer.strip()),
                     "provider": provider,
                     "model": model,
+                    "token_source": token_source,
                     "latency_ms": round((time.monotonic() - started) * 1000, 1),
                     "marker_match": "VEROX_GATEWAY_OK" in answer,
                 })
@@ -339,6 +346,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 502, {
                     "ok": False,
                     "stage": "gateway_request",
+                    "token_source": token_source,
                     "error": str(exc)[:250],
                     "latency_ms": round((time.monotonic() - started) * 1000, 1),
                 })
