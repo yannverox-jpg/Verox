@@ -67,7 +67,7 @@ async def process_agent_task(message: dict) -> None:
             names = [str(item)[:100] for item in value[:20] if isinstance(item, str) and item.strip()]
             return ", ".join(names) if names else "aucun"
         routing_context = (
-            "\\n\\nPréférences du dashboard Verox (métadonnées utilisateur, non preuve de connexion) :"
+            "\n\nPréférences du dashboard Verox (métadonnées utilisateur, non preuve de connexion) :"
             f" modèle préféré={model_preference or 'non précisé'};"
             f" outils sélectionnés={safe_names(selected_tools)};"
             f" connecteurs sélectionnés={safe_names(selected_connectors)};"
