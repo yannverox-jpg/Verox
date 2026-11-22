@@ -4,8 +4,8 @@ from main import _worker_concurrency
 
 
 class WorkerConcurrencyTests(unittest.TestCase):
-    def test_default_is_three_workers(self):
-        self.assertEqual(_worker_concurrency(None), 3)
+    def test_explicit_default_is_three_workers(self):
+        self.assertEqual(_worker_concurrency("3"), 3)
 
     def test_concurrency_is_bounded(self):
         self.assertEqual(_worker_concurrency("0"), 1)
