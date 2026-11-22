@@ -4,6 +4,7 @@ from verox_brain.runtime_guardrails import (
     RuntimeGuardError,
     classify_task_envelope,
     require_financial_authorization,
+    guard_declared_financial_action,
 )
 
 
@@ -57,3 +58,30 @@ def test_financial_action_fails_closed_if_verifier_missing():
 
 def test_non_financial_action_does_not_require_financial_verifier():
     assert require_financial_authorization("read_only_research", {}, authorization_verifier=None) is None
+
+
+@pytest.mark.parametrize("action", [
+    "trade_order", "place_order", "execute_trade", "bet", "place_bet",
+    "wager", "transfer", "send_funds", "withdraw", "deposit",
+])
+def test_declared_financial_action_is_blocked_without_live_verifier(action):
+    with pytest.raises(RuntimeGuardError, match="financial_authorization_verifier_unavailable"):
+        guard_declared_financial_action({
+            "task_type": "cognitive_chat",
+            "payload": {"action_type": action, "amount": 10},
+        })
+
+
+def test_financial_task_type_is_blocked_without_live_verifier():
+    with pytest.raises(RuntimeGuardError, match="financial_authorization_verifier_unavailable"):
+        guard_declared_financial_action({
+            "task_type": "transfer",
+            "payload": {"text": "move funds"},
+        })
+
+
+def test_read_only_research_is_not_blocked_as_financial_action():
+    assert guard_declared_financial_action({
+        "task_type": "trading",
+        "payload": {"text": "research market conditions"},
+    }) is None
