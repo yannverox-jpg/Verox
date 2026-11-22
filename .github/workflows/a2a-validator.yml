@@ -17,4 +17,4 @@ jobs:
       - name: Install validator dependencies
         run: python -m pip install "pydantic>=2.7,<3" "pytest>=8.0,<9"
       - name: Run A2A governance tests
-        run: python -m pytest -q tests/test_verox_a2a_validator.py tests/test_verox_a2a_runtime_guard.py
+        run: python -m pytest -q tests/test_verox_a2a_validator.py tests/test_verox_a2a_runtime_guard.py tests/test_runtime_guardrails.py
