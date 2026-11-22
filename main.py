@@ -1240,7 +1240,7 @@ def run_dashboard():
                 except Exception as exc:
                     return self._json(503, {"error": str(exc)[:250]})
             if parsed.path in ("/", "/index.html", "/nexus_dashboard.html"):
-                self.path = "/nexus_dashboard.html"
+                self.path = "/index.html"
             return super().do_GET()
 
         def do_POST(self):
