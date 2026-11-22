@@ -18,6 +18,20 @@ from verox_brain.dispatch import resolve_route, UnknownTaskType, ROUTES, route_s
 from verox_brain.market import market_catalog, resolve_market
 from verox_brain.ephemeral_agents import active_mission_agents, retire_mission_agents, spawn_mission_agents
 
+MARKET_PRODUCT_CATALOG = {
+    "name": "Verox Agent Market",
+    "version": "1.1.0",
+    "products": [
+        {"id": "capability-discovery", "name": "Capability Discovery", "delivery": "synchronous", "endpoint": "/api/market/catalog", "purpose": "Discover machine-readable specialist capabilities."},
+        {"id": "low-latency-routing", "name": "Low-Latency Routing", "delivery": "synchronous", "endpoint": "/api/market/resolve", "purpose": "Rank local specialist candidates without external model calls."},
+        {"id": "async-task-execution", "name": "Asynchronous Task Execution", "delivery": "asynchronous", "endpoint": "/api/market/submit", "result_endpoint": "/api/tasks/{task_id}", "purpose": "Submit an authenticated task to the persistent Supabase queue and poll its status."},
+        {"id": "auditable-delivery", "name": "Auditable Delivery", "delivery": "asynchronous", "endpoint": "/api/tasks/{task_id}", "purpose": "Retrieve task status, result and error without holding the initial request open."}
+    ],
+    "protocols": ["HTTP+JSON", "agent-card"],
+    "auth": "Bearer VEROX_MARKET_API_TOKEN required for task submission; never send provider secrets in task payloads."
+}
+
+
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
     level=logging.INFO,
@@ -963,9 +977,16 @@ def run_dashboard():
                     "capabilities": {"streaming": False, "pushNotifications": False},
                     "skills": [
                         {"id": "market-discovery", "name": "Market discovery", "description": "Search declared specialist capabilities and return ranked routing candidates."},
-                        {"id": "agent-routing", "name": "Low-latency routing", "description": "Rank specialist agents locally without calling external providers."}
+                        {"id": "agent-routing", "name": "Low-latency routing", "description": "Rank specialist agents locally without calling external providers."},
+                        {"id": "async-task-execution", "name": "Asynchronous task execution", "description": "Submit a task and receive its identifier immediately; poll its result endpoint."},
+                        {"id": "product-catalog", "name": "Verox products", "description": "Machine-readable catalog of Verox integration products and endpoints."}
                     ],
-                    "interfaces": [{"url": public_url + "/api/market/resolve", "protocol": "HTTP+JSON", "method": "POST"}],
+                    "interfaces": [
+                        {"url": public_url + "/api/market/resolve", "protocol": "HTTP+JSON", "method": "POST"},
+                        {"url": public_url + "/api/market/submit", "protocol": "HTTP+JSON", "method": "POST", "authentication": "Bearer"},
+                        {"url": public_url + "/api/market/products", "protocol": "HTTP+JSON", "method": "GET"},
+                        {"url": public_url + "/api/tasks/{task_id}", "protocol": "HTTP+JSON", "method": "GET"}
+                    ],
                     "authentication": {"required": bool(os.getenv("VEROX_MARKET_API_TOKEN")), "type": "Bearer" if os.getenv("VEROX_MARKET_API_TOKEN") else "none"}
                 })
             if parsed.path == "/api/market/instances":
@@ -976,6 +997,11 @@ def run_dashboard():
                 if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + market_token):
                     return self._json(401, {"error": "Authentification agent requise."})
                 return self._json(200, active_mission_agents())
+            if parsed.path == "/api/market/products":
+                catalog = dict(MARKET_PRODUCT_CATALOG)
+                catalog["url"] = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com").rstrip("/")
+                catalog["products"] = [dict(item, url=catalog["url"] + item["endpoint"]) for item in catalog["products"]]
+                return self._json(200, catalog)
             if parsed.path == "/api/market/catalog":
                 catalog = market_catalog()
                 catalog["url"] = os.getenv("VEROX_PUBLIC_URL", "https://verox-juqt.onrender.com")
@@ -1057,23 +1083,60 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
-            if request_path not in {"/api/chat", "/api/market/resolve", "/api/market/spawn", "/api/market/retire"}:
+            if request_path not in {"/api/chat", "/api/market/resolve", "/api/market/spawn", "/api/market/retire", "/api/market/submit"}:
                 return self._json(404, {"error": "Route inconnue"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 1 or length > 20000:
                     return self._json(400, {"error": "Taille de requête invalide"})
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
-                if request_path in {"/api/market/resolve", "/api/market/spawn", "/api/market/retire"}:
+                if request_path in {"/api/market/resolve", "/api/market/spawn", "/api/market/retire", "/api/market/submit"}:
                     market_token = os.getenv("VEROX_MARKET_API_TOKEN", "").strip()
-                    if request_path in {"/api/market/spawn", "/api/market/retire"} and not market_token:
-                        return self._json(503, {"error": "VEROX_MARKET_API_TOKEN doit être configuré avant de créer ou retirer des agents."})
+                    if request_path in {"/api/market/spawn", "/api/market/retire", "/api/market/submit"} and not market_token:
+                        return self._json(503, {"error": "VEROX_MARKET_API_TOKEN doit être configuré avant de créer des agents ou soumettre une tâche."})
                     if market_token:
                         import hmac
                         supplied = self.headers.get("Authorization", "")
                         expected = "Bearer " + market_token
                         if not hmac.compare_digest(supplied, expected):
                             return self._json(401, {"error": "Authentification agent requise."})
+                if request_path == "/api/market/submit":
+                    query = str(body.get("query", body.get("text", ""))).strip()
+                    task_type = str(body.get("task_type", "cognitive_chat")).strip().lower()
+                    if not query or len(query) > 8000:
+                        return self._json(400, {"error": "Le champ query est requis (maximum 8000 caractères)."})
+                    if task_type not in {"cognitive_chat", "chat", "general_chat"}:
+                        try:
+                            resolve_route(task_type)
+                        except UnknownTaskType as exc:
+                            return self._json(400, {"error": str(exc), "available_task_types": sorted(ROUTES)})
+                    idempotency_key = str(body.get("idempotency_key", "")).strip()
+                    if idempotency_key and (len(idempotency_key) > 120 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", idempotency_key)):
+                        return self._json(400, {"error": "idempotency_key doit contenir 1 à 120 caractères alphanumériques, . _ : ou -."})
+                    try:
+                        supabase_url, supabase_headers = self._supabase()
+                    except RuntimeError:
+                        return self._json(503, {"error": "La file persistante Supabase n’est pas configurée; aucune exécution synchrone de remplacement n’a été tentée."})
+                    task_key = "agent-market:" + idempotency_key if idempotency_key else str(uuid.uuid4())
+                    try:
+                        with httpx.Client(timeout=4.0) as client:
+                            if idempotency_key:
+                                existing = client.get(supabase_url + "/rest/v1/nexus_tasks", params={"task_key": "eq." + task_key, "select": "id,status", "limit": "1"}, headers=supabase_headers)
+                                existing.raise_for_status()
+                                rows_existing = existing.json()
+                                if rows_existing:
+                                    return self._json(202, {"id": rows_existing[0]["id"], "status": rows_existing[0]["status"], "deduplicated": True, "result_url": "/api/tasks/" + rows_existing[0]["id"]})
+                            task = {"task_key": task_key, "task_type": task_type, "status": "queued", "payload": {"text": query, "source": "agent_market", "mission_id": str(body.get("mission_id", ""))[:100], "product_id": str(body.get("product_id", "async-task-execution"))[:100]}}
+                            response = client.post(supabase_url + "/rest/v1/nexus_tasks", json=task, headers={**supabase_headers, "Prefer": "return=representation"})
+                            response.raise_for_status()
+                            rows = response.json()
+                        if not rows:
+                            return self._json(502, {"error": "La file n’a retourné aucun identifiant de tâche."})
+                        task_id = rows[0]["id"]
+                        return self._json(202, {"id": task_id, "status": rows[0]["status"], "accepted": True, "deduplicated": False, "result_url": "/api/tasks/" + task_id, "delivery": "asynchronous", "note": "La tâche est persistée; son résultat dépend du worker et des connecteurs réellement configurés."})
+                    except Exception as exc:
+                        logger.warning("Soumission agent-market impossible (%s).", type(exc).__name__)
+                        return self._json(503, {"error": "Soumission persistante indisponible; réessayer avec la même idempotency_key.", "retryable": True})
                 if request_path == "/api/market/spawn":
                     query = str(body.get("query", body.get("text", ""))).strip()
                     try:
