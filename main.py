@@ -779,8 +779,96 @@ class CognitiveBrain:
 
 
 
+async def _renew_task_lease(client, supabase_url, headers, task_id, worker_id, lease_seconds):
+    now = datetime.now(timezone.utc)
+    response = await client.patch(
+        f"{supabase_url}/rest/v1/nexus_tasks",
+        params={
+            "id": f"eq.{task_id}",
+            "status": "eq.running",
+            "worker_id": f"eq.{worker_id}",
+            "lease_expires_at": f"gt.{now.isoformat()}",
+        },
+        json={
+            "heartbeat_at": now.isoformat(),
+            "lease_expires_at": (now + __import__("datetime").timedelta(seconds=lease_seconds)).isoformat(),
+            "updated_at": now.isoformat(),
+        },
+        headers=headers,
+    )
+    response.raise_for_status()
+    return bool(response.json())
+
+
+async def _task_heartbeat(client, supabase_url, headers, task_id, worker_id, lease_seconds, lost_lease):
+    interval = max(5.0, lease_seconds / 3.0)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            if not await _renew_task_lease(
+                client, supabase_url, headers, task_id, worker_id, lease_seconds
+            ):
+                lost_lease.set()
+                logger.warning("Bail perdu: task_id=%s worker_id=%s", task_id, worker_id)
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Heartbeat indisponible task_id=%s (%s)", task_id, type(exc).__name__)
+            # On retente au prochain intervalle; la finalisation reste protégée par le bail.
+
+
+async def _finalize_claimed_task(
+    client, supabase_url, headers, task_id, worker_id, status, result, error=None
+):
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "status": status,
+        "result": result,
+        "error": error,
+        "last_error": error,
+        "worker_id": None,
+        "lease_expires_at": None,
+        "heartbeat_at": None,
+        "completed_at": now if status in {"succeeded", "failed", "cancelled"} else None,
+        "updated_at": now,
+    }
+    response = await client.patch(
+        f"{supabase_url}/rest/v1/nexus_tasks",
+        params={
+            "id": f"eq.{task_id}",
+            "status": "eq.running",
+            "worker_id": f"eq.{worker_id}",
+            "lease_expires_at": f"gt.{now}",
+        },
+        json=payload,
+        headers=headers,
+    )
+    response.raise_for_status()
+    committed = response.json()
+    if not committed:
+        logger.warning(
+            "Finalisation refusée: bail expiré ou tâche reprise task_id=%s worker_id=%s",
+            task_id, worker_id
+        )
+        return False
+    return True
+
+
+async def _reclaim_expired_tasks(client, supabase_url, headers):
+    response = await client.post(
+        f"{supabase_url}/rest/v1/rpc/reclaim_expired_nexus_tasks",
+        json={"p_batch_size": max(1, min(500, int(os.getenv("VEROX_RECLAIM_BATCH_SIZE", "50"))))},
+        headers=headers,
+    )
+    response.raise_for_status()
+    reclaimed = response.json()
+    if reclaimed:
+        logger.warning("Reprise de %d tâche(s) au bail expiré.", len(reclaimed))
+
+
 async def run_worker(worker_id: int = 0):
-    """Consomme la file canonique public.nexus_tasks et écrit les résultats dans PostgreSQL."""
+    """Consomme la file Supabase avec réservation atomique, leases et finalisation protégée."""
     brain = CognitiveBrain()
     if worker_id == 0:
         try:
@@ -795,45 +883,61 @@ async def run_worker(worker_id: int = 0):
                 logger.warning("Gemini API de secours indisponible; le cerveau continue avec les connecteurs disponibles.")
         else:
             logger.warning("GEMINI_API_KEY absente; le secours Gemini n'est pas configuré.")
-    logger.info("Worker asynchrone %s prêt à consommer la file.", worker_id)
+
     supabase_url = _supabase_base_url(os.getenv("SUPABASE_URL", ""))
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not supabase_url or not supabase_key:
-        logger.error("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis. Le serveur HTTP reste disponible, mais le worker est en attente de configuration.")
+        logger.error("SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis. Worker en attente de configuration.")
         while True:
             await asyncio.sleep(30)
+
+    node_id = os.getenv("RENDER_INSTANCE_ID") or os.getenv("HOSTNAME") or "verox"
+    worker_name = f"{node_id}-{os.getpid()}-{uuid.uuid4().hex[:8]}-w{worker_id}"
+    lease_seconds = max(15, min(900, int(os.getenv("VEROX_LEASE_SECONDS", "90"))))
+    reclaim_interval = max(5, int(os.getenv("VEROX_RECLAIM_INTERVAL_S", "20")))
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation"
+        "Prefer": "return=representation",
     }
-    async with httpx.AsyncClient(timeout=45.0) as client:
+    logger.info("Worker %s prêt; lease=%ss.", worker_name, lease_seconds)
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=8.0)) as client:
+        last_reclaim = 0.0
         while True:
+            task = None
+            heartbeat = None
+            lost_lease = asyncio.Event()
             try:
-                response = await client.get(
-                    f"{supabase_url}/rest/v1/nexus_tasks",
-                    params={"select": "id,task_key,task_type,payload,status", "status": "eq.queued",
-                            "order": "scheduled_at.asc", "limit": "1"},
-                    headers=headers
+                if worker_id == 0 and asyncio.get_running_loop().time() - last_reclaim >= reclaim_interval:
+                    await _reclaim_expired_tasks(client, supabase_url, headers)
+                    last_reclaim = asyncio.get_running_loop().time()
+
+                claim_response = await client.post(
+                    f"{supabase_url}/rest/v1/rpc/claim_next_nexus_task",
+                    json={"p_worker_id": worker_name, "p_lease_seconds": lease_seconds},
+                    headers=headers,
                 )
-                response.raise_for_status()
-                rows = response.json()
-                if not rows:
-                    await asyncio.sleep(2)
+                claim_response.raise_for_status()
+                claimed = claim_response.json()
+                if isinstance(claimed, dict):
+                    task = claimed
+                elif isinstance(claimed, list) and claimed:
+                    task = claimed[0]
+
+                if not task:
+                    await asyncio.sleep(0.75)
                     continue
-                task = rows[0]
+
                 task_id = task["id"]
-                claim = await client.patch(
-                    f"{supabase_url}/rest/v1/nexus_tasks",
-                    params={"id": f"eq.{task_id}", "status": "eq.queued"},
-                    json={"status": "running", "started_at": datetime.now(timezone.utc).isoformat(),
-                          "attempts": (task.get("attempts") or 0) + 1},
-                    headers=headers
+                heartbeat = asyncio.create_task(
+                    _task_heartbeat(
+                        client, supabase_url, headers, task_id, worker_name,
+                        lease_seconds, lost_lease
+                    ),
+                    name=f"verox-heartbeat-{str(task_id)[:8]}",
                 )
-                claim.raise_for_status()
-                if not claim.json():
-                    continue
                 try:
                     payload = task.get("payload") or {}
                     query = str(payload.get("text") or payload.get("query") or "").strip()
@@ -841,6 +945,7 @@ async def run_worker(worker_id: int = 0):
                     task_type = str(task.get("task_type") or "cognitive_chat").strip().lower()
                     if not query:
                         raise ValueError("Le champ payload.text ou payload.query est requis.")
+
                     route = None
                     provider_filter = None
                     if task_type not in {"cognitive_chat", "chat", "general_chat"}:
@@ -852,6 +957,7 @@ async def run_worker(worker_id: int = 0):
                                 f"Connecteur requis non intégré au worker: {route.connector}. "
                                 "La tâche est arrêtée plutôt que simulée."
                             )
+
                     evidence = await brain.run(query, email, provider_filter=provider_filter)
                     if route and provider_filter and not any(
                         provider_filter.lower() in str(item.get("connector", "")).lower()
@@ -862,8 +968,7 @@ async def run_worker(worker_id: int = 0):
                             f"Le fournisseur {route.provider} n'a pas retourné de résultat vérifiable. "
                             "Vérifier la session Playwright et relancer la tâche."
                         )
-                    # Le chat doit recevoir une réponse rédigée, pas uniquement une liste de preuves.
-                    # Si le cycle a déjà produit la réponse Gemini de secours, on la réutilise.
+
                     gemini_fallback = next(
                         (item for item in (evidence or []) if item.get("connector") == "Gemini fallback"),
                         None,
@@ -880,47 +985,72 @@ async def run_worker(worker_id: int = 0):
                         answer = str(provider_result.get("evidence") or "").strip() if provider_result else ""
                     else:
                         answer = await brain.ask_gemini(query, evidence or [])
+
                     result = {
                         "answer": answer or "",
                         "provider": (route.provider if route and provider_filter else ("gemini" if answer else "connectors")),
                         "task_type": task_type,
+                        "department_id": task.get("department_id") or payload.get("department_id"),
+                        "strategy_id": task.get("strategy_id") or payload.get("strategy_id"),
+                        "mission_id": task.get("mission_id") or payload.get("mission_id"),
                         "routed_role": route.role if route else "general_cognitive_chat",
                         "route_connector": route.connector if route else None,
                         "evidence": evidence or [],
                         "evidence_count": len(evidence or []),
                     }
-                    await client.patch(
-                        f"{supabase_url}/rest/v1/nexus_tasks",
-                        params={"id": f"eq.{task_id}"},
-                        json={"status": "succeeded", "result": result,
-                              "completed_at": datetime.now(timezone.utc).isoformat(), "error": None},
-                        headers=headers
+                    if lost_lease.is_set():
+                        logger.warning("Résultat non publié: bail perdu task_id=%s", task_id)
+                        continue
+                    committed = await _finalize_claimed_task(
+                        client, supabase_url, headers, task_id, worker_name,
+                        "succeeded", result, None
                     )
-                    await client.post(
-                        f"{supabase_url}/rest/v1/nexus_execution_events",
-                        json={"task_id": task_id, "event_type": "task_succeeded", "severity": "info",
-                              "message": "CognitiveBrain a terminé la tâche.", "details": result},
-                        headers={**headers, "Prefer": "return=minimal"}
-                    )
+                    if committed:
+                        await client.post(
+                            f"{supabase_url}/rest/v1/nexus_execution_events",
+                            json={
+                                "task_id": task_id, "event_type": "task_succeeded", "severity": "info",
+                                "message": "CognitiveBrain a terminé la tâche.",
+                                "details": {
+                                    "task_type": task_type,
+                                    "department_id": result["department_id"],
+                                    "strategy_id": result["strategy_id"],
+                                    "mission_id": result["mission_id"],
+                                    "evidence_count": result["evidence_count"],
+                                },
+                            },
+                            headers={**headers, "Prefer": "return=minimal"},
+                        )
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:
                     logger.exception("Échec de la tâche cognitive %s", task_id)
                     error_result = {"error": str(exc)[:1000], "evidence": []}
-                    await client.patch(
-                        f"{supabase_url}/rest/v1/nexus_tasks",
-                        params={"id": f"eq.{task_id}"},
-                        json={"status": "failed", "result": error_result, "error": str(exc)[:2000],
-                              "completed_at": datetime.now(timezone.utc).isoformat()},
-                        headers=headers
-                    )
-                    await client.post(
-                        f"{supabase_url}/rest/v1/nexus_execution_events",
-                        json={"task_id": task_id, "event_type": "task_failed", "severity": "error",
-                              "message": "Échec de la tâche CognitiveBrain.", "details": error_result},
-                        headers={**headers, "Prefer": "return=minimal"}
-                    )
-            except Exception:
-                logger.exception("Erreur du worker cognitif")
-                await asyncio.sleep(5)
+                    if not lost_lease.is_set():
+                        committed = await _finalize_claimed_task(
+                            client, supabase_url, headers, task_id, worker_name,
+                            "failed", error_result, str(exc)[:2000]
+                        )
+                        if committed:
+                            await client.post(
+                                f"{supabase_url}/rest/v1/nexus_execution_events",
+                                json={
+                                    "task_id": task_id, "event_type": "task_failed", "severity": "error",
+                                    "message": "Échec de la tâche CognitiveBrain.",
+                                    "details": {"error": str(exc)[:1000]},
+                                },
+                                headers={**headers, "Prefer": "return=minimal"},
+                            )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("Erreur du worker cognitif %s (%s)", worker_name, type(exc).__name__)
+                await asyncio.sleep(2)
+            finally:
+                if heartbeat is not None:
+                    heartbeat.cancel()
+                    await asyncio.gather(heartbeat, return_exceptions=True)
+
 
 
 def run_dashboard():
