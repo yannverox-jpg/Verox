@@ -453,12 +453,28 @@ class handler(BaseHTTPRequestHandler):
         if len(prompt) > 20_000:
             _json(self, 413, {"error": "Le message dépasse la limite de 20 000 caractères."})
             return
+        # Preserve only non-secret dashboard routing preferences in the durable task.
+        # This metadata does not itself execute tools or establish external connections.
+        model_preference = str(payload.get("model", ""))[:100]
+        def _safe_name_list(value: Any) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [str(item).strip()[:120] for item in value[:30]
+                    if isinstance(item, str) and str(item).strip()]
+        dashboard_preferences = {
+            "model": model_preference,
+            "tools": _safe_name_list(payload.get("tools")),
+            "connectors": _safe_name_list(payload.get("connectors")),
+            "mcp_servers": _safe_name_list(payload.get("mcp_servers")),
+            "page": str(payload.get("page", ""))[:40],
+        }
         try:
             task = _rpc(
                 "create",
                 task_type="chat",
                 payload={"text": prompt, "_client_ip": _client_ip(self),
-                         "source": "verox_dashboard", "user_initiated": "true"},
+                         "source": "verox_dashboard", "user_initiated": "true",
+                         "dashboard_preferences": dashboard_preferences},
             )
             task_id = str(task["id"])
             try:
