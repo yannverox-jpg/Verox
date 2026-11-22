@@ -109,22 +109,31 @@ class SupabaseFinancialApprovalAdapter:
         *,
         intent: FinancialOperationIntent,
     ) -> bool:
-        result = self._request(
-            "POST",
-            "rpc/consume_human_financial_authorization",
-            body={
-                "p_authorization_id": str(authorization_id).strip(),
-                "p_operation_fingerprint": str(operation_fingerprint).strip().lower(),
-                "p_run_id": str(intent.run_id).strip(),
-                "p_event_id": str(intent.event_id).strip(),
-                "p_action": str(intent.operation_type).strip(),
-                "p_target": str(intent.target).strip(),
-                "p_domain": str(intent.domain).strip(),
-                "p_source": self._source_label,
-                "p_agent": self._agent_name,
-                "p_stage": self._stage_name,
-            },
-        )
+        rpc = getattr(self._data_plane, "rpc", None)
+        if not callable(rpc):
+            raise FinancialAuthorizationError("T6 dedicated Supabase RPC transport unavailable.")
+        try:
+            result = rpc(
+                "consume_human_financial_authorization",
+                params={
+                    "p_authorization_id": str(authorization_id).strip(),
+                    "p_operation_fingerprint": str(operation_fingerprint).strip().lower(),
+                    "p_run_id": str(intent.run_id).strip(),
+                    "p_event_id": str(intent.event_id).strip(),
+                    "p_action": str(intent.operation_type).strip(),
+                    "p_target": str(intent.target).strip(),
+                    "p_domain": str(intent.domain).strip(),
+                    "p_source": self._source_label,
+                    "p_agent": self._agent_name,
+                    "p_stage": self._stage_name,
+                },
+                timeout=self._timeout,
+            )
+        except Exception as exc:
+            # Keep transport details and credentials out of caller-visible errors.
+            raise FinancialAuthorizationError(
+                f"T6 atomic RPC transport failed ({type(exc).__name__})."
+            ) from None
         row = result[0] if isinstance(result, list) and result else result
         if not isinstance(row, dict):
             raise FinancialAuthorizationError("T6 atomic RPC returned an invalid response.")
