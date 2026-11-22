@@ -22,7 +22,7 @@ def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | N
     base = os.environ["SUPABASE_URL"].rstrip("/")
     anon = os.environ["SUPABASE_ANON_KEY"]
     token = os.environ["VEROX_INTERNAL_TASK_TOKEN"]
-    with httpx.Client(timeout=15.0) as client:
+    with httpx.Client(timeout=15.0, trust_env=False) as client:
         response = client.post(
             f"{base}/rest/v1/rpc/verox_task_api",
             headers={"apikey": anon, "Authorization": f"Bearer {anon}", "Content-Type": "application/json"},
