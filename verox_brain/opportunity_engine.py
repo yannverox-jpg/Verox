@@ -295,12 +295,14 @@ def scan_feeds(
                 continue
 
             source_id = str((source_ids_by_feed_url or {}).get(feed.url, "")).strip()
-            if not source_id or not rss_xml_parsed:
+            if not source_id:
+                from verox_brain.server_proof_recorder import ProofIntegrityError
+                raise ProofIntegrityError(
+                    f"No registered source_id was resolved for configured feed {feed.name!r}."
+                )
+            if not rss_xml_parsed:
                 proof_blocked += len(feed_leads)
-                errors.append({
-                    "source": feed.name,
-                    "error": "proof_source_id_missing" if not source_id else "rss_xml_parse_failed",
-                })
+                errors.append({"source": feed.name, "error": "rss_xml_parse_failed"})
                 continue
 
             # Only XML parsing is claimed here. Publication-date checks are deliberately
