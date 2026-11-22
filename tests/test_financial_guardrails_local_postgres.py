@@ -10,7 +10,11 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import psycopg
+import pytest
+
+psycopg = pytest.importorskip(
+    "psycopg", reason="the dedicated local-PostgreSQL workflow installs psycopg"
+)
 from psycopg.rows import dict_row
 
 
