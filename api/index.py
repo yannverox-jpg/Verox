@@ -317,6 +317,7 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/queue-smoke":
             # Temporary preview-only smoke: enqueue one harmless model task to verify
             # Supabase persistence -> Vercel Queue -> model router -> Supabase result.
+            stage = "create"
             try:
                 task = _rpc(
                     "create",
@@ -328,7 +329,11 @@ class handler(BaseHTTPRequestHandler):
                         "user_initiated": "true",
                     },
                 )
+                if not isinstance(task, dict) or not task.get("id"):
+                    _json(self, 503, {"ok": False, "stage": "create_response", "fields": sorted(task.keys()) if isinstance(task, dict) else []})
+                    return
                 task_id = str(task["id"])
+                stage = "enqueue"
                 try:
                     message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
                 except Exception:
@@ -340,8 +345,10 @@ class handler(BaseHTTPRequestHandler):
                     "queue_message_id": message_id,
                     "status_url": f"/api/tasks/{task_id}",
                 })
-            except Exception:
-                _json(self, 503, {"ok": False, "stage": "queue_smoke", "error": "Impossible de créer ou placer la tâche de test."})
+            except httpx.HTTPStatusError as exc:
+                _json(self, 503, {"ok": False, "stage": stage, "http_status": exc.response.status_code})
+            except Exception as exc:
+                _json(self, 503, {"ok": False, "stage": stage, "error_type": type(exc).__name__})
             return
         if path == "/api/health":
             gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
