@@ -12,6 +12,8 @@ import json
 import os
 import re
 import time
+import uuid
+import logging
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -19,6 +21,8 @@ from dataclasses import asdict, dataclass
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlencode, urlparse
+
+logger = logging.getLogger("verox.opportunity_engine")
 
 MAX_FEEDS = 12
 MAX_BYTES_PER_FEED = 1_000_000
@@ -230,12 +234,23 @@ def scan_world_bank_procurement(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> tuple
         output.append(Opportunity(title=title, summary=summary, source_name="World Bank Procurement Notices", source_url=link[:2000], department="microtasks_services", published_at=published, matched_keywords=matched, score=score))
     return output, None
 
-def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
+def scan_feeds(
+    feeds: list[Feed] | None = None,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    run_id: str | None = None,
+    data_plane: Any | None = None,
+    source_ids_by_feed_url: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Fetch configured public feeds and return deduplicated, ranked leads.
 
     A failed feed is reported by name and error class only. Response bodies,
     credentials, and exception strings are not returned or logged.
     """
+    proof_mode = any(value is not None for value in (run_id, data_plane, source_ids_by_feed_url))
+    if proof_mode and (not str(run_id or "").strip() or data_plane is None or source_ids_by_feed_url is None):
+        raise ValueError("Proof mode requires the real run_id, data_plane, and registered source IDs by feed URL.")
+    clean_run_id = str(run_id or "").strip()
     configured = feeds if feeds is not None else load_feeds()
     if not configured:
         return {
@@ -252,6 +267,8 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
     leads: list[Opportunity] = []
     errors: list[dict[str, str]] = []
     fetched = 0
+    proof_recorded = 0
+    proof_blocked = 0
     for feed in configured[:MAX_FEEDS]:
         request = urllib.request.Request(feed.url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"})
         try:
@@ -265,8 +282,81 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
                 if len(body) > MAX_BYTES_PER_FEED:
                     errors.append({"source": feed.name, "error": "feed_too_large"})
                     continue
+            # Execute XML parsing explicitly so a passing check reflects a real parser result.
+            try:
+                ET.fromstring(body)
+                rss_xml_parsed = True
+            except ET.ParseError:
+                rss_xml_parsed = False
             fetched += 1
-            leads.extend(parse_feed(feed, body))
+            feed_leads = parse_feed(feed, body)
+            if not proof_mode:
+                leads.extend(feed_leads)
+                continue
+
+            source_id = str((source_ids_by_feed_url or {}).get(feed.url, "")).strip()
+            if not source_id or not rss_xml_parsed:
+                proof_blocked += len(feed_leads)
+                errors.append({
+                    "source": feed.name,
+                    "error": "proof_source_id_missing" if not source_id else "rss_xml_parse_failed",
+                })
+                continue
+
+            # Only XML parsing is claimed here. Publication-date checks are deliberately
+            # omitted because _published currently preserves unparseable date strings.
+            from verox_brain.server_proof_recorder import (
+                ExecutedCaptureCheck,
+                ObservationProofContext,
+                ProofIntegrityError,
+            )
+            for lead in feed_leads:
+                event_id = str(uuid.uuid4())
+                context = ObservationProofContext(
+                    run_id=clean_run_id,
+                    event_id=event_id,
+                    agent="discovery_agent",
+                    stage="capture",
+                    action="capture_rss_item",
+                    target=lead.source_url,
+                    evidence_type="rss_feed",
+                    executed_checks=[
+                        ExecutedCaptureCheck(
+                            check_name="rss_xml_parsed",
+                            passed=True,
+                            detail="ET.fromstring succeeded on the fetched response body",
+                        )
+                    ],
+                    source_label="opportunity_engine",
+                )
+                try:
+                    saved = data_plane.save_observation(
+                        source_id=source_id,
+                        text=(lead.title + "\n" + lead.summary)[:18_000],
+                        url=lead.source_url,
+                        content_type="application/rss+xml",
+                        source_published_at=lead.published_at,
+                        metadata={
+                            "feed_name": feed.name,
+                            "feed_url": feed.url,
+                            "department": lead.department,
+                            "matched_keywords": list(lead.matched_keywords),
+                            "score": lead.score,
+                        },
+                        proof_context=context,
+                    )
+                    if not isinstance(saved, dict) or saved.get("verified_evidence") is None:
+                        raise ProofIntegrityError("Server proof was not returned after persistence.")
+                except Exception as exc:
+                    # Fail closed: this lead is not added to the downstream result.
+                    proof_blocked += 1
+                    logger.error(
+                        "RSS candidate blocked after proof failure (run_id=%s, event_id=%s, error_type=%s)",
+                        clean_run_id, event_id, type(exc).__name__,
+                    )
+                    continue
+                proof_recorded += 1
+                leads.append(lead)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             errors.append({"source": feed.name, "error": "fetch_failed"})
     # Procurement notices are demand signals, unlike product-announcement feeds.
@@ -290,6 +380,11 @@ def scan_feeds(feeds: list[Feed] | None = None, timeout: int = DEFAULT_TIMEOUT_S
         "sources_fetched": fetched,
         "leads_detected": len(ranked),
         "leads": [asdict(lead) for lead in ranked[:250]],
+        **({
+            "proof_mode": True,
+            "proofs_recorded": proof_recorded,
+            "proofs_blocked": proof_blocked,
+        } if proof_mode else {}),
         "source_errors": errors,
         "revenue_confirmed": False,
         "disclaimer": "Les pistes sont détectées, non validées commercialement. Aucun revenu n'est confirmé par ce scan.",
