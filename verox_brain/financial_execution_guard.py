@@ -133,9 +133,8 @@ class ServerHumanApprovalGuard:
                 },
             })
         except Exception as exc:
-            # Audit failure must not accidentally authorize execution.
-            if status == "authorized":
-                raise FinancialAuthorizationError("Authorization audit failed; execution denied.") from exc
+            # Missing audit is never silently accepted, whether the action was allowed or denied.
+            raise FinancialAuthorizationError("Authorization audit failed; execution denied.") from None
 
     def verify_and_consume_for_execution(
         self, *, intent: FinancialOperationIntent, authorization_id: str | None
