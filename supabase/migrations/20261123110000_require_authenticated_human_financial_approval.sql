@@ -25,12 +25,12 @@ ALTER TABLE public.verox_financial_authorizations
         CHECK (status IN ('pending', 'approved', 'consumed', 'expired', 'revoked')),
     ADD CONSTRAINT chk_vfa_approved_by
         CHECK (
-            (status IN ('approved', 'consumed') AND approved_by IS NOT NULL AND btrim(approved_by) <> '')
-            OR (status IN ('pending', 'expired', 'revoked') AND approved_by IS NULL)
+            (status IN ('approved', 'consumed', 'expired') AND approved_by IS NOT NULL AND btrim(approved_by) <> '')
+            OR (status IN ('pending', 'revoked') AND approved_by IS NULL)
         ),
     ADD CONSTRAINT chk_vfa_expiration
         CHECK (
-            status = 'pending'
+            status IN ('pending', 'revoked')
             OR (approved_at_utc IS NOT NULL AND expires_at_utc > approved_at_utc)
         );
 
