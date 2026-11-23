@@ -413,3 +413,48 @@ def test_unprivileged_roles_cannot_call_otp_owner_approval_rpc():
         )
         assert response.status_code in (401, 403, 404)
         assert _read_approval(row["authorization_id"])["status"] == "pending"
+
+
+def _otp_rate_limit(key_hash: str, action: str, role: str = "service_role") -> dict:
+    response = httpx.post(
+        f"{POSTGREST_URL}/rpc/verox_otp_rate_limit",
+        headers=_headers(role),
+        json={"p_key_hash": key_hash, "p_action": action},
+        timeout=10,
+    )
+    if response.status_code == 200:
+        payload = response.json()
+        result = payload[0] if isinstance(payload, list) and payload else payload
+        assert isinstance(result, dict)
+        return result
+    return {"http_status": response.status_code}
+
+
+def test_distributed_otp_rate_limit_locks_after_five_failures_and_resets_on_success():
+    key_hash = hashlib.sha256(("synthetic-otp-" + uuid.uuid4().hex).encode()).hexdigest()
+    assert _otp_rate_limit(key_hash, "check")["allowed"] is True
+    for attempt in range(5):
+        result = _otp_rate_limit(key_hash, "failure")
+        assert result["failures"] == attempt + 1
+    blocked = _otp_rate_limit(key_hash, "check")
+    assert blocked["allowed"] is False
+    assert blocked["retry_after_seconds"] > 0
+    reset = _otp_rate_limit(key_hash, "success")
+    assert reset["allowed"] is True
+    assert _otp_rate_limit(key_hash, "check")["allowed"] is True
+
+
+def test_distributed_otp_rate_limit_failure_updates_are_atomic_under_concurrency():
+    key_hash = hashlib.sha256(("synthetic-concurrent-otp-" + uuid.uuid4().hex).encode()).hexdigest()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: _otp_rate_limit(key_hash, "failure"), range(8)))
+    assert sorted(result["failures"] for result in results) == list(range(1, 9))
+    blocked = _otp_rate_limit(key_hash, "check")
+    assert blocked["allowed"] is False
+
+
+@pytest.mark.parametrize("role", ["anon", "authenticated"])
+def test_unprivileged_roles_cannot_call_distributed_otp_rate_limit(role: str):
+    key_hash = hashlib.sha256(("synthetic-role-otp-" + uuid.uuid4().hex).encode()).hexdigest()
+    result = _otp_rate_limit(key_hash, "check", role=role)
+    assert result.get("http_status") in (401, 403, 404)
