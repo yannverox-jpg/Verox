@@ -173,7 +173,7 @@ def test_expired_pending_intent_cannot_be_approved_or_consumed():
     _insert_approval(row)
     result = _approve(row)
     assert result["approved"] is False
-    assert result["reason"] == "pending_authorization_not_found_or_expired"
+    assert result["reason"] == "pending_intent_missing_expired_or_context_mismatch"
     consume_result = _consume(row)
     assert consume_result["consumed"] is False
     assert consume_result["reason"] == "invalid_status:pending"
