@@ -223,7 +223,7 @@ def test_otp_rate_limit_table_is_rls_protected_and_rpc_is_service_role_only():
 
 
 def _totp_code(secret: str) -> str:
-    key = base64.b32decode(secret)
+    key = base64.b32decode(secret + '=' * ((8 - len(secret) % 8) % 8))
     counter = int(time.time() // 30)
     digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
     offset = digest[-1] & 0x0F
