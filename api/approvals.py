@@ -27,15 +27,23 @@ def _read(h):
     if not isinstance(obj, dict): raise ValueError("invalid_json")
     return obj
 
+def _server_auth_headers(key):
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # Supabase's new sb_secret_ keys are not JWTs; send them only as apikey.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def _db(method, table, *, params=None, body=None, prefer="return=representation"):
     base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
     key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")).strip()
     if not base.startswith("https://") or not key:
         raise RuntimeError("approval_database_not_configured")
+    headers = {**_server_auth_headers(key), "Prefer": prefer}
     with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as c:
         r = c.request(method, f"{base}/rest/v1/{table}", params=params, json=body,
-          headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json",
-                   "Prefer":prefer})
+          headers=headers)
         r.raise_for_status()
         if r.status_code == 204 or not r.content: return []
         return r.json()
@@ -45,9 +53,10 @@ def _rpc(function, body):
     key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")).strip()
     if not base.startswith("https://") or not key:
         raise RuntimeError("approval_database_not_configured")
+    headers = _server_auth_headers(key)
     with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as c:
         r = c.post(f"{base}/rest/v1/rpc/{function}", json=body,
-          headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json"})
+          headers=headers)
         r.raise_for_status()
         return r.json()
 
