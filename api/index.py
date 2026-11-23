@@ -339,15 +339,54 @@ def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
         raise RuntimeError("VEROX_OWNER_USER_ID doit contenir l'UUID du propriétaire.")
     if not _private_session_valid(request):
         raise PermissionError("Session OTP invalide ou expirée.")
-    return owner_id, token
+    return owner_id.lower(), token
 
 
 def _financial_admin_headers() -> tuple[str, dict[str, str]]:
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.getenv("SUPABASE_SECRET_KEY", "").strip())
     if not url or not key:
         raise RuntimeError("La gestion des autorisations financières n'est pas configurée côté serveur.")
     return url, {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+
+def _otp_attempts_exceeded(ip: str, now: float | None = None) -> bool:
+    current = time.time() if now is None else now
+    attempts = [stamp for stamp in _OTP_FAILURES.get(ip, []) if current - stamp < 300]
+    _OTP_FAILURES[ip] = attempts
+    return len(attempts) >= 5
+
+
+def _approve_financial_authorization(user_id: str, payload: dict) -> dict:
+    """Attest a validated owner OTP session to a narrowly scoped Supabase RPC."""
+    required = ("authorization_id", "operation_fingerprint", "domain", "action", "target",
+                "amount", "currency", "run_id", "event_id")
+    if any(key not in payload for key in required):
+        raise ValueError("Le contexte complet de l'opération est obligatoire.")
+    url, headers = _financial_admin_headers()
+    rpc_body = {
+        "p_owner_id": user_id.lower(),
+        "p_authorization_id": str(payload["authorization_id"]),
+        "p_operation_fingerprint": str(payload["operation_fingerprint"]),
+        "p_domain": str(payload["domain"]), "p_action": str(payload["action"]),
+        "p_target": str(payload["target"]), "p_amount": payload["amount"],
+        "p_currency": str(payload["currency"]), "p_run_id": str(payload["run_id"]),
+        "p_event_id": str(payload["event_id"]),
+    }
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/approve_otp_owner_financial_authorization",
+            headers=headers, json=rpc_body,
+        )
+        if response.status_code in (401, 403):
+            raise PermissionError("Supabase a refusé l'attestation du propriétaire OTP.")
+        response.raise_for_status()
+        result = response.json()
+    approval = result[0] if isinstance(result, list) and result else result
+    if not isinstance(approval, dict):
+        raise RuntimeError("Réponse RPC d'approbation invalide.")
+    return approval
 
 
 def _financial_authorization_public(row: dict) -> dict:
@@ -603,8 +642,8 @@ class handler(BaseHTTPRequestHandler):
             ip = _client_ip(self)
             now = time.time()
             attempts = [stamp for stamp in _OTP_FAILURES.get(ip, []) if now - stamp < 300]
-            if len(attempts) >= 5:
-                _OTP_FAILURES[ip] = attempts
+            _OTP_FAILURES[ip] = attempts
+            if _otp_attempts_exceeded(ip, now):
                 _json(self, 429, {"error": "Trop de tentatives. Réessayez dans quelques minutes."})
                 return
             try:
@@ -644,42 +683,20 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Impossible de créer la demande d'approbation."})
             return
         if path == "/api/financial/authorizations/approve":
-            _json(self, 503, {"error": "Approbation désactivée : la RPC Supabase doit être adaptée au mécanisme OTP propriétaire avant toute approbation."})
-            return
             try:
-                user_id, token = _financial_user(self)
+                user_id, _ = _financial_user(self)
                 payload = _read_json(self)
-                required = ("authorization_id", "operation_fingerprint", "domain", "action", "target", "amount", "currency", "run_id", "event_id")
-                if any(key not in payload for key in required):
-                    raise ValueError("Le contexte complet de l'opération est obligatoire.")
-                url = os.getenv("SUPABASE_URL", "").rstrip("/")
-                anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
-                if not url or not anon:
-                    raise RuntimeError("Configuration Supabase indisponible.")
-                rpc_body = {
-                    "p_authorization_id": str(payload["authorization_id"]),
-                    "p_operation_fingerprint": str(payload["operation_fingerprint"]),
-                    "p_domain": str(payload["domain"]), "p_action": str(payload["action"]),
-                    "p_target": str(payload["target"]), "p_amount": payload["amount"],
-                    "p_currency": str(payload["currency"]), "p_run_id": str(payload["run_id"]),
-                    "p_event_id": str(payload["event_id"]),
-                }
-                with httpx.Client(timeout=10.0, trust_env=False) as client:
-                    response = client.post(f"{url}/rest/v1/rpc/approve_human_financial_authorization",
-                        headers={"apikey": anon, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                        json=rpc_body)
-                    if response.status_code in (401,403):
-                        _json(self, 403, {"error":"Supabase a refusé l'approbation authentifiée."})
-                        return
-                    response.raise_for_status()
-                    result = response.json()
-                approval = result[0] if isinstance(result,list) and result else result
-                if not isinstance(approval,dict) or approval.get("approved") is not True:
-                    _json(self, 409, {"approved":False, "reason": approval.get("reason","approval_not_confirmed") if isinstance(approval,dict) else "approval_not_confirmed"})
+                approval = _approve_financial_authorization(user_id, payload)
+                if approval.get("approved") is not True:
+                    _json(self, 409, {"approved": False, "reason": str(approval.get("reason", "approval_not_confirmed"))[:120]})
                     return
-                _json(self, 200, {"approved":True, "authorization_id":approval.get("authorization_id"),
-                                  "approved_by":user_id, "approved_at_utc":approval.get("approved_at_utc"),
-                                  "execution":"not_performed"})
+                _json(self, 200, {
+                    "approved": True,
+                    "authorization_id": approval.get("authorization_id"),
+                    "approved_by": user_id,
+                    "approved_at_utc": approval.get("approved_at_utc"),
+                    "execution": "not_performed",
+                })
             except PermissionError as exc:
                 _json(self, 401, {"error": str(exc)})
             except ValueError as exc:
