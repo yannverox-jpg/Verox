@@ -57,6 +57,29 @@ class QueueWorkerRuntimeGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rpc_mock.call_args_list[1].args[:2], ("complete", TASK_ID))
 
 
+
+    @patch("verox_queue_worker.generate_text")
+    @patch("verox_queue_worker.execute_a2a_pipeline_step", new_callable=AsyncMock)
+    @patch("verox_queue_worker.rpc")
+    async def test_a2a_pipeline_failure_never_falls_back_to_generic_model(
+        self, rpc_mock, a2a_mock, generate_mock
+    ):
+        rpc_mock.side_effect = [
+            {
+                "accepted": True,
+                "task_type": "a2a_message",
+                "payload": {"kind": "a2a_message", "message": {"message_id": "synthetic"}},
+            },
+            {"accepted": True},
+        ]
+        a2a_mock.side_effect = RuntimeError("synthetic routing failure")
+
+        await process_agent_task({"task_id": TASK_ID})
+
+        generate_mock.assert_not_called()
+        self.assertEqual(rpc_mock.call_args_list[1].args[:2], ("fail", TASK_ID))
+        self.assertIn("Échec du pipeline A2A", rpc_mock.call_args_list[1].kwargs["error"])
+
 class InlineFallbackRuntimeGuardTests(unittest.TestCase):
     @patch("api.index.generate_text")
     @patch("api.index.time.sleep")
@@ -82,6 +105,35 @@ class InlineFallbackRuntimeGuardTests(unittest.TestCase):
         generate_mock.assert_not_called()
         self.assertEqual(rpc_mock.call_args_list[1].args[0], "fail")
         self.assertIn("garde-fou runtime", rpc_mock.call_args_list[1].kwargs["error"])
+
+
+    @patch("api.index.generate_text")
+    @patch("api.index.time.sleep")
+    @patch("api.index.execute_a2a_pipeline_step", new_callable=AsyncMock)
+    @patch("api.index._rpc")
+    def test_inline_a2a_failure_never_falls_back_to_generic_model(
+        self, rpc_mock, a2a_mock, sleep_mock, generate_mock
+    ):
+        from api.index import _process_inline_fallback
+
+        rpc_mock.side_effect = [
+            {
+                "accepted": True,
+                "payload": {"kind": "a2a_message", "message": {"message_id": "synthetic"}},
+            },
+            {"accepted": True},
+        ]
+        a2a_mock.side_effect = RuntimeError("synthetic routing failure")
+
+        result = _process_inline_fallback(
+            request=object(), task_id=TASK_ID, task_type="a2a_message", prompt="ignored"
+        )
+
+        self.assertEqual(result, "failed_a2a")
+        a2a_mock.assert_awaited_once()
+        generate_mock.assert_not_called()
+        self.assertEqual(rpc_mock.call_args_list[1].args[0], "fail")
+        self.assertIn("Échec du pipeline A2A", rpc_mock.call_args_list[1].kwargs["error"])
 
     @patch("api.index.generate_text")
     @patch("api.index.time.sleep")
