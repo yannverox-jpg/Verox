@@ -98,6 +98,29 @@ def _json_with_cookie(h,status,payload,token):
     h.end_headers()
     h.wfile.write(body)
 
+
+def _auth_rate_allowed(h, success):
+    secret = os.getenv("VEROX_SESSION_SECRET", "").encode()
+    if len(secret) < 32:
+        return False
+    raw_ip = h.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not raw_ip or len(raw_ip) > 64 or not re.fullmatch(r"[0-9a-fA-F:.]+", raw_ip):
+        raw_ip = "unknown"
+    ip_key = hmac.new(secret, raw_ip.encode(), hashlib.sha256).hexdigest()
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not base.startswith("https://") or not key:
+        return False
+    with httpx.Client(timeout=8, trust_env=False, follow_redirects=False) as c:
+        r = c.post(f"{base}/rest/v1/rpc/verox_approval_auth_attempt",
+          headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json"},
+          json={"p_ip_key":ip_key,"p_success":bool(success)})
+        r.raise_for_status()
+        result = r.json()
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        return result[0].get("allowed") is True
+    return False
+
 def _vapid_send(subscription, payload):
     from pywebpush import webpush, WebPushException
     try:
@@ -142,7 +165,14 @@ class handler(BaseHTTPRequestHandler):
         except Exception: _json(self,400,{"error":"invalid_json"}); return
 
         if path == "/api/approvals/auth/otp":
-            if not _totp_valid(data.get("code")): _json(self,401,{"error":"invalid_totp"}); return
+            valid_code = _totp_valid(data.get("code"))
+            try:
+                allowed = _auth_rate_allowed(self, valid_code)
+            except Exception:
+                allowed = False
+            if not allowed:
+                _json(self,429,{"error":"authentication_rate_limited_or_unavailable"}); return
+            if not valid_code: _json(self,401,{"error":"invalid_totp"}); return
             try:
                 token = _session_sign({"sub":"verox-human-operator","exp":int(time.time())+900,"jti":secrets.token_hex(12)})
                 _json_with_cookie(self,200,{"ok":True,"expires_in":900},token)
