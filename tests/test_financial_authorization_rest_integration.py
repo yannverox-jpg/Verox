@@ -347,3 +347,69 @@ def test_human_cannot_approve_modified_operation_context():
     assert result["approved"] is False
     assert result["reason"] == "pending_intent_missing_expired_or_context_mismatch"
     assert _read_approval(row["authorization_id"])["status"] == "pending"
+
+
+def _approve_otp_owner(row: dict, owner_id: str | None = None) -> dict:
+    response = httpx.post(
+        f"{POSTGREST_URL}/rpc/approve_otp_owner_financial_authorization",
+        headers=_headers("service_role"),
+        json={
+            "p_owner_id": owner_id or row["requested_by"],
+            "p_authorization_id": row["authorization_id"],
+            "p_operation_fingerprint": row["operation_fingerprint"],
+            "p_domain": row["domain"],
+            "p_action": row["operation_type"],
+            "p_target": row["target"],
+            "p_amount": row["amount"],
+            "p_currency": row["currency"],
+            "p_run_id": row["run_id"],
+            "p_event_id": row["event_id"],
+        },
+        timeout=10,
+    )
+    assert response.status_code == 200, (
+        f"OTP owner approval RPC failed: HTTP {response.status_code}: {response.text}"
+    )
+    payload = response.json()
+    return payload[0] if isinstance(payload, list) and payload else payload
+
+
+def test_otp_owner_rpc_approves_exact_pending_intent_via_service_role_attestation():
+    row = _approval()
+    _insert_approval(row)
+    result = _approve_otp_owner(row)
+    assert result["approved"] is True
+    persisted = _read_approval(row["authorization_id"])
+    assert persisted["status"] == "approved"
+    assert persisted["approved_by"] == row["requested_by"]
+    assert persisted["approved_at_utc"]
+
+
+def test_otp_owner_rpc_rejects_different_owner_and_preserves_pending_intent():
+    row = _approval()
+    _insert_approval(row)
+    result = _approve_otp_owner(row, owner_id=str(uuid.uuid4()))
+    assert result["approved"] is False
+    assert result["reason"] == "pending_intent_missing_expired_or_context_mismatch"
+    assert _read_approval(row["authorization_id"])["status"] == "pending"
+
+
+def test_unprivileged_roles_cannot_call_otp_owner_approval_rpc():
+    row = _approval()
+    _insert_approval(row)
+    for role in ("anon", "authenticated"):
+        response = httpx.post(
+            f"{POSTGREST_URL}/rpc/approve_otp_owner_financial_authorization",
+            headers=_headers(role, row["requested_by"] if role == "authenticated" else None),
+            json={
+                "p_owner_id": row["requested_by"],
+                "p_authorization_id": row["authorization_id"],
+                "p_operation_fingerprint": row["operation_fingerprint"],
+                "p_domain": row["domain"], "p_action": row["operation_type"],
+                "p_target": row["target"], "p_amount": row["amount"],
+                "p_currency": row["currency"], "p_run_id": row["run_id"], "p_event_id": row["event_id"],
+            },
+            timeout=10,
+        )
+        assert response.status_code in (401, 403, 404)
+        assert _read_approval(row["authorization_id"])["status"] == "pending"
