@@ -133,3 +133,15 @@ def test_authenticated_decision_calls_owner_t6_rpc(api_server, monkeypatch):
     assert seen["name"] == "decide_verox_human_approval_t6"
     assert seen["body"]["p_owner_id"] == OWNER
     assert seen["body"]["p_request_id"] == REQUEST_ID
+
+
+def test_approval_api_sends_new_supabase_secret_only_as_apikey():
+    headers = approvals._server_auth_headers("sb_secret_synthetic-server-key")
+    assert headers["apikey"] == "sb_secret_synthetic-server-key"
+    assert "Authorization" not in headers
+
+
+def test_approval_api_keeps_legacy_service_role_bearer_auth():
+    headers = approvals._server_auth_headers("eyJ.synthetic-service-role-jwt")
+    assert headers["apikey"] == "eyJ.synthetic-service-role-jwt"
+    assert headers["Authorization"] == "Bearer eyJ.synthetic-service-role-jwt"
