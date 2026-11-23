@@ -119,7 +119,7 @@ def _auth_rate_allowed(h, success):
         raw_ip = "unknown"
     ip_key = hmac.new(secret, raw_ip.encode(), hashlib.sha256).hexdigest()
     base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")).strip()
     if not base.startswith("https://") or not key:
         return False
     with httpx.Client(timeout=8, trust_env=False, follow_redirects=False) as c:
@@ -239,12 +239,17 @@ class handler(BaseHTTPRequestHandler):
         match = re.fullmatch(r"/api/approvals/requests/([0-9a-fA-F-]{36})/decision",path)
         if match:
             if not _session_valid(self): _json(self,401,{"error":"authentication_required"}); return
-            if not _totp_valid(data.get("code")): _json(self,401,{"error":"invalid_totp"}); return
+            valid_code = _totp_valid(data.get("code"))
+            try:
+                allowed = _auth_rate_allowed(self, valid_code)
+            except Exception:
+                allowed = False
+            if not allowed:
+                _json(self,429,{"error":"authentication_rate_limited_or_unavailable"}); return
+            if not valid_code: _json(self,401,{"error":"invalid_totp"}); return
             decision = str(data.get("decision","")).lower()
             if decision not in {"approve","reject"}: _json(self,400,{"error":"invalid_decision"}); return
             reason = str(data.get("reason","")).strip()[:500]
-            now = datetime.now(timezone.utc)
-            status = "approved" if decision == "approve" else "rejected"
             try:
                 result = _rpc("decide_verox_human_approval_t6", {
                     "p_request_id": match.group(1),
