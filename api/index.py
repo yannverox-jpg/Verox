@@ -262,22 +262,69 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 
 
-def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
-    """Verify a Supabase access token and return (user id, token); never trust client-supplied identity."""
+_OTP_FAILURES: dict[str, list[float]] = {}
+
+def _b64url(data: bytes) -> str:
+    import base64
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+def _session_secret() -> bytes:
+    secret = os.getenv("VEROX_SESSION_SECRET", "").strip()
+    if len(secret) < 32:
+        raise RuntimeError("VEROX_SESSION_SECRET doit contenir au moins 32 caractères.")
+    return secret.encode("utf-8")
+
+def _valid_totp(code: str) -> bool:
+    import base64, hashlib, hmac, struct
+    secret = os.getenv("VEROX_TOTP_SECRET", "").strip().replace(" ", "")
+    if not secret or not re.fullmatch(r"\d{6}", code):
+        return False
+    try:
+        key = base64.b32decode(secret.upper() + "=" * ((8 - len(secret) % 8) % 8), casefold=True)
+    except (ValueError, base64.binascii.Error):
+        return False
+    now = int(time.time()) // 30
+    for counter in (now - 1, now, now + 1):
+        digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+        offset = digest[-1] & 0x0F
+        number = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1_000_000
+        if hmac.compare_digest(f"{number:06d}", code):
+            return True
+    return False
+
+def _issue_private_session() -> str:
+    import secrets
+    now = int(time.time())
+    payload = {"iat": now, "exp": now + 900, "nonce": secrets.token_urlsafe(16)}
+    body = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    signature = _b64url(__import__("hmac").new(_session_secret(), body.encode(), __import__("hashlib").sha256).digest())
+    return body + "." + signature
+
+def _private_session_valid(request: BaseHTTPRequestHandler) -> bool:
+    import base64, hashlib, hmac
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
-    if not token or not url or not anon:
-        raise PermissionError("Authentification utilisateur requise.")
-    with httpx.Client(timeout=8.0, trust_env=False) as client:
-        response = client.get(f"{url}/auth/v1/user", headers={"apikey": anon, "Authorization": f"Bearer {token}"})
-        if response.status_code != 200:
-            raise PermissionError("Session utilisateur invalide ou expirée.")
-        user = response.json()
-    user_id = user.get("id") if isinstance(user, dict) else None
-    if not isinstance(user_id, str) or not user_id:
-        raise PermissionError("Identité utilisateur invalide.")
-    return user_id, token
+    if not token or "." not in token:
+        return False
+    body, supplied = token.rsplit(".", 1)
+    expected = _b64url(hmac.new(_session_secret(), body.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(expected, supplied):
+        return False
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(body + "=" * ((4 - len(body) % 4) % 4)))
+        now = int(time.time())
+        return isinstance(payload, dict) and int(payload.get("iat", 0)) <= now and now < int(payload.get("exp", 0)) and int(payload.get("exp", 0)) - int(payload.get("iat", 0)) <= 900
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
+    """Bind financial intents to the configured sole owner after TOTP session verification."""
+    owner_id = os.getenv("VEROX_OWNER_USER_ID", "").strip()
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not owner_id or not re.fullmatch(r"[0-9a-fA-F-]{36}", owner_id):
+        raise RuntimeError("VEROX_OWNER_USER_ID doit contenir l'UUID du propriétaire.")
+    if not _private_session_valid(request):
+        raise PermissionError("Session OTP invalide ou expirée.")
+    return owner_id, token
 
 
 def _financial_admin_headers() -> tuple[str, dict[str, str]]:
@@ -342,6 +389,15 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/auth/session":
+            if not _private_session_valid(self):
+                _json(self, 401, {"authenticated": False, "error": "Session OTP invalide ou expirée."})
+            else:
+                _json(self, 200, {"authenticated": True, "expires_in_seconds": 900})
+            return
+        if path.startswith("/api/") and not _private_session_valid(self):
+            _json(self, 401, {"error": "Authentification OTP Google requise."})
+            return
         if path == "/api/financial/config":
             # Only public Supabase client configuration is exposed; never return service-role credentials.
             _json(self, 200, {"supabase_url": os.getenv("SUPABASE_URL", "").rstrip("/"),
@@ -521,6 +577,35 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/auth/otp":
+            ip = _client_ip(self)
+            now = time.time()
+            attempts = [stamp for stamp in _OTP_FAILURES.get(ip, []) if now - stamp < 300]
+            if len(attempts) >= 5:
+                _OTP_FAILURES[ip] = attempts
+                _json(self, 429, {"error": "Trop de tentatives. Réessayez dans quelques minutes."})
+                return
+            try:
+                payload = _read_json(self)
+                code = str(payload.get("code", "")).strip()
+                if not os.getenv("VEROX_TOTP_SECRET", "").strip() or len(os.getenv("VEROX_SESSION_SECRET", "").strip()) < 32:
+                    _json(self, 503, {"error": "Authentification OTP non configurée côté serveur."})
+                    return
+                if not _valid_totp(code):
+                    attempts.append(now)
+                    _OTP_FAILURES[ip] = attempts
+                    _json(self, 401, {"error": "Code OTP invalide."})
+                    return
+                _OTP_FAILURES.pop(ip, None)
+                _json(self, 200, {"authenticated": True, "access_token": _issue_private_session(), "expires_in": 900})
+            except (ValueError, json.JSONDecodeError):
+                _json(self, 400, {"error": "Code OTP requis."})
+            except Exception:
+                _json(self, 503, {"error": "Service d'authentification indisponible."})
+            return
+        if path.startswith("/api/") and not _private_session_valid(self):
+            _json(self, 401, {"error": "Authentification OTP Google requise."})
+            return
         if path == "/api/financial/authorizations":
             try:
                 user_id, _ = _financial_user(self)
@@ -535,6 +620,8 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "Impossible de créer la demande d'approbation."})
             return
         if path == "/api/financial/authorizations/approve":
+            _json(self, 503, {"error": "Approbation désactivée : la RPC Supabase doit être adaptée au mécanisme OTP propriétaire avant toute approbation."})
+            return
             try:
                 user_id, token = _financial_user(self)
                 payload = _read_json(self)
