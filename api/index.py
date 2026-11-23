@@ -262,6 +262,79 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 
 
+def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
+    """Verify a Supabase access token and return (user id, token); never trust client-supplied identity."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    if not token or not url or not anon:
+        raise PermissionError("Authentification utilisateur requise.")
+    with httpx.Client(timeout=8.0, trust_env=False) as client:
+        response = client.get(f"{url}/auth/v1/user", headers={"apikey": anon, "Authorization": f"Bearer {token}"})
+        if response.status_code != 200:
+            raise PermissionError("Session utilisateur invalide ou expirée.")
+        user = response.json()
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if not isinstance(user_id, str) or not user_id:
+        raise PermissionError("Identité utilisateur invalide.")
+    return user_id, token
+
+
+def _financial_admin_headers() -> tuple[str, dict[str, str]]:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError("La gestion des autorisations financières n'est pas configurée côté serveur.")
+    return url, {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def _financial_authorization_public(row: dict) -> dict:
+    fields = ("authorization_id", "operation_fingerprint", "domain", "operation_type", "target",
+              "amount", "currency", "run_id", "event_id", "expires_at_utc", "status", "created_at_utc")
+    return {key: row.get(key) for key in fields}
+
+
+def _create_financial_intent(user_id: str, payload: dict) -> dict:
+    import hashlib
+    import uuid
+    from datetime import datetime, timedelta, timezone
+    domain = str(payload.get("domain", "")).strip()
+    action = str(payload.get("action", "")).strip()
+    target = str(payload.get("target", "")).strip()
+    currency = str(payload.get("currency", "")).strip().upper()
+    try:
+        amount = float(payload.get("amount"))
+    except (TypeError, ValueError):
+        raise ValueError("Montant invalide.")
+    if domain not in {"trading", "sports_betting", "horse_racing", "transfer"}:
+        raise ValueError("Domaine non pris en charge.")
+    if not action or len(action) > 80 or not target or len(target) > 240:
+        raise ValueError("Action et cible obligatoires (limites de longueur dépassées).")
+    if not (amount > 0 and amount < 1e20) or not re.fullmatch(r"[A-Z0-9]{2,12}", currency):
+        raise ValueError("Montant ou devise invalide.")
+    authorization_id, run_id, event_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    context = {"domain": domain, "action": action, "target": target, "amount": format(amount, ".8f").rstrip("0").rstrip("."),
+               "currency": currency, "run_id": run_id, "event_id": event_id}
+    fingerprint = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    url, headers = _financial_admin_headers()
+    row = {
+        "authorization_id": authorization_id, "operation_fingerprint": fingerprint,
+        "domain": domain, "operation_type": action, "target": target, "amount": context["amount"],
+        "currency": currency, "run_id": run_id, "event_id": event_id, "requested_by": user_id,
+        "expires_at_utc": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "status": "pending",
+    }
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
+        response = client.post(f"{url}/rest/v1/verox_financial_authorizations",
+                               headers={**headers, "Prefer": "return=representation"}, json=row)
+        if response.status_code not in (200, 201):
+            raise RuntimeError("Impossible de créer la demande d'approbation.")
+        created = response.json()
+    if not isinstance(created, list) or not created or not isinstance(created[0], dict):
+        raise RuntimeError("Réponse invalide du stockage des autorisations.")
+    return _financial_authorization_public(created[0])
+
+
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Request bodies, prompts, and credentials must never be logged.
@@ -269,6 +342,27 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/financial/config":
+            # Only public Supabase client configuration is exposed; never return service-role credentials.
+            _json(self, 200, {"supabase_url": os.getenv("SUPABASE_URL", "").rstrip("/"),
+                              "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY", "")})
+            return
+        if path == "/api/financial/authorizations":
+            try:
+                user_id, _ = _financial_user(self)
+                url, headers = _financial_admin_headers()
+                with httpx.Client(timeout=8.0, trust_env=False) as client:
+                    response = client.get(f"{url}/rest/v1/verox_financial_authorizations",
+                        headers=headers, params={"select":"authorization_id,operation_fingerprint,domain,operation_type,target,amount,currency,run_id,event_id,expires_at_utc,status,created_at_utc",
+                                                  "requested_by":f"eq.{user_id}", "status":"eq.pending", "order":"created_at_utc.desc", "limit":"50"})
+                    response.raise_for_status()
+                    rows = response.json()
+                _json(self, 200, {"authorizations":[_financial_authorization_public(x) for x in rows if isinstance(x,dict)]})
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "Les demandes d'approbation ne sont pas disponibles."})
+            return
         if path == "/api/sources":
             # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
             query = urlparse(self.path).query
@@ -427,6 +521,61 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/financial/authorizations":
+            try:
+                user_id, _ = _financial_user(self)
+                payload = _read_json(self)
+                created = _create_financial_intent(user_id, payload)
+                _json(self, 201, {"authorization": created})
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except ValueError as exc:
+                _json(self, 400, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "Impossible de créer la demande d'approbation."})
+            return
+        if path == "/api/financial/authorizations/approve":
+            try:
+                user_id, token = _financial_user(self)
+                payload = _read_json(self)
+                required = ("authorization_id", "operation_fingerprint", "domain", "action", "target", "amount", "currency", "run_id", "event_id")
+                if any(key not in payload for key in required):
+                    raise ValueError("Le contexte complet de l'opération est obligatoire.")
+                url = os.getenv("SUPABASE_URL", "").rstrip("/")
+                anon = os.getenv("SUPABASE_ANON_KEY", "").strip()
+                if not url or not anon:
+                    raise RuntimeError("Configuration Supabase indisponible.")
+                rpc_body = {
+                    "p_authorization_id": str(payload["authorization_id"]),
+                    "p_operation_fingerprint": str(payload["operation_fingerprint"]),
+                    "p_domain": str(payload["domain"]), "p_action": str(payload["action"]),
+                    "p_target": str(payload["target"]), "p_amount": payload["amount"],
+                    "p_currency": str(payload["currency"]), "p_run_id": str(payload["run_id"]),
+                    "p_event_id": str(payload["event_id"]),
+                }
+                with httpx.Client(timeout=10.0, trust_env=False) as client:
+                    response = client.post(f"{url}/rest/v1/rpc/approve_human_financial_authorization",
+                        headers={"apikey": anon, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        json=rpc_body)
+                    if response.status_code in (401,403):
+                        _json(self, 403, {"error":"Supabase a refusé l'approbation authentifiée."})
+                        return
+                    response.raise_for_status()
+                    result = response.json()
+                approval = result[0] if isinstance(result,list) and result else result
+                if not isinstance(approval,dict) or approval.get("approved") is not True:
+                    _json(self, 409, {"approved":False, "reason": approval.get("reason","approval_not_confirmed") if isinstance(approval,dict) else "approval_not_confirmed"})
+                    return
+                _json(self, 200, {"approved":True, "authorization_id":approval.get("authorization_id"),
+                                  "approved_by":user_id, "approved_at_utc":approval.get("approved_at_utc"),
+                                  "execution":"not_performed"})
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except ValueError as exc:
+                _json(self, 400, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "L'approbation n'a pas pu être confirmée."})
+            return
         if path == "/api/tasks":
             try:
                 payload = _read_json(self)
