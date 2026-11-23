@@ -284,3 +284,35 @@ def test_missing_approval_is_rejected():
     result = _consume(row)
     assert result["consumed"] is False
     assert result["reason"] == "authorization_not_found"
+
+
+
+def test_approved_intent_expires_and_expiration_is_persisted():
+    row = _approval(expires_at=datetime.now(timezone.utc) + timedelta(seconds=1))
+    _insert_approval(row)
+    assert _approve(row)["approved"] is True
+    time.sleep(1.2)
+    result = _consume(row)
+    assert result["consumed"] is False
+    assert result["reason"] == "approval_expired"
+    assert _read_approval(row["authorization_id"])["status"] == "expired"
+
+
+def test_service_role_cannot_update_pending_record_to_approved():
+    row = _approval()
+    _insert_approval(row)
+    response = httpx.patch(
+        f"{POSTGREST_URL}/verox_financial_authorizations",
+        headers={**_headers("service_role"), "Prefer": "return=representation"},
+        params={"authorization_id": f"eq.{row['authorization_id']}"},
+        json={
+            "status": "approved",
+            "approved_by": "synthetic-forged-human",
+            "approved_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+        timeout=10,
+    )
+    assert response.status_code in (401, 403, 404), (
+        "service_role must not update an intent into an approved state"
+    )
+    assert _read_approval(row["authorization_id"])["status"] == "pending"
