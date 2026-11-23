@@ -61,12 +61,49 @@ def test_expired_signed_session_is_rejected(monkeypatch):
     assert not auth_api._private_session_valid(request)
 
 
-def test_otp_lockout_after_five_failures_in_five_minutes():
-    auth_api._OTP_FAILURES.clear()
-    auth_api._OTP_FAILURES["synthetic-ip"] = [100.0, 120.0, 140.0, 160.0, 180.0]
-    assert auth_api._otp_attempts_exceeded("synthetic-ip", now=200.0)
-    assert not auth_api._otp_attempts_exceeded("other-synthetic-ip", now=200.0)
-    auth_api._OTP_FAILURES.clear()
+def test_distributed_otp_rate_limit_uses_hmac_key_and_server_secret(monkeypatch):
+    owner = "owner:12345678-1234-4234-8234-123456789abc"
+    monkeypatch.setenv("VEROX_SESSION_SECRET", "unit-test-session-secret-that-is-long-enough")
+    monkeypatch.setenv("SUPABASE_URL", "https://synthetic.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service-role-secret")
+    seen = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{"allowed": True, "failures": 2, "retry_after_seconds": 0}]
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def post(self, url, headers, json):
+            seen.update(url=url, headers=headers, body=json)
+            return FakeResponse()
+
+    monkeypatch.setattr(auth_api.httpx, "Client", FakeClient)
+    result = auth_api._otp_rate_limit("check", owner)
+    assert result["allowed"] is True
+    assert seen["url"] == "https://synthetic.supabase.co/rest/v1/rpc/verox_otp_rate_limit"
+    assert seen["headers"]["Authorization"] == "Bearer synthetic-service-role-secret"
+    assert seen["body"]["p_action"] == "check"
+    assert len(seen["body"]["p_key_hash"]) == 64
+    assert owner not in seen["body"]["p_key_hash"]
+    assert "synthetic-service-role-secret" not in str(seen["body"])
+
+
+def test_distributed_otp_rate_limit_fails_closed_without_server_credentials(monkeypatch):
+    import pytest
+    monkeypatch.setenv("VEROX_SESSION_SECRET", "unit-test-session-secret-that-is-long-enough")
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        auth_api._otp_rate_limit("check", "ip:synthetic")
 
 
 def test_otp_rpc_uses_server_side_service_role_and_binds_owner(monkeypatch):
