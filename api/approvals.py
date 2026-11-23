@@ -29,7 +29,7 @@ def _read(h):
 
 def _db(method, table, *, params=None, body=None, prefer="return=representation"):
     base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")).strip()
     if not base.startswith("https://") or not key:
         raise RuntimeError("approval_database_not_configured")
     with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as c:
@@ -42,7 +42,7 @@ def _db(method, table, *, params=None, body=None, prefer="return=representation"
 
 def _rpc(function, body):
     base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_SECRET_KEY", "")).strip()
     if not base.startswith("https://") or not key:
         raise RuntimeError("approval_database_not_configured")
     with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as c:
