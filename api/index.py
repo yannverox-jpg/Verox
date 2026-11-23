@@ -413,6 +413,54 @@ def _financial_authorization_public(row: dict) -> dict:
     return {key: row.get(key) for key in fields}
 
 
+def _create_android_approval_notification(user_id: str, authorization: dict) -> dict:
+    """Create a push notification tied to an existing pending T6 intent; never mint authorization here."""
+    import json
+    from datetime import datetime, timezone
+    url, headers = _financial_admin_headers()
+    details = {"authorization_id":authorization["authorization_id"],"domain":authorization["domain"],
+      "amount":authorization["amount"],"currency":authorization["currency"],"run_id":authorization["run_id"],
+      "event_id":authorization["event_id"]}
+    row = {"title":"Verox — Validation humaine requise",
+      "summary":f"{authorization['operation_type']} — {authorization['target']} ({authorization['amount']} {authorization['currency']})",
+      "action_type":authorization["operation_type"],"target":authorization["target"],
+      "operation_fingerprint":authorization["operation_fingerprint"],"details":details,"status":"pending",
+      "requested_by":user_id.lower(),"t6_authorization_id":authorization["authorization_id"],
+      "created_at":datetime.now(timezone.utc).isoformat(),"expires_at":authorization["expires_at_utc"]}
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
+      response=client.post(f"{url}/rest/v1/verox_human_approval_requests",
+        headers={**headers,"Prefer":"resolution=ignore-duplicates,return=representation"},
+        params={"on_conflict":"t6_authorization_id"},json=row)
+      response.raise_for_status()
+      created=response.json()
+      if not isinstance(created,list) or not created:
+        existing=client.get(f"{url}/rest/v1/verox_human_approval_requests",headers=headers,
+          params={"select":"id,status,t6_authorization_id","t6_authorization_id":f"eq.{authorization['authorization_id']}","limit":"1"})
+        existing.raise_for_status(); rows=existing.json()
+        return {"request_created":False,"notifications_sent":0,"request_id":rows[0]["id"] if rows else None}
+      request_id=str(created[0]["id"])
+      subs=client.get(f"{url}/rest/v1/verox_approval_push_subscriptions",headers=headers,
+        params={"select":"subscription,endpoint","disabled_at":"is.null","limit":"100"})
+      subs.raise_for_status(); sent=0
+      if os.getenv("VAPID_PUBLIC_KEY","").strip() and os.getenv("VAPID_PRIVATE_KEY","").strip():
+        from pywebpush import webpush, WebPushException
+        for item in subs.json():
+          sub=item.get("subscription")
+          if not isinstance(sub,dict): continue
+          try:
+            webpush(subscription_info=sub,data=json.dumps({"request_id":request_id,
+              "title":"Verox — Validation humaine requise","body":row["summary"],
+              "url":"/approvals.html?id="+request_id},ensure_ascii=False),
+              vapid_private_key=os.getenv("VAPID_PRIVATE_KEY",""),
+              vapid_claims={"sub":os.getenv("VAPID_SUBJECT","https://verox-brain.vercel.app")})
+            sent+=1
+          except WebPushException as exc:
+            if getattr(getattr(exc,"response",None),"status_code",None) in (404,410):
+              client.patch(f"{url}/rest/v1/verox_approval_push_subscriptions",headers=headers,
+                params={"endpoint":f"eq.{item.get('endpoint','')}"},json={"disabled_at":datetime.now(timezone.utc).isoformat()})
+          except Exception: continue
+      return {"request_created":True,"notifications_sent":sent,"request_id":request_id}
+
 def _create_financial_intent(user_id: str, payload: dict) -> dict:
     import hashlib
     import uuid
@@ -451,7 +499,12 @@ def _create_financial_intent(user_id: str, payload: dict) -> dict:
         created = response.json()
     if not isinstance(created, list) or not created or not isinstance(created[0], dict):
         raise RuntimeError("Réponse invalide du stockage des autorisations.")
-    return _financial_authorization_public(created[0])
+    public_intent = _financial_authorization_public(created[0])
+    try:
+        public_intent["android_notification"] = _create_android_approval_notification(user_id, public_intent)
+    except Exception:
+        public_intent["android_notification"] = {"request_created":False,"notifications_sent":0,"error":"notification_unavailable"}
+    return public_intent
 
 
 class handler(BaseHTTPRequestHandler):
