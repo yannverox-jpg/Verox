@@ -46,11 +46,13 @@ def _load_brain_roadmap() -> str:
 SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\n\nFeuille de route et règles opérationnelles de Verox :\n" + _load_brain_roadmap()
 
 
-def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
+def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict, extra_headers: dict[str, str] | None = None) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Cache-Control", "no-store")
+    for name, value in (extra_headers or {}).items():
+        handler.send_header(name, value)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -300,26 +302,39 @@ def _issue_private_session() -> str:
     signature = _b64url(__import__("hmac").new(_session_secret(), body.encode(), __import__("hashlib").sha256).digest())
     return body + "." + signature
 
+def _private_session_token(request: BaseHTTPRequestHandler) -> str:
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if token:
+        return token
+    from http.cookies import SimpleCookie
+    cookie = SimpleCookie()
+    try:
+        cookie.load(request.headers.get("cookie", ""))
+        morsel = cookie.get("verox_owner_session")
+        return morsel.value if morsel else ""
+    except Exception:
+        return ""
+
 def _private_session_valid(request: BaseHTTPRequestHandler) -> bool:
     import base64, hashlib, hmac
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    token = _private_session_token(request)
     if not token or "." not in token:
         return False
     body, supplied = token.rsplit(".", 1)
-    expected = _b64url(hmac.new(_session_secret(), body.encode(), hashlib.sha256).digest())
-    if not hmac.compare_digest(expected, supplied):
-        return False
     try:
+        expected = _b64url(hmac.new(_session_secret(), body.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(expected, supplied):
+            return False
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * ((4 - len(body) % 4) % 4)))
         now = int(time.time())
         return isinstance(payload, dict) and int(payload.get("iat", 0)) <= now and now < int(payload.get("exp", 0)) and int(payload.get("exp", 0)) - int(payload.get("iat", 0)) <= 900
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except (ValueError, TypeError, json.JSONDecodeError, RuntimeError):
         return False
 
 def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
     """Bind financial intents to the configured sole owner after TOTP session verification."""
     owner_id = os.getenv("VEROX_OWNER_USER_ID", "").strip()
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    token = _private_session_token(request)
     if not owner_id or not re.fullmatch(r"[0-9a-fA-F-]{36}", owner_id):
         raise RuntimeError("VEROX_OWNER_USER_ID doit contenir l'UUID du propriétaire.")
     if not _private_session_valid(request):
@@ -577,6 +592,13 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/auth/logout":
+            if not _private_session_valid(self):
+                _json(self, 401, {"error": "Session OTP invalide ou expirée."})
+            else:
+                _json(self, 200, {"authenticated": False},
+                      {"Set-Cookie": "verox_owner_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"})
+            return
         if path == "/api/auth/otp":
             ip = _client_ip(self)
             now = time.time()
@@ -597,7 +619,9 @@ class handler(BaseHTTPRequestHandler):
                     _json(self, 401, {"error": "Code OTP invalide."})
                     return
                 _OTP_FAILURES.pop(ip, None)
-                _json(self, 200, {"authenticated": True, "access_token": _issue_private_session(), "expires_in": 900})
+                session = _issue_private_session()
+                _json(self, 200, {"authenticated": True, "expires_in": 900},
+                      {"Set-Cookie": f"verox_owner_session={session}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict"})
             except (ValueError, json.JSONDecodeError):
                 _json(self, 400, {"error": "Code OTP requis."})
             except Exception:
