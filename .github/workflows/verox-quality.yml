@@ -35,3 +35,5 @@ jobs:
           node --check /tmp/verox-dashboard.js
       - name: Run all Python unit tests
         run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Block unreviewed financial side-effect call sites
+        run: python scripts/audit_financial_bypass.py

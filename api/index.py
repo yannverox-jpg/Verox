@@ -46,11 +46,13 @@ def _load_brain_roadmap() -> str:
 SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + "\n\nFeuille de route et règles opérationnelles de Verox :\n" + _load_brain_roadmap()
 
 
-def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
+def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict, extra_headers: dict[str, str] | None = None) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Cache-Control", "no-store")
+    for name, value in (extra_headers or {}).items():
+        handler.send_header(name, value)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -262,6 +264,200 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 
 
+def _b64url(data: bytes) -> str:
+    import base64
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+def _session_secret() -> bytes:
+    secret = os.getenv("VEROX_SESSION_SECRET", "").strip()
+    if len(secret) < 32:
+        raise RuntimeError("VEROX_SESSION_SECRET doit contenir au moins 32 caractères.")
+    return secret.encode("utf-8")
+
+def _valid_totp(code: str) -> bool:
+    import base64, hashlib, hmac, struct
+    secret = os.getenv("VEROX_TOTP_SECRET", "").strip().replace(" ", "")
+    if not secret or not re.fullmatch(r"\d{6}", code):
+        return False
+    try:
+        key = base64.b32decode(secret.upper() + "=" * ((8 - len(secret) % 8) % 8), casefold=True)
+    except (ValueError, base64.binascii.Error):
+        return False
+    now = int(time.time()) // 30
+    for counter in (now - 1, now, now + 1):
+        digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+        offset = digest[-1] & 0x0F
+        number = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1_000_000
+        if hmac.compare_digest(f"{number:06d}", code):
+            return True
+    return False
+
+def _issue_private_session() -> str:
+    import secrets
+    now = int(time.time())
+    payload = {"iat": now, "exp": now + 900, "nonce": secrets.token_urlsafe(16)}
+    body = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    signature = _b64url(__import__("hmac").new(_session_secret(), body.encode(), __import__("hashlib").sha256).digest())
+    return body + "." + signature
+
+def _private_session_token(request: BaseHTTPRequestHandler) -> str:
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if token:
+        return token
+    from http.cookies import SimpleCookie
+    cookie = SimpleCookie()
+    try:
+        cookie.load(request.headers.get("cookie", ""))
+        morsel = cookie.get("verox_owner_session")
+        return morsel.value if morsel else ""
+    except Exception:
+        return ""
+
+def _private_session_valid(request: BaseHTTPRequestHandler) -> bool:
+    import base64, hashlib, hmac
+    token = _private_session_token(request)
+    if not token or "." not in token:
+        return False
+    body, supplied = token.rsplit(".", 1)
+    try:
+        expected = _b64url(hmac.new(_session_secret(), body.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(expected, supplied):
+            return False
+        payload = json.loads(base64.urlsafe_b64decode(body + "=" * ((4 - len(body) % 4) % 4)))
+        now = int(time.time())
+        return isinstance(payload, dict) and int(payload.get("iat", 0)) <= now and now < int(payload.get("exp", 0)) and int(payload.get("exp", 0)) - int(payload.get("iat", 0)) <= 900
+    except (ValueError, TypeError, json.JSONDecodeError, RuntimeError):
+        return False
+
+def _financial_user(request: BaseHTTPRequestHandler) -> tuple[str, str]:
+    """Bind financial intents to the configured sole owner after TOTP session verification."""
+    owner_id = os.getenv("VEROX_OWNER_USER_ID", "").strip()
+    token = _private_session_token(request)
+    if not owner_id or not re.fullmatch(r"[0-9a-fA-F-]{36}", owner_id):
+        raise RuntimeError("VEROX_OWNER_USER_ID doit contenir l'UUID du propriétaire.")
+    if not _private_session_valid(request):
+        raise PermissionError("Session OTP invalide ou expirée.")
+    return owner_id.lower(), token
+
+
+def _financial_admin_headers() -> tuple[str, dict[str, str]]:
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.getenv("SUPABASE_SECRET_KEY", "").strip())
+    if not url or not key:
+        raise RuntimeError("La gestion des autorisations financières n'est pas configurée côté serveur.")
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # Supabase's new sb_secret_ keys are not JWTs; send them only as apikey.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return url, headers
+
+
+
+def _otp_rate_limit_key(subject: str) -> str:
+    """Create a stable opaque rate-limit key without storing raw IP/owner identifiers."""
+    import hashlib
+    import hmac
+    return hmac.new(_session_secret(), subject.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _otp_rate_limit(action: str, subject: str) -> dict:
+    """Use Supabase's atomic shared limiter; fail closed if its state is unavailable."""
+    if action not in {"check", "failure", "success"}:
+        raise ValueError("Invalid OTP rate-limit action.")
+    url, headers = _financial_admin_headers()
+    key_hash = _otp_rate_limit_key(subject)
+    with httpx.Client(timeout=5.0, trust_env=False) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_otp_rate_limit",
+            headers=headers,
+            json={"p_key_hash": key_hash, "p_action": action},
+        )
+        response.raise_for_status()
+        data = response.json()
+    result = data[0] if isinstance(data, list) and data else data
+    if not isinstance(result, dict) or not isinstance(result.get("allowed"), bool):
+        raise RuntimeError("Invalid OTP rate-limit response.")
+    return result
+
+
+def _approve_financial_authorization(user_id: str, payload: dict) -> dict:
+    """Attest a validated owner OTP session to a narrowly scoped Supabase RPC."""
+    required = ("authorization_id", "operation_fingerprint", "domain", "action", "target",
+                "amount", "currency", "run_id", "event_id")
+    if any(key not in payload for key in required):
+        raise ValueError("Le contexte complet de l'opération est obligatoire.")
+    url, headers = _financial_admin_headers()
+    rpc_body = {
+        "p_owner_id": user_id.lower(),
+        "p_authorization_id": str(payload["authorization_id"]),
+        "p_operation_fingerprint": str(payload["operation_fingerprint"]),
+        "p_domain": str(payload["domain"]), "p_action": str(payload["action"]),
+        "p_target": str(payload["target"]), "p_amount": payload["amount"],
+        "p_currency": str(payload["currency"]), "p_run_id": str(payload["run_id"]),
+        "p_event_id": str(payload["event_id"]),
+    }
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/approve_otp_owner_financial_authorization",
+            headers=headers, json=rpc_body,
+        )
+        if response.status_code in (401, 403):
+            raise PermissionError("Supabase a refusé l'attestation du propriétaire OTP.")
+        response.raise_for_status()
+        result = response.json()
+    approval = result[0] if isinstance(result, list) and result else result
+    if not isinstance(approval, dict):
+        raise RuntimeError("Réponse RPC d'approbation invalide.")
+    return approval
+
+
+def _financial_authorization_public(row: dict) -> dict:
+    fields = ("authorization_id", "operation_fingerprint", "domain", "operation_type", "target",
+              "amount", "currency", "run_id", "event_id", "expires_at_utc", "status", "created_at_utc")
+    return {key: row.get(key) for key in fields}
+
+
+def _create_financial_intent(user_id: str, payload: dict) -> dict:
+    import hashlib
+    import uuid
+    from datetime import datetime, timedelta, timezone
+    domain = str(payload.get("domain", "")).strip()
+    action = str(payload.get("action", "")).strip()
+    target = str(payload.get("target", "")).strip()
+    currency = str(payload.get("currency", "")).strip().upper()
+    try:
+        amount = float(payload.get("amount"))
+    except (TypeError, ValueError):
+        raise ValueError("Montant invalide.")
+    if domain not in {"trading", "sports_betting", "horse_racing", "transfer"}:
+        raise ValueError("Domaine non pris en charge.")
+    if not action or len(action) > 80 or not target or len(target) > 240:
+        raise ValueError("Action et cible obligatoires (limites de longueur dépassées).")
+    if not (amount > 0 and amount < 1e20) or not re.fullmatch(r"[A-Z0-9]{2,12}", currency):
+        raise ValueError("Montant ou devise invalide.")
+    authorization_id, run_id, event_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    context = {"domain": domain, "action": action, "target": target, "amount": format(amount, ".8f").rstrip("0").rstrip("."),
+               "currency": currency, "run_id": run_id, "event_id": event_id}
+    fingerprint = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    url, headers = _financial_admin_headers()
+    row = {
+        "authorization_id": authorization_id, "operation_fingerprint": fingerprint,
+        "domain": domain, "operation_type": action, "target": target, "amount": context["amount"],
+        "currency": currency, "run_id": run_id, "event_id": event_id, "requested_by": user_id,
+        "expires_at_utc": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "status": "pending",
+    }
+    with httpx.Client(timeout=10.0, trust_env=False) as client:
+        response = client.post(f"{url}/rest/v1/verox_financial_authorizations",
+                               headers={**headers, "Prefer": "return=representation"}, json=row)
+        if response.status_code not in (200, 201):
+            raise RuntimeError("Impossible de créer la demande d'approbation.")
+        created = response.json()
+    if not isinstance(created, list) or not created or not isinstance(created[0], dict):
+        raise RuntimeError("Réponse invalide du stockage des autorisations.")
+    return _financial_authorization_public(created[0])
+
+
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Request bodies, prompts, and credentials must never be logged.
@@ -269,6 +465,36 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/api/auth/session":
+            if not _private_session_valid(self):
+                _json(self, 401, {"authenticated": False, "error": "Session OTP invalide ou expirée."})
+            else:
+                _json(self, 200, {"authenticated": True, "expires_in_seconds": 900})
+            return
+        if path.startswith("/api/") and not _private_session_valid(self):
+            _json(self, 401, {"error": "Authentification OTP Google requise."})
+            return
+        if path == "/api/financial/config":
+            # Only public Supabase client configuration is exposed; never return service-role credentials.
+            _json(self, 200, {"supabase_url": os.getenv("SUPABASE_URL", "").rstrip("/"),
+                              "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY", "")})
+            return
+        if path == "/api/financial/authorizations":
+            try:
+                user_id, _ = _financial_user(self)
+                url, headers = _financial_admin_headers()
+                with httpx.Client(timeout=8.0, trust_env=False) as client:
+                    response = client.get(f"{url}/rest/v1/verox_financial_authorizations",
+                        headers=headers, params={"select":"authorization_id,operation_fingerprint,domain,operation_type,target,amount,currency,run_id,event_id,expires_at_utc,status,created_at_utc",
+                                                  "requested_by":f"eq.{user_id}", "status":"eq.pending", "order":"created_at_utc.desc", "limit":"50"})
+                    response.raise_for_status()
+                    rows = response.json()
+                _json(self, 200, {"authorizations":[_financial_authorization_public(x) for x in rows if isinstance(x,dict)]})
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "Les demandes d'approbation ne sont pas disponibles."})
+            return
         if path == "/api/sources":
             # Read-only public catalogue; all entries explicitly remain unconfigured until tested.
             query = urlparse(self.path).query
@@ -427,6 +653,91 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/auth/logout":
+            if not _private_session_valid(self):
+                _json(self, 401, {"error": "Session OTP invalide ou expirée."})
+            else:
+                _json(self, 200, {"authenticated": False},
+                      {"Set-Cookie": "verox_owner_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"})
+            return
+        if path == "/api/auth/otp":
+            ip = _client_ip(self)
+            owner_id = os.getenv("VEROX_OWNER_USER_ID", "").strip().lower()
+            try:
+                if not os.getenv("VEROX_TOTP_SECRET", "").strip() or len(os.getenv("VEROX_SESSION_SECRET", "").strip()) < 32:
+                    _json(self, 503, {"error": "Authentification OTP non configurée côté serveur."})
+                    return
+                if not re.fullmatch(r"[0-9a-f-]{36}", owner_id):
+                    _json(self, 503, {"error": "Identité propriétaire OTP non configurée côté serveur."})
+                    return
+                payload = _read_json(self)
+                code = str(payload.get("code", "")).strip()
+                # Both a per-client key and an owner-wide key are checked atomically
+                # in Supabase, so separate serverless instances share the lockout.
+                client_key = "ip:" + ip
+                owner_key = "owner:" + owner_id
+                client_limit = _otp_rate_limit("check", client_key)
+                owner_limit = _otp_rate_limit("check", owner_key)
+                if not client_limit["allowed"] or not owner_limit["allowed"]:
+                    retry = max(int(client_limit.get("retry_after_seconds", 0)), int(owner_limit.get("retry_after_seconds", 0)))
+                    _json(self, 429, {"error": "Trop de tentatives. Réessayez dans quelques minutes.",
+                                      "retry_after_seconds": retry})
+                    return
+                if not _valid_totp(code):
+                    _otp_rate_limit("failure", client_key)
+                    _otp_rate_limit("failure", owner_key)
+                    _json(self, 401, {"error": "Code OTP invalide."})
+                    return
+                # Clear both shared counters before issuing the session; if the
+                # limiter is unavailable, fail closed instead of authenticating.
+                _otp_rate_limit("success", client_key)
+                _otp_rate_limit("success", owner_key)
+                session = _issue_private_session()
+                _json(self, 200, {"authenticated": True, "expires_in": 900},
+                      {"Set-Cookie": f"verox_owner_session={session}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict"})
+            except (ValueError, json.JSONDecodeError):
+                _json(self, 400, {"error": "Code OTP requis."})
+            except Exception:
+                _json(self, 503, {"error": "Service d'authentification indisponible."})
+            return
+        if path.startswith("/api/") and not _private_session_valid(self):
+            _json(self, 401, {"error": "Authentification OTP Google requise."})
+            return
+        if path == "/api/financial/authorizations":
+            try:
+                user_id, _ = _financial_user(self)
+                payload = _read_json(self)
+                created = _create_financial_intent(user_id, payload)
+                _json(self, 201, {"authorization": created})
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except ValueError as exc:
+                _json(self, 400, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "Impossible de créer la demande d'approbation."})
+            return
+        if path == "/api/financial/authorizations/approve":
+            try:
+                user_id, _ = _financial_user(self)
+                payload = _read_json(self)
+                approval = _approve_financial_authorization(user_id, payload)
+                if approval.get("approved") is not True:
+                    _json(self, 409, {"approved": False, "reason": str(approval.get("reason", "approval_not_confirmed"))[:120]})
+                    return
+                _json(self, 200, {
+                    "approved": True,
+                    "authorization_id": approval.get("authorization_id"),
+                    "approved_by": user_id,
+                    "approved_at_utc": approval.get("approved_at_utc"),
+                    "execution": "not_performed",
+                })
+            except PermissionError as exc:
+                _json(self, 401, {"error": str(exc)})
+            except ValueError as exc:
+                _json(self, 400, {"error": str(exc)})
+            except Exception:
+                _json(self, 503, {"error": "L'approbation n'a pas pu être confirmée."})
+            return
         if path == "/api/tasks":
             try:
                 payload = _read_json(self)

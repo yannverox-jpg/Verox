@@ -142,3 +142,90 @@ def test_missing_audit_sink_blocks_even_when_approval_is_valid():
         guard.verify_and_consume_for_execution(
             intent=operation, authorization_id="approval-1"
         )
+
+
+
+def test_target_mismatch_blocks_before_consumption_and_execution():
+    operation = intent()
+    consumed = []
+    executed = []
+    audit_events = []
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=lambda *_: [approval_for(intent(target="ATTACKER/USD"))],
+        consume_approval=lambda *_: consumed.append(True) or True,
+        record_audit_event=audit_events.append,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="exact operation"):
+        execute_financial_action_guarded(
+            guard=guard,
+            intent=operation,
+            authorization_id="approval-target-mismatch",
+            executor_fn=lambda verified: executed.append(True),
+        )
+    assert consumed == []
+    assert executed == []
+    assert audit_events[-1]["status"] == "blocked"
+
+
+def test_approval_store_unavailable_blocks_before_execution():
+    operation = intent()
+    executed = []
+    audit_events = []
+
+    def unavailable(*_args):
+        raise ConnectionError("synthetic isolated test outage")
+
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=unavailable,
+        consume_approval=lambda *_: True,
+        record_audit_event=audit_events.append,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="store unavailable"):
+        execute_financial_action_guarded(
+            guard=guard,
+            intent=operation,
+            authorization_id="approval-store-down",
+            executor_fn=lambda verified: executed.append(True),
+        )
+    assert executed == []
+    assert audit_events[-1]["status"] == "blocked"
+
+
+def test_failed_atomic_consumption_blocks_before_execution():
+    operation = intent()
+    executed = []
+    audit_events = []
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=lambda *_: [approval_for(operation)],
+        consume_approval=lambda *_: False,
+        record_audit_event=audit_events.append,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="already consumed"):
+        execute_financial_action_guarded(
+            guard=guard,
+            intent=operation,
+            authorization_id="approval-already-consumed",
+            executor_fn=lambda verified: executed.append(True),
+        )
+    assert executed == []
+    assert audit_events[-1]["status"] == "blocked"
+
+
+def test_missing_human_authorization_never_calls_executor():
+    operation = intent()
+    executed = []
+    audit_events = []
+    guard = ServerHumanApprovalGuard(
+        fetch_approval=lambda *_: [],
+        consume_approval=lambda *_: True,
+        record_audit_event=audit_events.append,
+    )
+    with pytest.raises(FinancialAuthorizationError, match="No human authorization"):
+        execute_financial_action_guarded(
+            guard=guard,
+            intent=operation,
+            authorization_id=None,
+            executor_fn=lambda verified: executed.append(True),
+        )
+    assert executed == []
+    assert audit_events[-1]["status"] == "blocked"

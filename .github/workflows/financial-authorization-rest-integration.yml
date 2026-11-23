@@ -64,6 +64,12 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261122201142_financial_authorization_t6.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261122201315_bind_financial_authorization_operation_context.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261122203246_persist_financial_authorization_expiration.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123070830_restrict_financial_authorization_delete_truncate.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123071320_revoke_financial_authorization_direct_updates.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123133911_require_authenticated_human_financial_approval.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123133924_otp_owner_financial_approval_rpc.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123133936_distributed_otp_rate_limit.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123133947_enable_otp_rate_limit_rls.sql
       - name: Start PostgREST against ephemeral PostgreSQL only
         run: |
           docker run -d --rm --network host --name verox-postgrest-ci \
@@ -82,7 +88,7 @@ jobs:
           done
           docker logs verox-postgrest-ci
           exit 1
-      - name: Test REST roles, persisted approval, expiration, and concurrent consumption
+      - name: Test REST roles, OTP lockout, persisted approval, expiration, and concurrent consumption
         run: python -m pytest -q tests/test_financial_authorization_rest_integration.py
       - name: Test invalid A2A evidence and fail-closed worker/fallback routing
         run: python -m pytest -q tests/test_verox_a2a_runtime_guard.py tests/test_worker_runtime_guardrails.py
