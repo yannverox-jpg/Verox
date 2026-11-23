@@ -345,7 +345,11 @@ def _financial_admin_headers() -> tuple[str, dict[str, str]]:
     key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.getenv("SUPABASE_SECRET_KEY", "").strip())
     if not url or not key:
         raise RuntimeError("La gestion des autorisations financières n'est pas configurée côté serveur.")
-    return url, {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # Supabase's new sb_secret_ keys are not JWTs; send them only as apikey.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return url, headers
 
 
 
