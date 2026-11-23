@@ -2,6 +2,7 @@
 -- Backends may create pending intents, but cannot mint approved records by writing
 -- an arbitrary approved_by value. The human approves through an authenticated RPC.
 ALTER TABLE public.verox_financial_authorizations
+    ADD COLUMN IF NOT EXISTS requested_by text,
     ALTER COLUMN approved_by DROP NOT NULL,
     ALTER COLUMN approved_at_utc DROP NOT NULL,
     ALTER COLUMN status SET DEFAULT 'pending';
@@ -9,7 +10,8 @@ ALTER TABLE public.verox_financial_authorizations
 ALTER TABLE public.verox_financial_authorizations
     DROP CONSTRAINT IF EXISTS chk_vfa_status,
     DROP CONSTRAINT IF EXISTS chk_vfa_approved_by,
-    DROP CONSTRAINT IF EXISTS chk_vfa_expiration;
+    DROP CONSTRAINT IF EXISTS chk_vfa_expiration,
+    DROP CONSTRAINT IF EXISTS chk_vfa_requested_by;
 
 -- Existing approvals cannot be attributed to an authenticated human retroactively.
 -- Revoke still-live approvals and clear untrusted approver labels before tightening checks.
@@ -32,6 +34,11 @@ ALTER TABLE public.verox_financial_authorizations
         CHECK (
             status IN ('pending', 'revoked')
             OR (approved_at_utc IS NOT NULL AND expires_at_utc > approved_at_utc)
+        ),
+    ADD CONSTRAINT chk_vfa_requested_by
+        CHECK (
+            status NOT IN ('pending', 'approved')
+            OR (requested_by IS NOT NULL AND btrim(requested_by) <> '')
         );
 
 CREATE OR REPLACE FUNCTION public.enforce_human_approval_provenance()
@@ -48,10 +55,15 @@ BEGIN
         RAISE EXCEPTION 'financial authorization must be created as pending';
     END IF;
 
+    IF NEW.status = 'pending' AND (NEW.requested_by IS NULL OR btrim(NEW.requested_by) = '') THEN
+        RAISE EXCEPTION 'pending financial authorization requires an authenticated requester identity';
+    END IF;
+
     IF NEW.status = 'approved' AND (
         v_role IS DISTINCT FROM 'authenticated'
         OR v_sub IS NULL OR btrim(v_sub) = ''
         OR NEW.approved_by IS DISTINCT FROM v_sub
+        OR NEW.requested_by IS DISTINCT FROM v_sub
         OR NEW.approved_at_utc IS NULL
     ) THEN
         RAISE EXCEPTION 'approved financial authorization requires authenticated human provenance';
@@ -67,8 +79,17 @@ CREATE TRIGGER trg_enforce_human_approval_provenance
 BEFORE INSERT OR UPDATE ON public.verox_financial_authorizations
 FOR EACH ROW EXECUTE FUNCTION public.enforce_human_approval_provenance();
 
+DROP FUNCTION IF EXISTS public.approve_human_financial_authorization(text);
 CREATE OR REPLACE FUNCTION public.approve_human_financial_authorization(
-    p_authorization_id text
+    p_authorization_id text,
+    p_operation_fingerprint text,
+    p_domain text,
+    p_action text,
+    p_target text,
+    p_amount numeric,
+    p_currency text,
+    p_run_id text,
+    p_event_id text
 )
 RETURNS TABLE (
     approved boolean,
@@ -91,21 +112,59 @@ BEGIN
         RAISE EXCEPTION 'authenticated human identity required';
     END IF;
 
+    IF p_authorization_id IS NULL OR btrim(p_authorization_id) = ''
+       OR p_operation_fingerprint IS NULL OR p_operation_fingerprint !~ '^[0-9a-f]{64}
+
+-- Only trusted backend may create a pending intent. Neither API role may write the
+-- table directly; authenticated users can approve only through the identity-bound RPC.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+ON TABLE public.verox_financial_authorizations
+FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT ON TABLE public.verox_financial_authorizations TO service_role;
+
+REVOKE ALL ON FUNCTION public.enforce_human_approval_provenance()
+FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.approve_human_financial_authorization(
+    text, text, text, text, text, numeric, text, text, text
+) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.approve_human_financial_authorization(
+    text, text, text, text, text, numeric, text, text, text
+) TO authenticated;
+
+       OR p_domain IS NULL OR btrim(p_domain) = ''
+       OR p_action IS NULL OR btrim(p_action) = ''
+       OR p_target IS NULL OR btrim(p_target) = ''
+       OR p_amount IS NULL OR p_amount <= 0
+       OR p_currency IS NULL OR btrim(p_currency) = ''
+       OR p_run_id IS NULL OR btrim(p_run_id) = ''
+       OR p_event_id IS NULL OR btrim(p_event_id) = '' THEN
+        RAISE EXCEPTION 'complete operation context required for human approval';
+    END IF;
+
     UPDATE public.verox_financial_authorizations AS a
        SET status = 'approved',
            approved_by = v_sub,
            approved_at_utc = v_now
      WHERE a.authorization_id = btrim(p_authorization_id)
+       AND a.operation_fingerprint = lower(btrim(p_operation_fingerprint))
+       AND a.domain = btrim(p_domain)
+       AND a.operation_type = btrim(p_action)
+       AND a.target = btrim(p_target)
+       AND a.amount = p_amount
+       AND a.currency = upper(btrim(p_currency))
+       AND a.run_id = btrim(p_run_id)
+       AND a.event_id = btrim(p_event_id)
+       AND a.requested_by = v_sub
        AND a.status = 'pending'
        AND a.expires_at_utc > v_now
      RETURNING a.* INTO v_auth;
 
     IF NOT FOUND THEN
         approved := false;
-        authorization_id := btrim(COALESCE(p_authorization_id, ''));
+        authorization_id := btrim(p_authorization_id);
         approved_by := v_sub;
         approved_at_utc := NULL;
-        reason := 'pending_authorization_not_found_or_expired';
+        reason := 'pending_intent_missing_expired_or_context_mismatch';
         RETURN NEXT;
         RETURN;
     END IF;
@@ -114,7 +173,7 @@ BEGIN
     authorization_id := v_auth.authorization_id;
     approved_by := v_auth.approved_by;
     approved_at_utc := v_auth.approved_at_utc;
-    reason := 'approved_by_authenticated_human';
+    reason := 'approved_by_authenticated_owner_for_exact_operation';
     RETURN NEXT;
 END;
 $function$;
