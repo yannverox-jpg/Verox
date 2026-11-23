@@ -9,8 +9,11 @@ on:
       - "verox_brain/a2a_adapters.py"
       - "verox_queue_worker.py"
       - "api/index.py"
+      - "api/approvals.py"
       - "verox_a2a_runtime_guard.py"
       - "tests/test_financial_authorization_rest_integration.py"
+      - "tests/test_android_approval_api.py"
+      - "tests/test_android_approval_rest_integration.py"
       - "tests/test_verox_a2a_runtime_guard.py"
       - "tests/test_worker_runtime_guardrails.py"
       - ".github/workflows/financial-authorization-rest-integration.yml"
@@ -69,6 +72,9 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123110000_require_authenticated_human_financial_approval.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123113000_otp_owner_financial_approval_rpc.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123120000_distributed_otp_rate_limit.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123121000_verox_android_human_approvals.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123123000_bind_android_approval_to_t6.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123124000_enable_otp_rate_limit_rls.sql
       - name: Start PostgREST against ephemeral PostgreSQL only
         run: |
           docker run -d --rm --network host --name verox-postgrest-ci \
@@ -87,6 +93,10 @@ jobs:
           done
           docker logs verox-postgrest-ci
           exit 1
+      - name: Test Android approval HTTP authentication
+        run: python -m pytest -q tests/test_android_approval_api.py
+      - name: Test Android owner decision against isolated REST database
+        run: python -m pytest -q tests/test_android_approval_rest_integration.py
       - name: Test REST roles, OTP lockout, persisted approval, expiration, and concurrent consumption
         run: python -m pytest -q tests/test_financial_authorization_rest_integration.py
       - name: Test invalid A2A evidence and fail-closed worker/fallback routing
