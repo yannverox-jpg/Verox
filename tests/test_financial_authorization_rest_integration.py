@@ -45,9 +45,10 @@ def _fingerprint(seed: str) -> str:
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
-def _approval(*, expires_at: datetime | None = None) -> dict:
+def _approval(*, expires_at: datetime | None = None, approved_at: datetime | None = None) -> dict:
     suffix = uuid.uuid4().hex
     now = datetime.now(timezone.utc)
+    approved_at = approved_at or now
     return {
         "authorization_id": f"it-{suffix}",
         "operation_fingerprint": _fingerprint(suffix),
@@ -59,7 +60,7 @@ def _approval(*, expires_at: datetime | None = None) -> dict:
         "run_id": f"run-{suffix}",
         "event_id": f"event-{suffix}",
         "approved_by": "synthetic-human-approver",
-        "approved_at_utc": now.isoformat(),
+        "approved_at_utc": approved_at.isoformat(),
         "expires_at_utc": (expires_at or now + timedelta(minutes=5)).isoformat(),
     }
 
@@ -131,7 +132,11 @@ def test_service_role_can_create_and_read_back_synthetic_approval():
 
 
 def test_expired_approval_is_rejected_and_marked_expired():
-    row = _approval(expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
+    now = datetime.now(timezone.utc)
+    row = _approval(
+        approved_at=now - timedelta(minutes=5),
+        expires_at=now - timedelta(minutes=1),
+    )
     _insert_approval(row)
 
     result = _consume(row)
