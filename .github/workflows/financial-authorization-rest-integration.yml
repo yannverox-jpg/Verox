@@ -67,6 +67,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123100000_restrict_financial_authorization_delete_truncate.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123105000_revoke_financial_authorization_direct_updates.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123110000_require_authenticated_human_financial_approval.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261123113000_otp_owner_financial_approval_rpc.sql
       - name: Start PostgREST against ephemeral PostgreSQL only
         run: |
           docker run -d --rm --network host --name verox-postgrest-ci \
