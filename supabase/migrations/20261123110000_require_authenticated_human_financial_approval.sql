@@ -1,6 +1,6 @@
 -- Enforce a real authenticated human approval boundary.
 -- Backends may create pending intents, but cannot mint approved records by writing
--- an arbitrary approved_by value. The human approves through an authenticated RPC.
+-- an arbitrary approved_by value. The human approves only their own exact operation.
 ALTER TABLE public.verox_financial_authorizations
     ADD COLUMN IF NOT EXISTS requested_by text,
     ALTER COLUMN approved_by DROP NOT NULL,
@@ -14,7 +14,7 @@ ALTER TABLE public.verox_financial_authorizations
     DROP CONSTRAINT IF EXISTS chk_vfa_requested_by;
 
 -- Existing approvals cannot be attributed to an authenticated human retroactively.
--- Revoke still-live approvals and clear untrusted approver labels before tightening checks.
+-- Revoke still-live approvals and clear their untrusted approver labels.
 UPDATE public.verox_financial_authorizations
    SET status = 'revoked', approved_by = NULL, approved_at_utc = NULL
  WHERE status = 'approved';
@@ -56,7 +56,7 @@ BEGIN
     END IF;
 
     IF NEW.status = 'pending' AND (NEW.requested_by IS NULL OR btrim(NEW.requested_by) = '') THEN
-        RAISE EXCEPTION 'pending financial authorization requires an authenticated requester identity';
+        RAISE EXCEPTION 'pending financial authorization requires requester identity';
     END IF;
 
     IF NEW.status = 'approved' AND (
@@ -66,7 +66,7 @@ BEGIN
         OR NEW.requested_by IS DISTINCT FROM v_sub
         OR NEW.approved_at_utc IS NULL
     ) THEN
-        RAISE EXCEPTION 'approved financial authorization requires authenticated human provenance';
+        RAISE EXCEPTION 'approved financial authorization requires authenticated owner provenance';
     END IF;
 
     RETURN NEW;
@@ -113,24 +113,7 @@ BEGIN
     END IF;
 
     IF p_authorization_id IS NULL OR btrim(p_authorization_id) = ''
-       OR p_operation_fingerprint IS NULL OR p_operation_fingerprint !~ '^[0-9a-f]{64}
-
--- Only trusted backend may create a pending intent. Neither API role may write the
--- table directly; authenticated users can approve only through the identity-bound RPC.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE
-ON TABLE public.verox_financial_authorizations
-FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, INSERT ON TABLE public.verox_financial_authorizations TO service_role;
-
-REVOKE ALL ON FUNCTION public.enforce_human_approval_provenance()
-FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.approve_human_financial_authorization(
-    text, text, text, text, text, numeric, text, text, text
-) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.approve_human_financial_authorization(
-    text, text, text, text, text, numeric, text, text, text
-) TO authenticated;
-
+       OR p_operation_fingerprint IS NULL OR p_operation_fingerprint !~ '^[0-9a-f]{64}$'
        OR p_domain IS NULL OR btrim(p_domain) = ''
        OR p_action IS NULL OR btrim(p_action) = ''
        OR p_target IS NULL OR btrim(p_target) = ''
@@ -178,8 +161,8 @@ GRANT EXECUTE ON FUNCTION public.approve_human_financial_authorization(
 END;
 $function$;
 
--- Only trusted backend may create a pending intent. Neither API role may write the
--- table directly; authenticated users can approve only through the identity-bound RPC.
+-- The backend may create pending intents and read their state. State transitions
+-- are performed only by the approved/consume SECURITY DEFINER RPCs.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE
 ON TABLE public.verox_financial_authorizations
 FROM PUBLIC, anon, authenticated, service_role;
@@ -187,7 +170,9 @@ GRANT SELECT, INSERT ON TABLE public.verox_financial_authorizations TO service_r
 
 REVOKE ALL ON FUNCTION public.enforce_human_approval_provenance()
 FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.approve_human_financial_authorization(text)
-FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.approve_human_financial_authorization(text)
-TO authenticated;
+REVOKE ALL ON FUNCTION public.approve_human_financial_authorization(
+    text, text, text, text, text, numeric, text, text, text
+) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.approve_human_financial_authorization(
+    text, text, text, text, text, numeric, text, text, text
+) TO authenticated;
