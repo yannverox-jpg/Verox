@@ -1,5 +1,7 @@
 """Isolated PostgREST integration tests using only synthetic rows and CI-only JWTs.
 
+Run only against the disposable CI database; never point DATABASE_URL at hosted Supabase.
+
 The test server connects exclusively to the ephemeral PostgreSQL service started by
 financial-authorization-rest-integration.yml. It never reads hosted Supabase secrets.
 """
