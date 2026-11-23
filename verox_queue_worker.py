@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import TypedDict
 
 import httpx
 from vercel.queue import subscribe
@@ -22,6 +23,10 @@ SYSTEM_PROMPT = (
     "Retourne une analyse vérifiable et distingue les faits des hypothèses."
 )
 GENERIC_TASK_TYPES = {"analysis", "research", "chat", "code_review"}
+
+
+class QueueMessage(TypedDict):
+    task_id: str
 
 
 def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | None = None) -> dict:
@@ -51,7 +56,7 @@ def _guard_task(task_type: str, payload: dict) -> str:
 
 
 @subscribe(topic=TOPIC, max_attempts=3, max_concurrency=3)
-async def process_agent_task(message: dict) -> None:
+async def process_agent_task(message: QueueMessage) -> None:
     print("verox_queue_subscriber_invoked")
     task_id = str(message.get("task_id", "")).strip()
     if len(task_id) != 36:
