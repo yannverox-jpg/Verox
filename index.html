@@ -76,6 +76,24 @@ main{min-width:0;padding:14px;display:flex;flex-direction:column;gap:13px;min-he
 <div class="grid cards"><button class="card nav" data-page="trading"><span class="ico">📈</span><span class="label">Trading — 5 plateformes</span></button><button class="card nav" data-page="sports"><span class="ico">⚽</span><span class="label">Paris sportifs — plateformes et analyses</span></button><button class="card nav" data-page="commerce"><span class="ico">🛍</span><span class="label">E-commerce — places de marché et tendances</span></button><button class="card nav" data-page="income"><span class="ico">◈</span><span class="label">Revenus & opportunités</span></button></div>
 <div class="section-title"><h2>Applications PC & Android</h2><span class="muted">Catalogues officiels — installation contrôlée par votre appareil</span></div>
 <div class="grid cards" id="appStores"></div>
+<div class="section-title"><h2>Vercel & GitHub — pilotage direct</h2><span class="muted">Liens vers le projet déployé et son code source</span></div>
+<div class="grid cards" id="vercelControlPanel">
+  <article class="card">
+    <div class="statusline"><span class="dot ok"></span><strong>Projet Vercel · verox-brain</strong></div>
+    <p class="tiny muted">Ouvrir le tableau de bord du projet, ses réglages et ses journaux.</p>
+    <div class="app-actions"><a class="btn primary" href="https://vercel.com/verox-s-projects/verox-brain" target="_blank" rel="noopener noreferrer">Dashboard Vercel ↗</a><a class="btn" href="https://verox-brain.vercel.app" target="_blank" rel="noopener noreferrer">Application ↗</a></div>
+  </article>
+  <article class="card">
+    <div class="statusline"><span class="tag">Production</span><strong>Dernier déploiement vérifié : READY</strong></div>
+    <p class="tiny muted">Branche main · commit be18550. Le statut affiché ici est celui de la dernière vérification, pas une sonde temps réel.</p>
+    <div class="app-actions"><a class="btn primary" href="https://vercel.com/verox-s-projects/verox-brain/Be8UFuSCVnV8NAaF7jFGwFUKU9HV" target="_blank" rel="noopener noreferrer">Inspecter le déploiement ↗</a></div>
+  </article>
+  <article class="card">
+    <div class="statusline"><span class="tag">GitHub · main</span><strong>Code source du dashboard</strong></div>
+    <p class="tiny muted">Le fichier index.html du dépôt Verox, source du tableau de bord.</p>
+    <div class="app-actions"><a class="btn primary" href="https://github.com/yannverox-jpg/Verox/blob/main/index.html" target="_blank" rel="noopener noreferrer">Ouvrir index.html ↗</a><a class="btn" href="https://github.com/yannverox-jpg/Verox" target="_blank" rel="noopener noreferrer">Dépôt GitHub ↗</a></div>
+  </article>
+</div>
 </section>
 <section class="view" id="page-trading"><div class="notice">Les plateformes financières sont des services externes. Vérifiez les autorisations, les risques et les règles locales. Aucun ordre n'est passé par cette interface sans intégration réelle et validation explicite.</div><div class="section-title"><h2>Plateformes de trading</h2><span class="muted">Graphiques & brokers</span></div><div class="grid cards" id="tradingApps"></div><div class="section-title"><h2>Actualités de marché</h2></div><div class="grid cards" id="tradingNews"></div><div class="section-title"><h2>Outils d'analyse</h2></div><div class="grid cards" id="tradingAnalysis"></div><div class="section-title"><h2>Outils de travail</h2></div><div class="grid cards" id="tradingWork"></div><div class="section-title"><h2>Learning & marchés</h2></div><div class="grid cards" id="tradingLearning"></div></section>
 <section class="view" id="page-sports"><div class="notice">Les cotes et résultats doivent être vérifiés auprès des fournisseurs. Aucun pari n'est exécuté depuis Verox. Respectez l'âge légal et les règles locales.</div><div class="section-title"><h2>Applications de paris sportifs</h2></div><div class="grid cards" id="sportsApps"></div><div class="section-title"><h2>Outils d'analyse et résultats</h2></div><div class="grid cards" id="sportsTools"></div></section>
