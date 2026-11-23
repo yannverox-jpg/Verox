@@ -2,6 +2,7 @@
 
 Run only against the disposable CI database; never point DATABASE_URL at hosted Supabase.
 
+These checks are intentionally isolated and never point to hosted Supabase.
 The test server connects exclusively to the ephemeral PostgreSQL service started by
 financial-authorization-rest-integration.yml. It never reads hosted Supabase secrets.
 """
