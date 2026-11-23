@@ -10,8 +10,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
-import psycopg
 import pytest
+
+try:
+    import psycopg
+except ImportError:  # The generic unit workflow does not install the database driver.
+    psycopg = None
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 POSTGREST_URL = os.environ.get("POSTGREST_URL", "").rstrip("/")
@@ -19,7 +23,7 @@ JWT_SECRET = os.environ.get("PGRST_JWT_SECRET", "")
 OWNER_ID = "3239b92e-e774-4231-945e-c31d1195246c"
 
 pytestmark = pytest.mark.skipif(
-    not (DATABASE_URL and POSTGREST_URL and JWT_SECRET),
+    not (DATABASE_URL and POSTGREST_URL and JWT_SECRET and psycopg is not None),
     reason="requires the isolated PostgREST/PostgreSQL integration environment",
 )
 
