@@ -5,12 +5,19 @@ import hashlib
 import hmac
 import json
 import os
+import struct
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from http.server import ThreadingHTTPServer
+from threading import Thread
+from urllib.parse import urlparse
 
 import httpx
 import pytest
+from api import approvals
+
+HTTPX_CLIENT = httpx.Client
 
 try:
     import psycopg
@@ -48,9 +55,8 @@ def _postgrest(method: str, path: str, *, body: dict | None = None, prefer: str 
     headers = _headers("service_role")
     if prefer:
         headers["Prefer"] = prefer
-    return httpx.request(
-        method, f"{POSTGREST_URL}{path}", headers=headers, json=body, timeout=10
-    )
+    with HTTPX_CLIENT(timeout=10) as client:
+        return client.request(method, f"{POSTGREST_URL}{path}", headers=headers, json=body, timeout=10)
 
 
 def _seed_pair():
@@ -213,3 +219,143 @@ def test_otp_rate_limit_table_is_rls_protected_and_rpc_is_service_role_only():
             """
         ).fetchone()
     assert row == (True, False, False, False, False, False, True)
+
+
+
+def _totp_code(secret: str) -> str:
+    key = base64.b32decode(secret)
+    counter = int(time.time() // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    number = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1_000_000
+    return f"{number:06d}"
+
+
+def test_http_api_totp_to_android_t6_decision_end_to_end(monkeypatch):
+    owner_secret = base64.b32encode(b"synthetic-owner-totp-secret").decode().rstrip("=")
+    service_role_token = _headers("service_role")["Authorization"].removeprefix("Bearer ")
+    monkeypatch.setenv("SUPABASE_URL", "https://synthetic-supabase.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", service_role_token)
+    monkeypatch.setenv("VEROX_OWNER_USER_ID", OWNER_ID)
+    monkeypatch.setenv("VEROX_TOTP_SECRET", owner_secret)
+    monkeypatch.setenv("VEROX_SESSION_SECRET", "synthetic-api-session-secret-that-is-long-enough")
+    monkeypatch.setenv("VEROX_INTERNAL_APPROVAL_TOKEN", "synthetic-internal-approval-token")
+    monkeypatch.delenv("VAPID_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("VAPID_PRIVATE_KEY", raising=False)
+
+    class PostgrestClient:
+        def __init__(self, **kwargs):
+            self.client = HTTPX_CLIENT(**kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.client.close()
+            return False
+
+        def request(self, method, url, *, params=None, json=None, headers=None, **kwargs):
+            parsed = urlparse(url)
+            assert parsed.hostname == "synthetic-supabase.invalid"
+            return self.client.request(
+                method, f"{POSTGREST_URL}{parsed.path}", params=params,
+                json=json, headers=headers, **kwargs
+            )
+
+        def post(self, url, *, json=None, headers=None, **kwargs):
+            return self.request("POST", url, json=json, headers=headers, **kwargs)
+
+    monkeypatch.setattr(approvals.httpx, "Client", PostgrestClient)
+
+    suffix = uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    authorization = {
+        "authorization_id": f"android-e2e-{suffix}",
+        "operation_fingerprint": hashlib.sha256(suffix.encode()).hexdigest(),
+        "domain": "transfer",
+        "operation_type": "synthetic_transfer",
+        "target": f"synthetic-target-{suffix}",
+        "amount": "1.25000000",
+        "currency": "TEST",
+        "run_id": f"android-e2e-run-{suffix}",
+        "event_id": f"android-e2e-event-{suffix}",
+        "requested_by": OWNER_ID,
+        "expires_at_utc": (now + timedelta(minutes=10)).isoformat(),
+        "status": "pending",
+    }
+    seeded = _postgrest(
+        "POST", "/verox_financial_authorizations",
+        body=authorization, prefer="return=representation",
+    )
+    assert seeded.status_code in (200, 201), seeded.text
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), approvals.handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request_id = None
+    try:
+        base = f"http://127.0.0.1:{server.server_port}"
+        with HTTPX_CLIENT(timeout=5) as client:
+            created = client.post(
+                base + "/api/approvals/requests",
+                headers={"Authorization": "Bearer synthetic-internal-approval-token"},
+                json={
+                    "title": "Synthetic end-to-end approval",
+                    "summary": "No financial operation is executed.",
+                    "action_type": authorization["operation_type"],
+                    "target": authorization["target"],
+                    "operation_fingerprint": authorization["operation_fingerprint"],
+                    "requested_by": OWNER_ID,
+                    "details": {
+                        "authorization_id": authorization["authorization_id"],
+                        "domain": authorization["domain"],
+                        "amount": authorization["amount"],
+                        "currency": authorization["currency"],
+                        "run_id": authorization["run_id"],
+                        "event_id": authorization["event_id"],
+                    },
+                },
+            )
+            assert created.status_code == 201, created.text
+            request_id = created.json()["id"]
+
+            login = client.post(
+                base + "/api/approvals/auth/otp",
+                json={"code": _totp_code(owner_secret)},
+            )
+            assert login.status_code == 200, login.text
+            session_cookie = login.headers["set-cookie"].split(";", 1)[0]
+            headers = {"Cookie": session_cookie}
+
+            listed = client.get(base + "/api/approvals/requests", headers=headers)
+            assert listed.status_code == 200, listed.text
+            assert [item["id"] for item in listed.json()["requests"]] == [request_id]
+
+            decided = client.post(
+                base + f"/api/approvals/requests/{request_id}/decision",
+                headers=headers,
+                json={"decision": "approve", "code": _totp_code(owner_secret)},
+            )
+            assert decided.status_code == 200, decided.text
+            assert decided.json()["ok"] is True
+            assert decided.json()["request"]["authorization_id"] == authorization["authorization_id"]
+
+        assert _read_status("verox_human_approval_requests", "id", request_id) == "approved"
+        assert _read_status(
+            "verox_financial_authorizations", "authorization_id",
+            authorization["authorization_id"],
+        ) == "approved"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+        with psycopg.connect(DATABASE_URL) as conn:
+            if request_id:
+                conn.execute(
+                    "DELETE FROM public.verox_human_approval_requests WHERE id = %s",
+                    (request_id,),
+                )
+            conn.execute(
+                "DELETE FROM public.verox_financial_authorizations WHERE authorization_id = %s",
+                (authorization["authorization_id"],),
+            )
