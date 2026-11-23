@@ -147,3 +147,58 @@ def test_otp_rpc_rejects_incomplete_operation_context(monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         auth_api._approve_financial_authorization("12345678-1234-4234-8234-123456789abc", {})
+
+
+
+def test_financial_intent_is_always_created_pending_for_configured_owner(monkeypatch):
+    owner = "3239b92e-e774-4231-945e-c31d1195246c"
+    monkeypatch.setattr(auth_api, "_financial_admin_headers", lambda: (
+        "https://synthetic.supabase.co", {"Authorization": "Bearer synthetic"}
+    ))
+    monkeypatch.setattr(
+        auth_api, "_create_android_approval_notification",
+        lambda user_id, authorization: {
+            "request_created": True,
+            "notifications_sent": 0,
+            "request_id": "synthetic-request",
+        },
+    )
+    observed = {}
+
+    class FakeResponse:
+        status_code = 201
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [{
+                **observed["body"],
+                "created_at_utc": "2030-01-01T00:00:00Z",
+            }]
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def post(self, url, *, headers, json):
+            observed.update(url=url, headers=headers, body=json)
+            return FakeResponse()
+
+    monkeypatch.setattr(auth_api.httpx, "Client", FakeClient)
+    result = auth_api._create_financial_intent(owner, {
+        "domain": "transfer",
+        "action": "synthetic_transfer",
+        "target": "synthetic-ci-target",
+        "amount": "1.25",
+        "currency": "TEST",
+    })
+
+    row = observed["body"]
+    assert row["status"] == "pending"
+    assert row["requested_by"] == owner
+    assert "approved_by" not in row
+    assert "approved_at_utc" not in row
+    assert result["status"] == "pending"
+    assert result["android_notification"]["request_created"] is True
