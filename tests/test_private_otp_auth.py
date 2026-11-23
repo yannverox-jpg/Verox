@@ -147,3 +147,15 @@ def test_otp_rpc_rejects_incomplete_operation_context(monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         auth_api._approve_financial_authorization("12345678-1234-4234-8234-123456789abc", {})
+
+
+def test_supabase_secret_key_is_not_sent_as_bearer_jwt(monkeypatch):
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_synthetic-server-key")
+    monkeypatch.setenv("SUPABASE_URL", "https://synthetic.supabase.co")
+
+    url, headers = auth_api._financial_admin_headers()
+
+    assert url == "https://synthetic.supabase.co"
+    assert headers["apikey"] == "sb_secret_synthetic-server-key"
+    assert "Authorization" not in headers
