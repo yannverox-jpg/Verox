@@ -1,0 +1,10 @@
+{
+  "name": "Verox — Validation humaine",
+  "short_name": "Verox",
+  "description": "Notifications sécurisées de validation humaine Verox",
+  "start_url": "/approvals.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020"
+}
