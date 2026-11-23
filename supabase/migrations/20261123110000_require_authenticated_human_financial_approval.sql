@@ -22,6 +22,16 @@ UPDATE public.verox_financial_authorizations
    SET approved_by = NULL
  WHERE status = 'revoked';
 
+-- Legacy pending rows without a trustworthy requester cannot be approved under
+-- the new provenance rule. Revoke them before adding the NOT NULL-equivalent check
+-- so this migration also succeeds when upgrading a database with orphaned intents.
+UPDATE public.verox_financial_authorizations
+   SET status = 'revoked',
+       approved_by = NULL,
+       approved_at_utc = NULL
+ WHERE status = 'pending'
+   AND (requested_by IS NULL OR btrim(requested_by) = '');
+
 ALTER TABLE public.verox_financial_authorizations
     ADD CONSTRAINT chk_vfa_status
         CHECK (status IN ('pending', 'approved', 'consumed', 'expired', 'revoked')),
