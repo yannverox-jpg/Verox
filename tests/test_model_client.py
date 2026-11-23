@@ -23,6 +23,7 @@ class GatewayProxyIsolationTests(unittest.TestCase):
             "os.environ",
             {
                 "AI_GATEWAY_API_KEY": "gateway-test-secret",
+                "GEMINI_API_KEY": "gemini-test-secret",
                 "VEROX_AI_GATEWAY_MODEL": "vmc/verox-free-brain",
                 "HTTPS_PROXY": "AQ.test-token-not-a-proxy",
             },
@@ -39,6 +40,43 @@ class GatewayProxyIsolationTests(unittest.TestCase):
             fake_client.post.call_args.kwargs["headers"]["Authorization"],
             "Bearer gateway-test-secret",
         )
+
+
+class GatewayFirstFallbackTests(unittest.TestCase):
+    def test_gateway_failure_falls_back_to_gemini(self):
+        failed = MagicMock()
+        failed.status_code = 403
+        failed.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "customer verification required", request=MagicMock(), response=failed
+        )
+        succeeded = MagicMock()
+        succeeded.status_code = 200
+        succeeded.raise_for_status.return_value = None
+        succeeded.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "réponse Gemini de secours"}]}}]
+        }
+        fake_client = MagicMock()
+        fake_client.__enter__.return_value = fake_client
+        fake_client.__exit__.return_value = False
+        fake_client.post.side_effect = [failed, succeeded]
+
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_GATEWAY_API_KEY": "gateway-test-secret",
+                "VEROX_AI_GATEWAY_ENABLED": "true",
+                "GEMINI_API_KEY": "gemini-test-secret",
+                "GEMINI_MODEL": "gemini-3.1-flash-lite",
+            },
+            clear=True,
+        ):
+            with patch("verox_brain.model_client.httpx.Client", return_value=fake_client):
+                answer, provider, model = generate_text("test")
+
+        self.assertEqual(answer, "réponse Gemini de secours")
+        self.assertEqual(provider, "google-gemini-api-fallback")
+        self.assertEqual(model, "gemini-3.1-flash-lite")
+        self.assertEqual(fake_client.post.call_count, 2)
 
 
 class FreeFallbackRoutingTests(unittest.TestCase):
