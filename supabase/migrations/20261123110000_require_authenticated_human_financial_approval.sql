@@ -11,6 +11,15 @@ ALTER TABLE public.verox_financial_authorizations
     DROP CONSTRAINT IF EXISTS chk_vfa_approved_by,
     DROP CONSTRAINT IF EXISTS chk_vfa_expiration;
 
+-- Existing approvals cannot be attributed to an authenticated human retroactively.
+-- Revoke still-live approvals and clear untrusted approver labels before tightening checks.
+UPDATE public.verox_financial_authorizations
+   SET status = 'revoked', approved_by = NULL, approved_at_utc = NULL
+ WHERE status = 'approved';
+UPDATE public.verox_financial_authorizations
+   SET approved_by = NULL
+ WHERE status IN ('expired', 'revoked');
+
 ALTER TABLE public.verox_financial_authorizations
     ADD CONSTRAINT chk_vfa_status
         CHECK (status IN ('pending', 'approved', 'consumed', 'expired', 'revoked')),
@@ -24,12 +33,6 @@ ALTER TABLE public.verox_financial_authorizations
             status = 'pending'
             OR (approved_at_utc IS NOT NULL AND expires_at_utc > approved_at_utc)
         );
-
--- Existing approvals cannot be attributed to an authenticated human retroactively.
--- Revoke any still-live approvals rather than trusting historical approved_by text.
-UPDATE public.verox_financial_authorizations
-   SET status = 'revoked', approved_by = NULL, approved_at_utc = NULL
- WHERE status = 'approved';
 
 CREATE OR REPLACE FUNCTION public.enforce_human_approval_provenance()
 RETURNS trigger
