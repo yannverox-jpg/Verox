@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import json
@@ -340,11 +341,32 @@ def test_http_api_totp_to_android_t6_decision_end_to_end(monkeypatch):
             assert decided.json()["ok"] is True
             assert decided.json()["request"]["authorization_id"] == authorization["authorization_id"]
 
+            consumed = _postgrest(
+                "POST", "/rpc/consume_human_financial_authorization",
+                body={
+                    "p_authorization_id": authorization["authorization_id"],
+                    "p_operation_fingerprint": authorization["operation_fingerprint"],
+                    "p_run_id": authorization["run_id"],
+                    "p_event_id": authorization["event_id"],
+                    "p_action": authorization["operation_type"],
+                    "p_target": authorization["target"],
+                    "p_domain": authorization["domain"],
+                    "p_source": "android_synthetic_ci",
+                    "p_agent": "synthetic-ci-agent",
+                    "p_stage": "integration_test",
+                },
+            )
+            assert consumed.status_code == 200, consumed.text
+            consume_result = consumed.json()
+            if isinstance(consume_result, list):
+                consume_result = consume_result[0]
+            assert consume_result["consumed"] is True
+
         assert _read_status("verox_human_approval_requests", "id", request_id) == "approved"
         assert _read_status(
             "verox_financial_authorizations", "authorization_id",
             authorization["authorization_id"],
-        ) == "approved"
+        ) == "consumed"
     finally:
         server.shutdown()
         thread.join(timeout=2)
@@ -359,3 +381,104 @@ def test_http_api_totp_to_android_t6_decision_end_to_end(monkeypatch):
                 "DELETE FROM public.verox_financial_authorizations WHERE authorization_id = %s",
                 (authorization["authorization_id"],),
             )
+
+
+
+def test_android_t6_expired_request_is_marked_expired_and_rejection_is_persisted():
+    now = datetime.now(timezone.utc)
+    expired_id = str(uuid.uuid4())
+    rejected_id = str(uuid.uuid4())
+    base_row = {
+        "title": "Synthetic isolated request",
+        "summary": "Test-only; no financial operation.",
+        "action_type": "synthetic_action",
+        "target": "synthetic_target",
+        "operation_fingerprint": hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest(),
+        "details": {},
+        "requested_by": OWNER_ID,
+        "status": "pending",
+    }
+    expired = {
+        **base_row,
+        "id": expired_id,
+        "created_at": (now - timedelta(minutes=10)).isoformat(),
+        "expires_at": (now - timedelta(minutes=1)).isoformat(),
+    }
+    rejected = {
+        **base_row,
+        "id": rejected_id,
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=5)).isoformat(),
+    }
+    for row in (expired, rejected):
+        response = _postgrest(
+            "POST", "/verox_human_approval_requests",
+            body=row, prefer="return=representation",
+        )
+        assert response.status_code in (200, 201), response.text
+    try:
+        expired_result = _postgrest(
+            "POST", "/rpc/decide_verox_human_approval_t6",
+            body={
+                "p_request_id": expired_id,
+                "p_owner_id": OWNER_ID,
+                "p_decision": "approve",
+                "p_reason": "expired synthetic request",
+            },
+        )
+        assert expired_result.status_code == 200, expired_result.text
+        assert expired_result.json()["ok"] is False
+        assert _read_status("verox_human_approval_requests", "id", expired_id) == "expired"
+
+        reject_result = _postgrest(
+            "POST", "/rpc/decide_verox_human_approval_t6",
+            body={
+                "p_request_id": rejected_id,
+                "p_owner_id": OWNER_ID,
+                "p_decision": "reject",
+                "p_reason": "synthetic test rejection",
+            },
+        )
+        assert reject_result.status_code == 200, reject_result.text
+        assert reject_result.json()["ok"] is True
+        assert reject_result.json()["status"] == "rejected"
+        assert _read_status("verox_human_approval_requests", "id", rejected_id) == "rejected"
+    finally:
+        with psycopg.connect(DATABASE_URL) as conn:
+            conn.execute(
+                "DELETE FROM public.verox_human_approval_requests WHERE id IN (%s, %s)",
+                (expired_id, rejected_id),
+            )
+
+
+def test_android_t6_concurrent_duplicate_approval_is_atomic():
+    authorization, request = _seed_pair()
+    try:
+        def decide_once():
+            return _postgrest(
+                "POST", "/rpc/decide_verox_human_approval_t6",
+                body={
+                    "p_request_id": request["id"],
+                    "p_owner_id": OWNER_ID,
+                    "p_decision": "approve",
+                    "p_reason": "concurrent synthetic CI decision",
+                },
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(pool.map(lambda _: decide_once(), range(2)))
+        assert all(response.status_code == 200 for response in responses), [
+            response.text for response in responses
+        ]
+        results = [response.json() for response in responses]
+        assert sum(result.get("ok") is True for result in results) == 1, results
+        assert sum(result.get("ok") is False for result in results) == 1, results
+        assert _read_status(
+            "verox_human_approval_requests", "id", request["id"]
+        ) == "approved"
+        assert _read_status(
+            "verox_financial_authorizations", "authorization_id",
+            authorization["authorization_id"],
+        ) == "approved"
+    finally:
+        _cleanup(authorization, request)
