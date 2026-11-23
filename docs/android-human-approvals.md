@@ -24,3 +24,17 @@
 
 ## Limite de sécurité
 Cette API enregistre les décisions humaines mais ne lance pas elle-même une opération financière. Le worker doit consommer l'approbation de manière atomique et vérifier empreinte, type d'action, cible et contexte avant toute exécution. L'endpoint TOTP nécessite une protection anti-brute-force persistante avant une mise en production.
+
+## Liaison avec T6 (contrat strict)
+Pour qu'une approbation « approve » produise une autorisation consommable par le garde-fou canonique, le demandeur serveur doit fournir dans `details` :
+- `domain`: `trading`, `sports_betting`, `horse_racing` ou `transfer` ;
+- `amount` strictement positif et `currency` (2 à 12 caractères alphanumériques majuscules) ;
+- `run_id` et `event_id` canoniques ; `evidence_id` est facultatif ;
+- `authorization_id` stable est recommandé. À défaut, l'UUID de demande est utilisé et renvoyé par l'API.
+
+L'approbation et l'insertion dans `verox_financial_authorizations` sont réalisées par la RPC transactionnelle `decide_verox_human_approval_t6`, limitée à `service_role`. L'exécuteur doit consommer cette autorisation avec `consume_human_financial_authorization` en vérifiant **le même** fingerprint, domaine, type d'opération, cible, run et event. Une décision HTTP positive seule ne constitue jamais une preuve d'exécution autorisée. Les demandes sans contexte T6 complet sont refusées en approbation (fail-closed).
+
+## Limites avant activation
+- Appliquer les migrations uniquement à une base de test isolée possédant le schéma T6 et `nexus_runtime_events` ; ne pas exécuter sur la base de production pour tester.
+- Les secrets `SUPABASE_SERVICE_ROLE_KEY` ou `SUPABASE_SECRET_KEY` doivent être présents côté serveur et ne jamais être exposés au navigateur. La clé publishable/anon ne suffit pas.
+- Le raccordement de l'émetteur d'approbations au runtime canonique et un test de bout en bout restent requis avant de considérer la fonctionnalité active.
