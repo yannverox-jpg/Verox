@@ -43,6 +43,15 @@ class RuntimeGuardTests(TestCase):
         self.repo.insert_trace_message.assert_called_once()
         self.router.route_after_persist.assert_called_once()
 
+
+    def test_rejects_missing_server_evidence(self):
+        self.store.get_trusted_evidence.return_value = None
+        with self.assertRaisesRegex(ValueError, "Preuve absente du registre serveur"):
+            execute_a2a_pipeline_step(self.raw, self.repo, self.verifier, self.router)
+        self.repo.insert_trace_message.assert_not_called()
+        self.router.route_after_persist.assert_not_called()
+        self.repo.record_rejection.assert_called_once()
+
     def test_rejects_modified_hash_even_when_declared_verified(self):
         self.raw["evidence"][0]["content_hash"] = "b" * 16
         self.raw["evidence"][0]["verified_by_runtime"] = True

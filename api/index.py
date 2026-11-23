@@ -12,6 +12,12 @@ from urllib.parse import urlparse
 import httpx
 
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+from verox_brain.runtime_guardrails import (
+    RuntimeGuardError,
+    classify_task_envelope,
+    execute_a2a_pipeline_step,
+    guard_declared_financial_action,
+)
 from verox_brain.opportunity_engine import load_feeds, scan_feeds
 from verox_brain.source_registry import DOMAINS, list_sources
 from vercel.queue import send as queue_send
@@ -187,17 +193,37 @@ def _read_json(request: BaseHTTPRequestHandler) -> dict:
 
 
 def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task_type: str, prompt: str) -> str:
-    """Complete a task in the request if push delivery has not claimed it yet.
-
-    The queued worker and this fallback compete on the same atomic queued->running
-    transition, so at most one of them invokes the model for a task.
-    """
+    """Complete a task inline only after the same fail-closed guards as the queue worker."""
     try:
-        # Give Vercel Queues a brief chance to claim the task before the fallback.
         time.sleep(1)
         started = _rpc("start", task_id=task_id)
         if started.get("accepted") is not True:
             return "claimed_by_queue"
+
+        stored_payload = started.get("payload")
+        task_payload = stored_payload if isinstance(stored_payload, dict) else {"text": prompt}
+        task = {"task_type": task_type, "payload": task_payload}
+        try:
+            envelope_type = classify_task_envelope(task)
+            guard_declared_financial_action(task)
+        except RuntimeGuardError as exc:
+            _rpc("fail", task_id=task_id, error=f"Blocage du garde-fou runtime: {str(exc)[:240]}")
+            return "blocked_runtime_guard"
+
+        if envelope_type == "a2a_message":
+            try:
+                result = asyncio.run(execute_a2a_pipeline_step(
+                    task=task, client=None, supabase_url=os.getenv("SUPABASE_URL", ""), headers={}
+                ))
+                _rpc("complete", task_id=task_id, result=result)
+                return "completed_a2a"
+            except Exception as exc:
+                _rpc("fail", task_id=task_id, error=f"Échec du pipeline A2A ({type(exc).__name__}).")
+                return "failed_a2a"
+
+        if task_type not in TASK_TYPES:
+            _rpc("fail", task_id=task_id, error="Type de tâche non pris en charge.")
+            return "blocked_task_type"
         try:
             answer, provider, model = generate_text(prompt, SYSTEM_PROMPT, gateway_token=_gateway_token(request))
         except (ModelConfigurationError, ModelRequestError) as exc:

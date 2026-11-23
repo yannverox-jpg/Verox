@@ -1,14 +1,20 @@
-"""Durable Vercel Queues consumer for Verox analysis tasks."""
+"""Durable Vercel Queues consumer with fail-closed runtime guards."""
 from __future__ import annotations
 
-import json
+import asyncio
 import os
+from typing import TypedDict
 
 import httpx
-import asyncio
+from vercel.queue import subscribe
 
 from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
-from vercel.queue import subscribe
+from verox_brain.runtime_guardrails import (
+    RuntimeGuardError,
+    classify_task_envelope,
+    execute_a2a_pipeline_step,
+    guard_declared_financial_action,
+)
 
 TOPIC = "verox-agent-tasks"
 SYSTEM_PROMPT = (
@@ -16,6 +22,11 @@ SYSTEM_PROMPT = (
     "une action externe. Ne réalise aucune transaction, publication, dépense ou action destructive. "
     "Retourne une analyse vérifiable et distingue les faits des hypothèses."
 )
+GENERIC_TASK_TYPES = {"analysis", "research", "chat", "code_review"}
+
+
+class QueueMessage(TypedDict):
+    task_id: str
 
 
 def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | None = None) -> dict:
@@ -36,21 +47,63 @@ def rpc(action: str, task_id: str, *, result: dict | None = None, error: str | N
         return data
 
 
-@subscribe(topic="verox-agent-tasks", max_attempts=3, max_concurrency=3)
-async def process_agent_task(message: dict) -> None:
+def _guard_task(task_type: str, payload: dict) -> str:
+    """Classify and guard a claimed task before model inference or downstream routing."""
+    task = {"task_type": task_type, "payload": payload}
+    envelope_type = classify_task_envelope(task)
+    guard_declared_financial_action(task)
+    return envelope_type
+
+
+@subscribe(topic=TOPIC, max_attempts=3, max_concurrency=3)
+async def process_agent_task(message: QueueMessage) -> None:
     print("verox_queue_subscriber_invoked")
     task_id = str(message.get("task_id", "")).strip()
     if len(task_id) != 36:
         raise ValueError("Queue message has no valid task id")
+
     started = rpc("start", task_id)
     if started.get("accepted") is not True:
         # Already processed or no longer queued; acknowledge idempotently.
         return
     print("verox_queue_task_claimed")
-    task_type = str(started.get("task_type", "analysis"))
+
+    task_type = str(started.get("task_type", "analysis")).strip().lower()
     payload = started.get("payload") or {}
+    if not isinstance(payload, dict):
+        rpc("fail", task_id, error="Charge utile invalide.")
+        return
+
+    try:
+        # These checks must run before model inference or any A2A dispatch.
+        envelope_type = _guard_task(task_type, payload)
+    except RuntimeGuardError as exc:
+        rpc("fail", task_id, error=f"Blocage du garde-fou runtime: {str(exc)[:240]}")
+        return
+
+    if envelope_type == "a2a_message":
+        try:
+            result = await execute_a2a_pipeline_step(
+                task={"task_type": task_type, "payload": payload},
+                client=None,
+                supabase_url=os.getenv("SUPABASE_URL", ""),
+                headers={},
+            )
+            rpc("complete", task_id, result=result)
+        except Exception as exc:
+            # A2A must never fall back to generic model processing.
+            try:
+                rpc("fail", task_id, error=f"Échec du pipeline A2A ({type(exc).__name__}).")
+            except Exception:
+                raise
+        return
+
+    if task_type not in GENERIC_TASK_TYPES:
+        rpc("fail", task_id, error="Type de tâche ou contenu invalide.")
+        return
+
     prompt = str(payload.get("text", "")).strip()
-    if task_type not in {"analysis", "research", "chat", "code_review"} or not prompt:
+    if not prompt:
         rpc("fail", task_id, error="Type de tâche ou contenu invalide.")
         return
 
