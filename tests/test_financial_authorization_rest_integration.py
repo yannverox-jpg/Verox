@@ -11,13 +11,21 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import httpx
-import psycopg
 import pytest
 
+try:
+    import psycopg
+except ImportError:  # The regular unit-test environment need not install the DB driver.
+    psycopg = None
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-POSTGREST_URL = os.environ["POSTGREST_URL"].rstrip("/")
-JWT_SECRET = os.environ["PGRST_JWT_SECRET"]
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+POSTGREST_URL = os.environ.get("POSTGREST_URL", "").rstrip("/")
+JWT_SECRET = os.environ.get("PGRST_JWT_SECRET", "")
+
+pytestmark = pytest.mark.skipif(
+    not (DATABASE_URL and POSTGREST_URL and JWT_SECRET and psycopg is not None),
+    reason="Requires the isolated PostgREST/PostgreSQL integration environment",
+)
 
 
 def _b64url(data: bytes) -> str:
