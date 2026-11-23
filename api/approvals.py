@@ -252,7 +252,13 @@ class handler(BaseHTTPRequestHandler):
         match = re.fullmatch(r"/api/approvals/requests/([0-9a-fA-F-]{36})/decision",path)
         if match:
             if not _session_valid(self): _json(self,401,{"error":"authentication_required"}); return
-            if not _totp_valid(data.get("code")): _json(self,401,{"error":"invalid_totp"}); return
+            valid_code = _totp_valid(data.get("code"))
+            try:
+                rate_allowed = _auth_rate_allowed(self, valid_code)
+            except Exception:
+                rate_allowed = False
+            if not rate_allowed: _json(self,429,{"error":"authentication_rate_limited_or_unavailable"}); return
+            if not valid_code: _json(self,401,{"error":"invalid_totp"}); return
             decision = str(data.get("decision","")).lower()
             if decision not in {"approve","reject"}: _json(self,400,{"error":"invalid_decision"}); return
             reason = str(data.get("reason","")).strip()[:500]
