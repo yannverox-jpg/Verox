@@ -299,10 +299,10 @@ def test_missing_approval_is_rejected():
 
 
 def test_approved_intent_expires_and_expiration_is_persisted():
-    row = _approval(expires_at=datetime.now(timezone.utc) + timedelta(seconds=1))
+    row = _approval(expires_at=datetime.now(timezone.utc) + timedelta(seconds=5))
     _insert_approval(row)
     assert _approve(row)["approved"] is True
-    time.sleep(1.2)
+    time.sleep(5.2)
     result = _consume(row)
     assert result["consumed"] is False
     assert result["reason"] == "approval_expired"
