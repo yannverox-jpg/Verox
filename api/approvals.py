@@ -40,6 +40,17 @@ def _db(method, table, *, params=None, body=None, prefer="return=representation"
         if r.status_code == 204 or not r.content: return []
         return r.json()
 
+def _rpc(function, body):
+    base = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not base.startswith("https://") or not key:
+        raise RuntimeError("approval_database_not_configured")
+    with httpx.Client(timeout=10, trust_env=False, follow_redirects=False) as c:
+        r = c.post(f"{base}/rest/v1/rpc/{function}", json=body,
+          headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json"})
+        r.raise_for_status()
+        return r.json()
+
 def _b64u(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -235,13 +246,14 @@ class handler(BaseHTTPRequestHandler):
             now = datetime.now(timezone.utc)
             status = "approved" if decision == "approve" else "rejected"
             try:
-                rows = _db("PATCH","verox_human_approval_requests",params={
-                  "id":f"eq.{match.group(1)}","status":"eq.pending","expires_at":f"gt.{now.isoformat()}",
-                  "select":"id,status,operation_fingerprint,action_type,target,details,expires_at"},
-                  body={"status":status,"decided_by":"verox-human-operator","decision_reason":reason,
-                        "decided_at":now.isoformat()})
-                if not rows: _json(self,409,{"error":"request_expired_or_already_decided"}); return
-                _json(self,200,{"ok":True,"request":rows[0]}); return
+                result = _rpc("decide_verox_human_approval_t6", {
+                    "p_request_id": match.group(1),
+                    "p_decision": decision,
+                    "p_reason": reason
+                })
+                if not isinstance(result, dict) or result.get("ok") is not True:
+                    _json(self,409,{"error": (result.get("reason") if isinstance(result,dict) else "decision_rejected")}); return
+                _json(self,200,{"ok":True,"request":result}); return
             except Exception: _json(self,503,{"error":"decision_store_unavailable"}); return
 
         _json(self,404,{"error":"not_found"})
