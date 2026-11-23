@@ -1133,6 +1133,16 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/api/browser/bridge":
+                token_configured = bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip())
+                return self._json(200, {
+                    "service": "verox-playwright-browser-bridge",
+                    "configured": token_configured,
+                    "mode": "server_side_headless_browser",
+                    "device_chrome_control": False,
+                    "platforms": ["monetly", "mt5", "1xbet", "tradingview", "oanda", "fxpro", "chrome", "aws"],
+                    "message": "Le pont utilise Chromium côté serveur. Il ne contrôle pas le Chrome installé sur votre téléphone ou PC."
+                })
             if parsed.path == "/api/health":
                 try:
                     url, headers = self._supabase()
@@ -1270,6 +1280,41 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
+            if request_path == "/api/browser/bridge":
+                token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
+                if not token:
+                    return self._json(503, {"error": "VEROX_BROWSER_BRIDGE_TOKEN n'est pas configuré côté serveur."})
+                import hmac
+                if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+                    return self._json(401, {"error": "Authentification du pont navigateur requise."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 4000:
+                        return self._json(400, {"error": "Taille de requête invalide."})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    platform = str(body.get("platform", "")).strip().lower()
+                    targets = {
+                        "monetly": "https://www.monetly.in/login", "mt5": "https://www.metatrader5.com/en/trading-platform/web-trading",
+                        "1xbet": "https://1xbet.com/", "tradingview": "https://www.tradingview.com/",
+                        "oanda": "https://www.oanda.com/", "fxpro": "https://www.fxpro.com/",
+                        "chrome": "https://www.google.com/chrome/", "aws": "https://console.aws.amazon.com/",
+                    }
+                    if platform not in targets:
+                        return self._json(400, {"error": "Plateforme non autorisée."})
+                    async def inspect_public_page():
+                        async with async_playwright() as p:
+                            browser = await p.chromium.launch(headless=True)
+                            try:
+                                page = await browser.new_page(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+                                response = await page.goto(targets[platform], wait_until="domcontentloaded", timeout=15000)
+                                return {"status_code": response.status if response else None, "title": (await page.title())[:200], "final_url": page.url[:1000]}
+                            finally:
+                                await browser.close()
+                    result = asyncio.run(inspect_public_page())
+                    return self._json(200, {"platform": platform, "checked": True, "inspection": result, "login_performed": False, "actions_performed": False})
+                except Exception:
+                    logger.exception("Échec du pont navigateur Playwright")
+                    return self._json(502, {"error": "Inspection Playwright indisponible; aucune connexion ni action n'a été effectuée."})
             if request_path not in {"/api/chat", "/api/market/resolve", "/api/market/spawn", "/api/market/retire", "/api/market/submit"}:
                 return self._json(404, {"error": "Route inconnue"})
             try:
