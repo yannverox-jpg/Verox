@@ -18,7 +18,7 @@ UPDATE public.verox_financial_authorizations
  WHERE status = 'approved';
 UPDATE public.verox_financial_authorizations
    SET approved_by = NULL
- WHERE status IN ('expired', 'revoked');
+ WHERE status = 'revoked';
 
 ALTER TABLE public.verox_financial_authorizations
     ADD CONSTRAINT chk_vfa_status
