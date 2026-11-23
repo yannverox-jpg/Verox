@@ -35,7 +35,7 @@ def test_signed_session_is_valid_and_tampering_is_rejected(monkeypatch):
     token = auth_api._issue_private_session()
     request = SimpleNamespace(headers={"authorization": f"Bearer {token}"})
     assert auth_api._private_session_valid(request)
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    tampered = ("A" if token[0] != "A" else "B") + token[1:]
     request.headers["authorization"] = f"Bearer {tampered}"
     assert not auth_api._private_session_valid(request)
 
