@@ -458,3 +458,26 @@ def test_unprivileged_roles_cannot_call_distributed_otp_rate_limit(role: str):
     key_hash = hashlib.sha256(("synthetic-role-otp-" + uuid.uuid4().hex).encode()).hexdigest()
     result = _otp_rate_limit(key_hash, "check", role=role)
     assert result.get("http_status") in (401, 403, 404)
+
+
+
+def test_otp_rate_limit_table_has_rls_and_no_direct_role_grants():
+    with psycopg.connect(DATABASE_URL) as conn:
+        rls_enabled = conn.execute(
+            """
+            SELECT c.relrowsecurity
+              FROM pg_class AS c
+              JOIN pg_namespace AS n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public'
+               AND c.relname = 'verox_otp_rate_limits'
+            """
+        ).fetchone()[0]
+        direct_access = conn.execute(
+            """
+            SELECT bool_or(has_table_privilege(role_name, 'public.verox_otp_rate_limits', privilege))
+              FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) AS role_name
+              CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS privilege
+            """
+        ).fetchone()[0]
+    assert rls_enabled is True
+    assert direct_access is False
