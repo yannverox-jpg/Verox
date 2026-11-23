@@ -264,8 +264,6 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
 
 
 
-_OTP_FAILURES: dict[str, list[float]] = {}
-
 def _b64url(data: bytes) -> str:
     import base64
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
@@ -351,11 +349,31 @@ def _financial_admin_headers() -> tuple[str, dict[str, str]]:
 
 
 
-def _otp_attempts_exceeded(ip: str, now: float | None = None) -> bool:
-    current = time.time() if now is None else now
-    attempts = [stamp for stamp in _OTP_FAILURES.get(ip, []) if current - stamp < 300]
-    _OTP_FAILURES[ip] = attempts
-    return len(attempts) >= 5
+def _otp_rate_limit_key(subject: str) -> str:
+    """Create a stable opaque rate-limit key without storing raw IP/owner identifiers."""
+    import hashlib
+    import hmac
+    return hmac.new(_session_secret(), subject.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _otp_rate_limit(action: str, subject: str) -> dict:
+    """Use Supabase's atomic shared limiter; fail closed if its state is unavailable."""
+    if action not in {"check", "failure", "success"}:
+        raise ValueError("Invalid OTP rate-limit action.")
+    url, headers = _financial_admin_headers()
+    key_hash = _otp_rate_limit_key(subject)
+    with httpx.Client(timeout=5.0, trust_env=False) as client:
+        response = client.post(
+            f"{url}/rest/v1/rpc/verox_otp_rate_limit",
+            headers=headers,
+            json={"p_key_hash": key_hash, "p_action": action},
+        )
+        response.raise_for_status()
+        data = response.json()
+    result = data[0] if isinstance(data, list) and data else data
+    if not isinstance(result, dict) or not isinstance(result.get("allowed"), bool):
+        raise RuntimeError("Invalid OTP rate-limit response.")
+    return result
 
 
 def _approve_financial_authorization(user_id: str, payload: dict) -> dict:
@@ -640,24 +658,36 @@ class handler(BaseHTTPRequestHandler):
             return
         if path == "/api/auth/otp":
             ip = _client_ip(self)
-            now = time.time()
-            attempts = [stamp for stamp in _OTP_FAILURES.get(ip, []) if now - stamp < 300]
-            _OTP_FAILURES[ip] = attempts
-            if _otp_attempts_exceeded(ip, now):
-                _json(self, 429, {"error": "Trop de tentatives. Réessayez dans quelques minutes."})
-                return
+            owner_id = os.getenv("VEROX_OWNER_USER_ID", "").strip().lower()
             try:
-                payload = _read_json(self)
-                code = str(payload.get("code", "")).strip()
                 if not os.getenv("VEROX_TOTP_SECRET", "").strip() or len(os.getenv("VEROX_SESSION_SECRET", "").strip()) < 32:
                     _json(self, 503, {"error": "Authentification OTP non configurée côté serveur."})
                     return
+                if not re.fullmatch(r"[0-9a-f-]{36}", owner_id):
+                    _json(self, 503, {"error": "Identité propriétaire OTP non configurée côté serveur."})
+                    return
+                payload = _read_json(self)
+                code = str(payload.get("code", "")).strip()
+                # Both a per-client key and an owner-wide key are checked atomically
+                # in Supabase, so separate serverless instances share the lockout.
+                client_key = "ip:" + ip
+                owner_key = "owner:" + owner_id
+                client_limit = _otp_rate_limit("check", client_key)
+                owner_limit = _otp_rate_limit("check", owner_key)
+                if not client_limit["allowed"] or not owner_limit["allowed"]:
+                    retry = max(int(client_limit.get("retry_after_seconds", 0)), int(owner_limit.get("retry_after_seconds", 0)))
+                    _json(self, 429, {"error": "Trop de tentatives. Réessayez dans quelques minutes.",
+                                      "retry_after_seconds": retry})
+                    return
                 if not _valid_totp(code):
-                    attempts.append(now)
-                    _OTP_FAILURES[ip] = attempts
+                    _otp_rate_limit("failure", client_key)
+                    _otp_rate_limit("failure", owner_key)
                     _json(self, 401, {"error": "Code OTP invalide."})
                     return
-                _OTP_FAILURES.pop(ip, None)
+                # Clear both shared counters before issuing the session; if the
+                # limiter is unavailable, fail closed instead of authenticating.
+                _otp_rate_limit("success", client_key)
+                _otp_rate_limit("success", owner_key)
                 session = _issue_private_session()
                 _json(self, 200, {"authenticated": True, "expires_in": 900},
                       {"Set-Cookie": f"verox_owner_session={session}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Strict"})
