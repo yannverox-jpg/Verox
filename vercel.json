@@ -3,6 +3,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/approvals/:path*",
+      "destination": "/api/approvals.py"
+    },
+    {
       "source": "/api/connectors",
       "destination": "/api/connectors.py"
     },
