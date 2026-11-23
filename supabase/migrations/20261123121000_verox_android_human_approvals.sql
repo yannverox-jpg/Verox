@@ -16,7 +16,7 @@ create table if not exists public.verox_human_approval_requests (
   target text not null,
   operation_fingerprint text not null,
   details jsonb not null default '{}'::jsonb,
-  t6_authorization_id text unique,
+  t6_authorization_id text,
   status text not null default 'pending'
     check (status in ('pending','approved','rejected','expired','consumed','revoked')),
   requested_by text not null,
