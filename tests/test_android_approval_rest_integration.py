@@ -258,7 +258,7 @@ def test_http_api_totp_to_android_t6_decision_end_to_end(monkeypatch):
             parsed = urlparse(url)
             assert parsed.hostname == "synthetic-supabase.invalid"
             return self.client.request(
-                method, f"{POSTGREST_URL}{parsed.path}", params=params,
+                method, f"{POSTGREST_URL}{parsed.path.removeprefix('/rest/v1')}", params=params,
                 json=json, headers=headers, **kwargs
             )
 
