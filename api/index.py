@@ -566,6 +566,29 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 _json(self, 503, {"error": "Le scan ou la persistance des opportunités a échoué."})
             return
+        if path == "/api/integrations":
+            # Report only whether server-side credentials exist; never return values or secret names.
+            def configured_any(*names: str) -> bool:
+                return any(bool(os.getenv(name, "").strip()) for name in names)
+            items = [
+                {"id": "monetly", "label": "Monetly", "url": "https://www.monetly.in/login", "credential_configured": configured_any("MONETLY_API_KEY", "MONETLY_API_TOKEN", "MONETLY_ACCESS_TOKEN"), "mode": "manual_or_api", "oauth_google": False},
+                {"id": "mt5", "label": "MetaTrader 5", "url": "https://www.metatrader5.com/en/trading-platform/web-trading", "credential_configured": configured_any("MT5_API_URL", "MT5_API_TOKEN", "MT5_ACCOUNT_ID", "MT5_LOGIN"), "mode": "broker_or_terminal_required", "oauth_google": False},
+                {"id": "1xbet", "label": "1xBet", "url": "https://1xbet.com/", "credential_configured": False, "mode": "manual_only", "oauth_google": False},
+                {"id": "tradingview", "label": "TradingView", "url": "https://www.tradingview.com/", "credential_configured": configured_any("TRADINGVIEW_API_KEY", "TRADINGVIEW_ACCESS_TOKEN"), "mode": "manual_or_supported_api", "oauth_google": False},
+                {"id": "oanda", "label": "OANDA", "url": "https://www.oanda.com/", "credential_configured": configured_any("OANDA_API_TOKEN", "OANDA_ACCESS_TOKEN", "OANDA_ACCOUNT_ID"), "mode": "api_or_manual", "oauth_google": False},
+                {"id": "fxpro", "label": "FxPro", "url": "https://www.fxpro.com/", "credential_configured": configured_any("FXPRO_API_KEY", "FXPRO_API_TOKEN", "FXPRO_ACCOUNT_ID"), "mode": "broker_or_terminal_required", "oauth_google": False},
+                {"id": "chrome", "label": "Google Chrome", "url": "https://www.google.com/chrome/", "credential_configured": False, "mode": "device_browser", "oauth_google": False},
+                {"id": "aws", "label": "AWS Console", "url": "https://console.aws.amazon.com/", "credential_configured": configured_any("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"), "mode": "console_or_server_sdk", "oauth_google": False},
+            ]
+            _json(self, 200, {
+                "items": items,
+                "google_oauth_configured": configured_any("GOOGLE_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_ID") and configured_any("GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_CLIENT_SECRET"),
+                "browser_bridge_configured": configured_any("VEROX_BROWSER_BRIDGE_TOKEN"),
+                "browser_bridge_mode": "server_side_playwright_not_device_chrome",
+                "private_mode_note": "Un site web ne peut pas forcer Chrome Android à ouvrir un onglet privé. Activez manuellement Nouvel onglet privé dans le menu Chrome.",
+                "disclaimer": "La présence d'une variable d'environnement ne prouve pas que l'API fournisseur est valide ni que le compte est connecté."
+            })
+            return
         if path == "/api/health":
             gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
             gateway_auth_available = bool(_gateway_token(self))
