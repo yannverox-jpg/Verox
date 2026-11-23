@@ -64,6 +64,7 @@ def _approval(*, expires_at: datetime | None = None) -> dict:
         "currency": "TEST",
         "run_id": f"run-{suffix}",
         "event_id": f"event-{suffix}",
+        "requested_by": str(uuid.uuid4()),
         "expires_at_utc": (expires_at or now + timedelta(minutes=5)).isoformat(),
         "status": "pending",
     }
@@ -85,11 +86,21 @@ def _insert_approval(row: dict) -> dict:
 
 
 def _approve(row: dict, *, sub: str | None = None) -> dict:
-    human_sub = sub or str(uuid.uuid4())
+    human_sub = sub or row["requested_by"]
     response = httpx.post(
         f"{POSTGREST_URL}/rpc/approve_human_financial_authorization",
         headers=_headers("authenticated", human_sub),
-        json={"p_authorization_id": row["authorization_id"]},
+        json={
+            "p_authorization_id": row["authorization_id"],
+            "p_operation_fingerprint": row["operation_fingerprint"],
+            "p_domain": row["domain"],
+            "p_action": row["operation_type"],
+            "p_target": row["target"],
+            "p_amount": row["amount"],
+            "p_currency": row["currency"],
+            "p_run_id": row["run_id"],
+            "p_event_id": row["event_id"],
+        },
         timeout=10,
     )
     assert response.status_code == 200, (
@@ -148,7 +159,7 @@ def test_service_role_creates_pending_and_authenticated_human_approves():
     assert persisted["approved_by"] is None
     assert persisted["approved_at_utc"] is None
 
-    human_sub = str(uuid.uuid4())
+    human_sub = row["requested_by"]
     result = _approve(row, sub=human_sub)
     assert result["approved"] is True
     persisted = _read_approval(row["authorization_id"])
@@ -315,4 +326,24 @@ def test_service_role_cannot_update_pending_record_to_approved():
     assert response.status_code in (401, 403, 404), (
         "service_role must not update an intent into an approved state"
     )
+    assert _read_approval(row["authorization_id"])["status"] == "pending"
+
+
+
+def test_different_authenticated_user_cannot_approve_intent():
+    row = _approval()
+    _insert_approval(row)
+    result = _approve(row, sub=str(uuid.uuid4()))
+    assert result["approved"] is False
+    assert result["reason"] == "pending_intent_missing_expired_or_context_mismatch"
+    assert _read_approval(row["authorization_id"])["status"] == "pending"
+
+
+def test_human_cannot_approve_modified_operation_context():
+    row = _approval()
+    _insert_approval(row)
+    altered = {**row, "target": "synthetic-target-changed-before-approval"}
+    result = _approve(altered)
+    assert result["approved"] is False
+    assert result["reason"] == "pending_intent_missing_expired_or_context_mismatch"
     assert _read_approval(row["authorization_id"])["status"] == "pending"
