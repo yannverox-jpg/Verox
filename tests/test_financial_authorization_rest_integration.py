@@ -20,13 +20,21 @@ import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import psycopg
+try:
+    import psycopg
+except ImportError:  # The generic unit-test workflow does not install this optional driver.
+    psycopg = None
 import pytest
 
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.environ.get("DATABASE_URL")
 POSTGREST_URL = os.environ.get("POSTGREST_URL", "http://127.0.0.1:3000").rstrip("/")
-JWT_SECRET = os.environ["PGRST_JWT_SECRET"]
+JWT_SECRET = os.environ.get("PGRST_JWT_SECRET", "")
+
+pytestmark = pytest.mark.skipif(
+    psycopg is None or not DATABASE_URL or not JWT_SECRET,
+    reason="requires the isolated PostgREST/PostgreSQL integration workflow",
+)
 TEST_SOURCE = "verox_financial_authorization_rest_test"
 
 
