@@ -6,6 +6,7 @@ import json
 import argparse
 import sqlite3
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1371,6 +1372,46 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
+            if request_path == "/api/navigation/command":
+                origin = self.headers.get("Origin", "")
+                host = self.headers.get("Host", "")
+                if origin and host:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(origin).netloc != host:
+                        return self._json(403, {"error": "Origine non autorisée."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 12000:
+                        return self._json(400, {"error": "Taille de requête invalide."})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(body, dict):
+                        return self._json(400, {"error": "Le corps doit être un objet JSON."})
+                    command = str(body.get("command", "")).strip()[:500]
+                    current_page = str(body.get("current_page", "")).strip()[:80]
+                    target_page = str(body.get("target_page", "")).strip()[:80]
+                    direction_hint = str(body.get("direction", "")).strip().lower()
+                    normalized = unicodedata.normalize("NFD", command.lower())
+                    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+                    next_match = bool(re.search(r"\\b(page\\s+suivante|suivante|page\\s+suivant|suivant|next\\s+page|next)\\b", normalized))
+                    previous_match = bool(re.search(r"\\b(page\\s+precedente|precedente|precedent|page\\s+d'avant|previous\\s+page|previous|back)\\b", normalized))
+                    direction = direction_hint if direction_hint in {"next", "previous"} else ("next" if next_match and not previous_match else ("previous" if previous_match and not next_match else ""))
+                    if not direction:
+                        return self._json(200, {"ok": True, "action": "not_navigation", "message": "Commande non reconnue comme navigation."})
+                    if not current_page or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", current_page):
+                        return self._json(400, {"error": "Page courante invalide."})
+                    if target_page and not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", target_page):
+                        return self._json(400, {"error": "Page cible invalide."})
+                    if not target_page:
+                        logger.info("Navigation Verox: aucune page cible direction=%s current=%s command=%s", direction, current_page, command[:120])
+                        return self._json(200, {"ok": True, "action": "remove_button", "direction": direction, "current_page": current_page, "reason": "no_adjacent_page"})
+                    correlation_id = str(uuid.uuid4())
+                    logger.info("Navigation Verox: direction=%s current=%s target=%s command=%s correlation_id=%s", direction, current_page, target_page, command[:120], correlation_id)
+                    return self._json(200, {"ok": True, "action": "navigate", "direction": direction, "current_page": current_page, "target_page": target_page, "correlation_id": correlation_id})
+                except (ValueError, UnicodeDecodeError):
+                    return self._json(400, {"error": "JSON invalide."})
+                except Exception as exc:
+                    logger.warning("Navigation Verox indisponible: %s", type(exc).__name__)
+                    return self._json(500, {"error": "Service de navigation indisponible."})
             architecture_routes = {
                 "/api/architecture/upstream": "upstream",
                 "/api/architecture/downstream": "downstream",
