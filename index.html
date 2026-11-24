@@ -244,7 +244,7 @@ function renderInventory(){
  const rows=inventoryRows(inventoryCache).filter(x=>(!category||x.category===category)&&(!needle||[x.name,x.label,x.domain,x.details.join(" "),x.status].join(" ").toLocaleLowerCase().includes(needle)));
  $("#inventoryCount").textContent=rows.length+" éléments · "+INVENTORY_GROUPS.length+" familles";
  grid.innerHTML=rows.map(x=>{
-  const url=x.domain&&/^[a-z0-9.-]+(?:\/[a-zA-Z0-9._~:/?#\[\]@!const pages={'()*+,;=%-]*)?$/i.test(x.domain)?"https://"+x.domain:"";
+   const url=(()=>{try{const raw=String(x.domain||"").trim(),candidate=raw.toLowerCase().startsWith("https://")?raw:"https://"+raw,parsed=new URL(candidate);return parsed.protocol==="https:"&&parsed.hostname?parsed.href:""}catch{return ""}})();
   return '<article class="card"><div class="app-card"><div class="app-logo">↗</div><div class="app-meta"><strong>'+esc(x.name)+'</strong><small>'+esc(x.label)+' · '+esc(x.status.replaceAll("_"," "))+'</small></div></div>'+(x.details.length?'<p class="tiny muted">'+esc(x.details.join(" | "))+'</p>':'<p class="tiny muted">Référence de catalogue; vérifier les conditions et l’accès.</p>')+(url?'<div class="app-actions"><a class="btn" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Site ↗</a></div>':'')+'</article>'
  }).join("")||'<div class="card muted tiny">Aucun élément ne correspond à ces filtres.</div>';
 }
