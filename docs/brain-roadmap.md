@@ -20,46 +20,90 @@ Verox est un agent de travail et de recherche, pas seulement un chatbot. Il doit
 6. Ne pas sélectionner silencieusement un modèle payant. Si aucun modèle gratuit/authentifié n'est disponible, échouer clairement et signaler la cause.
 7. Ne pas boucler indéfiniment : limiter les tentatives, les appels d'outils, la taille des prompts et la durée de chaque tâche.
 
-## Feuille de route
+## Critère d’autonomie économique vérifiable
 
-### P0 — rendre le cerveau accessible
-- [ ] Confirmer que le déploiement de production utilise le code Gateway-first.
-- [ ] Vérifier `/api/health` : OIDC Gateway disponible, modèle configuré et Supabase vérifié.
-- [ ] Faire un appel réel au Virtual Model et vérifier le fournisseur/modèle renvoyé dans les métadonnées.
-- [ ] Confirmer dans les logs AI Gateway qu'une requête a été enregistrée et qu'aucun modèle payant n'a été utilisé.
+Verox ne sera qualifié d’agent économique autonome qu’après démonstration, avec des traces et preuves persistées, de toute la chaîne :
 
-### P1 — fiabiliser les tâches
-- [ ] Examiner les tâches échouées dans Supabase sans afficher de secrets ni de prompts privés.
-- [ ] Corriger la course entre file durable et traitement inline; ne pas répondre « queued » si la tâche est déjà terminée ou échouée.
-- [ ] Ajouter des transitions d'état contrôlées, des tentatives bornées, un délai d'expiration et une reprise sûre.
-- [ ] Tester création → exécution → persistance → lecture du résultat, puis interruption/reprise.
+1. Opportunité réelle découverte depuis une source publique ou autrement autorisée.
+2. Existence, date limite, conditions et adéquation aux compétences revérifiées.
+3. Besoin client explicité, avec provenance et éléments manquants.
+4. Solution développée, tests exécutés, sécurité contrôlée et déploiement démontré.
+5. Offre chiffrée avec hypothèses, coûts, marge et durée.
+6. Réponse et échanges client suivis avec leur état réel.
+7. Travail accepté exécuté dans le périmètre convenu.
+8. Facture produite et paiement rapproché d’une preuve de transaction.
+9. Revenu net encaissé calculé à partir des recettes reçues moins coûts et frais documentés.
+10. Résultats réels réutilisés pour évaluer les décisions suivantes.
 
-### P2 — donner une vraie capacité d'action
-- [ ] Définir des outils explicites et à permissions minimales : lecture GitHub, modification sur branche dédiée, tests, vérification du déploiement, recherche web et analyse d'opportunités.
-- [ ] Chaque outil doit retourner une preuve structurée : action, résultat, horodatage, statut et référence vérifiable.
-- [ ] Les changements de code passent par branche et pull request; exécuter les tests avant fusion.
-- [ ] Exiger une validation humaine avant toute action financière, publication ou opération destructive.
+Chaque étape garde son propre état et sa preuve. Une détection n’est pas une opportunité validée; un score n’est pas une probabilité de gain; une proposition n’est pas un contrat; une facture n’est pas un encaissement. Les revenus de services, micro-tâches et e-commerce restent séparés des résultats simulés et réels de trading ou de paris. Les montants espérés, engagés, facturés et encaissés ne sont jamais agrégés sous un même indicateur.
 
-### P3 — mémoire et continuité
-- [ ] Implémenter l'enregistrement et la récupération des messages de chat.
-- [ ] Enregistrer les objectifs, décisions, contraintes et état de travail, avec horodatage et provenance.
-- [ ] Résumer les sessions sans confondre souvenirs, suppositions et faits vérifiés.
-- [ ] Ajouter des tests de continuité après redéploiement et reprise de tâche.
+## Départements opérationnels
 
-### P4 — recherche et opportunités
-- [ ] Exécuter les flux de recherche configurés, conserver la source, la date, les preuves et un score explicable.
-- [ ] Dédupliquer et classer les opportunités; distinguer pistes détectées, vérifiées et exécutables.
-- [ ] Tester le cron et la persistance des résultats avant de considérer le scan autonome.
-- [ ] Aucun rendement financier ne doit être promis; toute décision de trading/paris reste en mode analyse jusqu'à autorisation explicite et intégration vérifiée.
+Les six départements partagent le même cerveau, la mémoire persistante, l’orchestrateur, le registre des permissions et la source de vérité. Ils utilisent des connecteurs spécialisés, activés un par un :
 
-### P5 — exploitation contrôlée
-- [ ] Surveiller les erreurs, les délais, le nombre d'appels et la consommation.
-- [ ] Prévoir des budgets/limites et arrêter les tâches en cas de dépassement.
-- [ ] Produire un rapport quotidien de tâches terminées, échouées, en attente et de preuves.
-- [ ] Définir des critères d'acceptation mesurables avant de déclarer Verox autonome.
+- **Micro-tâches et services numériques :** découvrir les missions rémunérées, comparer rémunération nette et éligibilité, évaluer les compétences/outils, exécuter uniquement selon les conditions et vérifier la qualité et le paiement.
+- **Trading, sport et turf :** trois moteurs et historiques distincts. Commencer par la collecte autorisée, l’analyse, le test historique ou papier et la validation; refuser les opérations dont les preuves ou le rendement attendu ne satisfont pas les règles.
+- **E-commerce :** distinguer boutique de redirection et boutique qui reçoit les commandes. Le catalogue, le coût rendu, le stock, l’expédition, les retours et remboursements suivent les conditions des interfaces autorisées.
+- **Recherche commerciale (prioritaire côté revenus) :** suivre les besoins publics des éditeurs logiciels, entreprises technologiques/commerciales, banques, secteur public et organismes internationaux; joindre preuves, éligibilité et date limite; préparer analyse, solution et proposition. Les sources confidentielles exigent une autorisation adaptée.
+- **Développement de solutions :** planifier, concevoir, coder, tester, examiner la sécurité, vérifier le déploiement et préparer une démonstration. Du code généré seul ne vaut jamais livraison.
+- **Opérations commerciales et financières :** devis, réponses, contrats, factures, paiements et rapprochement, chacun avec un statut distinct et une autorisation explicite pour les engagements, publications ou mouvements d’argent.
 
-## Critère d'acceptation minimal
-Le cerveau n'est validé que si une requête réelle passe par Vercel AI Gateway, produit une réponse non vide, identifie le fournisseur/modèle réellement utilisé, persiste le résultat dans Supabase et permet de relire ce résultat après la fin de la requête. Le statut `READY` d'un déploiement seul ne suffit pas.
+Le cerveau central planifie les recherches, distribue le travail aux agents spécialisés, suit leur progression, évalue les preuves, détecte erreurs et doublons, reprend les opérations échouées avec des tentatives bornées, conserve l’historique des décisions et réaffecte les ressources d’après les résultats mesurés. Vercel héberge des services et Supabase conserve l’état; ni l’un ni l’autre ne constitue seul l’orchestrateur.
+
+## Feuille de route priorisée
+
+### P0 — fiabiliser la recherche et prouver la première chaîne Supabase
+- Vérifier une collecte autorisée de bout en bout : source enregistrée, tâche, observation avec hash et horodatage, exécution du modèle, analyse liée à l’observation, relecture de la preuve.
+- Enregistrer fournisseur/modèle réellement utilisés et les métriques sans journaliser de secrets.
+- Dédupliquer les observations, garder les résultats non vérifiés en état non vérifié, et séparer explicitement collecte réussie et analyse réussie.
+- Accepter ce jalon seulement après une recherche fraîche, persistée et relue dans Supabase; l’état du déploiement seul ne suffit pas.
+- **Blocage observé le 24 novembre 2026 sur le projet Supabase Verox :** 60 tâches navigateur réussies, 60 observations avec hash, dont 56 contenant du texte; 0 observation vérifiée. Les 60 analyses n’ont aucun fournisseur/modèle ni texte d’analyse, et 0 clé Gateway/OIDC/Gemini est signalée présente. 141 pistes d’opportunité sont en état detected_unverified; 0 validée et 0 actionnable. Il faut configurer une authentification modèle côté worker avant de déclarer l’analyse fonctionnelle.
+
+### P1 — construire l’orchestrateur central
+- Relier planification, agents spécialisés et connecteurs via des contrats de capacité avec permissions minimales.
+- Conserver état, preuves, décisions, budget, échéance, corrélation et provenance dans la file durable.
+- Ajouter claim atomique, leases/heartbeat, tentatives bornées, reprise idempotente, détection de doublons, annulation et dead-letter.
+- Mesurer progression, erreurs et limites de coût; réaffecter seulement sur la base de résultats mesurés.
+- Vérifier interruption puis reprise sans perdre ni dupliquer le travail.
+
+### P2 — recherche commerciale et clients
+- Couvrir les sources publiques autorisées des éditeurs logiciels, entreprises technologiques/commerciales, banques, secteur public et organismes internationaux.
+- Qualifier besoin, date limite, localisation, éligibilité et adéquation aux compétences.
+- Construire la chaîne besoin → preuve → analyse technique → solution testée → coûts → proposition, sans envoyer d’engagement sans validation.
+- Mesurer besoins vérifiés, propositions préparées, réponses, contrats et revenus reçus séparément.
+
+### P3 — micro-tâches et services
+- Ajouter un connecteur propre à chaque service, selon son API officielle, son interface et ses conditions.
+- Avant exécution, comparer éligibilité, temps, rémunération, frais, risque et revenu net estimé.
+- Refuser les automatisations que la plateforme n’autorise pas; enregistrer qualité, temps, rejet, paiement attendu et paiement confirmé.
+- Évaluer la rentabilité sur l’argent réellement encaissé.
+
+### P4 — e-commerce
+- Distinguer modèle de redirection et prise de commande directe avant de créer la boutique.
+- Qualifier fournisseur, coûts rendus, stock daté, délais, marge et obligations applicables.
+- Ajouter synchronisation, commande, livraison, retour et remboursement seulement via des interfaces autorisées.
+- Garder ventes simulées, commandes acceptées, livraisons et remboursements dans des états différents.
+
+### P5 — trading, paris sportifs et hippiques
+- Séparer les trois domaines, les jeux de données, modèles, autorisations, budgets et mesures.
+- Commencer par données autorisées, historique, coûts, frais, slippage, incertitude, backtests et paper trading.
+- Comparer résultats simulés et réels; ne pas convertir une prédiction ou une cote en promesse de revenu.
+- Les ordres et mises restent désactivés sans connecteur permis et approbation explicite.
+
+### P6 — opérations commerciales et financières
+- Préparer devis, dossiers techniques, factures et rapprochements avec calcul traçable des coûts.
+- Suivre réponses, négociations, contrats signés, factures dues, paiements reçus, remboursements et revenu net.
+- Exiger une autorisation humaine vérifiable pour signature, engagement commercial, dépense, ordre, mise ou transfert.
+- Ne jamais utiliser des revenus simulés, commissions espérées ou contrats signés comme revenus encaissés.
+
+## Conditions de conception
+
+Privilégier sources publiques, API officielles, composants existants et modèles locaux ou offres gratuites réellement disponibles. Un accès gratuit, un droit de lecture et une capacité opérationnelle sont trois états distincts. Les limites de quotas et les coûts potentiels sont affichés avant activation; aucun service payant ou connecteur d’écriture n’est activé implicitement.
+
+## Critère de validation de l’application
+
+La première version fiable n’exige pas toute l’autonomie économique; elle doit prouver le jalon P0. Chaque jalon suivant possède ses propres critères mesurables, preuves et permissions. Verox ne sera décrit comme autonome qu’après démonstration de la chaîne complète ci-dessus, sur des résultats réels et séparés par département.
+
 
 
 ## Connecteurs additionnels (optionnels, désactivés par défaut)
