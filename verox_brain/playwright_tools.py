@@ -255,6 +255,7 @@ def build_playwright_tool_handlers() -> dict[str, Any]:
         return list_connector_readiness(
             domain=str(args.get("domain", "")).strip() or None,
             query=str(args.get("query", "")).strip() or None,
+            store=SupabaseDataPlane(),
         )
 
     def draft(args: dict[str, Any]) -> dict[str, Any]:
