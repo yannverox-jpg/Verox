@@ -2,7 +2,7 @@
 
 ## Mission
 
-Verox is an autonomous research brain, not a static dashboard. Vercel AI Gateway supplies the reasoning model; the durable advantage comes from collecting, validating, time-stamping, comparing and retaining high-quality evidence. The brain must be able to plan research, select registered connectors, request browser work, evaluate evidence, record hypotheses and learn from outcomes.
+Verox is an autonomous research brain, not a static dashboard. Google Gemini supplies the reasoning model; the durable advantage comes from collecting, validating, time-stamping, comparing and retaining high-quality evidence. The brain must be able to plan research, select registered connectors, request browser work, evaluate evidence, record hypotheses and learn from outcomes.
 
 ## System responsibilities
 
