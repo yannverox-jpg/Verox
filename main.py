@@ -1158,6 +1158,16 @@ def run_dashboard():
                 google_id = os.getenv("GOOGLE_CLIENT_ID", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
                 google_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
                 return self._json(200, {"service": "verox-integration-readiness", "items": items, "google_oauth_configured": bool(google_id and google_secret), "browser_bridge_configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()), "note": "Une variable présente ne prouve ni la validité des identifiants ni une session connectée."})
+            if parsed.path == "/api/browser/vercel":
+                return self._json(200, {
+                    "service": "verox-vercel-playwright",
+                    "endpoint": "/api/browser/vercel",
+                    "method": "POST",
+                    "configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()),
+                    "mode": "read_only_public_page_inspection",
+                    "target": "https://vercel.com/",
+                    "note": "POST requiert le jeton serveur. Le dashboard privé Vercel ne sera pas authentifié par ce contrôle."
+                })
             if parsed.path == "/api/browser/bridge":
                 token_configured = bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip())
                 return self._json(200, {
@@ -1305,6 +1315,28 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
+            if request_path == "/api/browser/vercel":
+                token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
+                if not token:
+                    return self._json(503, {"error": "VEROX_BROWSER_BRIDGE_TOKEN non configuré côté serveur."})
+                import hmac
+                if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+                    return self._json(401, {"error": "Authentification du pont navigateur requise."})
+                try:
+                    async def inspect_vercel_public_page():
+                        async with async_playwright() as p:
+                            browser = await p.chromium.launch(headless=True)
+                            try:
+                                page = await browser.new_page(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+                                response = await page.goto("https://vercel.com/", wait_until="domcontentloaded", timeout=15000)
+                                return {"status_code": response.status if response else None, "title": (await page.title())[:200], "final_url": page.url[:1000]}
+                            finally:
+                                await browser.close()
+                    result = asyncio.run(inspect_vercel_public_page())
+                    return self._json(200, {"service": "verox-vercel-playwright", "checked": True, "inspection": result, "dashboard_authenticated": False, "actions_performed": False})
+                except Exception as exc:
+                    logger.warning("Vercel Playwright inspection failed: %s", type(exc).__name__)
+                    return self._json(502, {"error": "Inspection Playwright de Vercel indisponible."})
             if request_path == "/api/browser/bridge":
                 token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
                 if not token:
