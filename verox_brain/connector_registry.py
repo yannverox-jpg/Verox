@@ -62,15 +62,32 @@ def get_platform_adapter(platform_id: str) -> PlatformAdapter | None:
     return _ADAPTERS.get(str(platform_id).strip().casefold())
 
 
-def list_connector_readiness(*, domain: str | None = None, query: str | None = None) -> dict[str, Any]:
+def list_connector_readiness(*, domain: str | None = None, query: str | None = None, store: Any | None = None) -> dict[str, Any]:
     """List every registered platform and distinguish research candidates from real adapters."""
     catalog = list_sources(domain=domain, query=query)
     adapters = set(_ADAPTERS)
+    draft_by_platform: dict[str, dict[str, Any]] = {}
+    if store is not None:
+        drafts = store._request(
+            "GET", "verox_sources",
+            params={
+                "source_id": "like.connector-draft-*",
+                "select": "source_id,status,enabled,updated_at,metadata",
+                "limit": "200",
+            },
+        ) or []
+        for item in drafts:
+            if not isinstance(item, dict):
+                continue
+            source_id = str(item.get("source_id", ""))
+            if source_id.startswith("connector-draft-"):
+                draft_by_platform[source_id.removeprefix("connector-draft-")] = item
     rows = []
     for source in catalog["sources"]:
         source_id = str(source["id"])
         is_public_candidate = source.get("access") in PUBLIC_PAGE_ACCESS
         adapter_present = source_id in adapters
+        draft_row = draft_by_platform.get(source_id, {})
         rows.append({
             "platform_id": source_id,
             "name": source["name"],
@@ -78,9 +95,10 @@ def list_connector_readiness(*, domain: str | None = None, query: str | None = N
             "kind": source["kind"],
             "url": source["url"],
             "research_mode": "public_page_candidate" if is_public_candidate else "excluded_from_public_browser",
-            "account_mode": "adapter_registered" if adapter_present else "not_implemented",
-            "execution_mode": "adapter_registered" if adapter_present else "not_implemented",
+            "account_mode": "adapter_code_present_unconnected" if adapter_present else "draft_saved_disabled" if draft_row else "not_implemented",
+            "execution_mode": "adapter_code_present_unverified" if adapter_present else "draft_only_get" if draft_row else "not_implemented",
             "terms_review": "required_for_automation",
+            "draft_updated_at": draft_row.get("updated_at"),
             "verified_live": False,
         })
     return {
