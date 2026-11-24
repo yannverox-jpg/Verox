@@ -325,7 +325,7 @@ class ConnectorHub:
 
 
 
-    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "", provider_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "", provider_filter: Optional[str] = None, event_callback=None) -> List[Dict[str, Any]]:
         results = []
         provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/"), ("Grok Web", "https://grok.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
         provider_names = {"claude": "Claude Web", "gpt": "GPT Web", "chatgpt": "GPT Web", "gemini": "Gemini Web", "grok": "Grok Web"}
@@ -348,6 +348,14 @@ class ConnectorHub:
                 try:
                     browser = await (p.chromium.launch(headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
                     for provider, url in providers:
+                        provider_outcome = "completed"
+                        if event_callback is not None:
+                            try:
+                                await event_callback("tool_call_started", "info", f"Appel navigateur réel : {provider}", {
+                                    "tool": provider, "browser": browser_name, "operation": "navigate_and_query", "url": url,
+                                })
+                            except Exception as event_exc:
+                                logger.warning("Unable to journal provider start (%s)", type(event_exc).__name__)
                         if self.session_manager:
                             profile = self.session_manager.profile_for(provider)
                             state_path = Path(profile["storage_state_path"])
@@ -385,13 +393,16 @@ class ConnectorHub:
                                         if await prompt_check.count():
                                             break
                                     else:
+                                        provider_outcome = "authentication_required"
                                         results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification incomplète", "year": "État de session", "evidence": "La connexion nécessite une action manuelle dans le navigateur ouvert."})
                                         continue
                                 else:
+                                    provider_outcome = "authentication_required"
                                     results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification requise", "year": "État de session", "evidence": "Le worker distant est sans interface interactive. Lance le moteur localement avec VEROX_BROWSER_HEADLESS=false pour terminer la connexion."})
                                     continue
                             prompt = page.locator('textarea, [contenteditable="true"], [role="textbox"]').first
                             if not await prompt.count():
+                                provider_outcome = "interface_unavailable"
                                 results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: interface indisponible", "year": "État de session", "evidence": "Aucun champ de conversation détecté."})
                                 continue
                             await prompt.fill(query, timeout=5000)
@@ -411,6 +422,7 @@ class ConnectorHub:
                             body = " ".join((await page.locator("body").inner_text()).split())
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: résultat Web", "year": "Temps réel", "evidence": body[-1800:] or "Aucun contenu lisible retourné."})
                         except Exception as e:
+                            provider_outcome = "failed"
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: échec de navigation", "year": "Erreur", "evidence": str(e)[:500]})
                         finally:
                             try:
@@ -425,6 +437,14 @@ class ConnectorHub:
                             except Exception as state_error:
                                 logger.debug("État de session non sauvegardé pour %s: %s", provider, state_error)
                             await context.close()
+                            if event_callback is not None:
+                                try:
+                                    event_type = "tool_call_failed" if provider_outcome == "failed" else "tool_call_succeeded"
+                                    await event_callback(event_type, "error" if provider_outcome == "failed" else "info",
+                                        f"Fin de l’appel navigateur : {provider}",
+                                        {"tool": provider, "browser": browser_name, "outcome": provider_outcome, "url": url})
+                                except Exception as event_exc:
+                                    logger.warning("Unable to journal provider result (%s)", type(event_exc).__name__)
                 except Exception as e:
                     results.append({"connector": f"Navigateur {browser_name}", "title": f"Échec de démarrage {browser_name}", "year": "Erreur", "evidence": str(e)[:500]})
                 finally:
@@ -742,7 +762,7 @@ class CognitiveBrain:
                 details["result_count"] = len(result)
             elif isinstance(result, dict):
                 details["result_fields"] = len(result)
-            await emit("tool_call_succeeded", "info", f"Retour réel de l’outil : {tool_name}", details)
+            await emit("tool_call_completed", "info", f"Fin de l’appel réel : {tool_name}", details)
             return result
 
         strategy_id, strategy_description = self.drive.choose_strategy(user_query)
@@ -784,7 +804,9 @@ class CognitiveBrain:
 
         raw_evidence.extend(await run_tool(
             "BrowserLLM.fetch_web_llm_interfaces",
-            self.hub.fetch_web_llm_interfaces(user_query, user_email, provider_filter=provider_filter),
+            self.hub.fetch_web_llm_interfaces(
+                user_query, user_email, provider_filter=provider_filter, event_callback=event_callback,
+            ),
         ))
 
         # 4. Filtrage et dédoublonnage strict
