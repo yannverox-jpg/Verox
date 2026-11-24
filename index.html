@@ -209,28 +209,54 @@ function prepareDownload(app){
  $('#downloadActionButtons').innerHTML='<a class="btn primary" href="'+esc(app.url)+'" target="_blank" rel="noopener noreferrer">Ouvrir le téléchargement ↗</a><a class="btn" href="'+esc(app.official)+'" target="_blank" rel="noopener noreferrer">Page officielle</a>';
  logDownload('Action préparée pour '+app.name+' ('+app.platform+'). Aucun téléchargement lancé automatiquement.');
 }
-function navigateByVeroxCommand(q){
- const command=q.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
- const next=/\b(page\s+suivante|suivante|page\s+suivant|suivant|va\s+(a\s+)?la\s+page\s+suivante|affiche\s+la\s+page\s+suivante)\b/.test(command);
- const previous=/\b(page\s+precedente|precedente|page\s+precedent|precedent|page\s+d'avant|page\s+precedente|retourne\s+a\s+la\s+page\s+precedente|affiche\s+la\s+page\s+precedente)\b/.test(command);
- if(!next&&!previous)return false;
- const visiblePages=[...document.querySelectorAll('.view[id^="page-"]')].map(el=>el.id.slice(5)).filter(id=>typeof pages!=='undefined'&&pages[id]);
+function navigationDirection(command){
+ const q=String(command||'').toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+ const next=/\b(page\s+suivante|suivante|page\s+suivant|suivant|va\s+(a\s+)?la\s+page\s+suivante|affiche\s+la\s+page\s+suivante|next\s+page|next)\b/.test(q);
+ const previous=/\b(page\s+precedente|precedente|page\s+precedent|precedent|page\s+d'avant|retourne\s+a\s+la\s+page\s+precedente|affiche\s+la\s+page\s+precedente|previous\s+page|previous|back)\b/.test(q);
+ return next&&!previous?'next':previous&&!next?'previous':'';
+}
+async function requestPageNavigation(direction,command){
  const active=document.querySelector('.view.active[id^="page-"]');
  const current=active?active.id.slice(5):'';
- const index=visiblePages.indexOf(current);
- const targetIndex=index+(next?1:-1);
- if(index<0||targetIndex<0||targetIndex>=visiblePages.length){
-  logDownload(next?'Vous êtes déjà sur la dernière page.':'Vous êtes déjà sur la première page.');
-  return true;
- }
- const target=visiblePages[targetIndex];
- gotoPage(target);
- logDownload('Commande de navigation exécutée : '+(next?'page suivante':'page précédente')+' → '+pages[target][0]+'.');
- return true;
+ const pageOrder=[...document.querySelectorAll('.view[id^="page-"]')].map(el=>el.id.slice(5)).filter(id=>pages[id]);
+ const index=pageOrder.indexOf(current);
+ const targetIndex=index+(direction==='next'?1:-1);
+ const target=targetIndex>=0&&targetIndex<pageOrder.length?pageOrder[targetIndex]:'';
+ try{
+  const response=await fetch('/api/navigation/command',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:command|| (direction==='next'?'page suivante':'page précédente'),direction,current_page:current,target_page:target}),cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+  if(data.action==='remove_button'){
+   const button=active?.querySelector('[data-page-nav="'+direction+'"]');
+   if(button)button.remove();
+   logDownload('Navigation : bouton '+(direction==='next'?'suivant':'précédent')+' supprimé, aucune page adjacente.');
+   return true;
+  }
+  if(data.action==='navigate'&&pages[data.target_page]){
+   gotoPage(data.target_page);
+   logDownload('Commande interprétée par le backend : '+(direction==='next'?'page suivante':'page précédente')+' → '+pages[data.target_page][0]+'.');
+   return true;
+  }
+  if(data.action==='not_navigation')return false;
+  throw new Error('Réponse de navigation inattendue.');
+ }catch(error){logDownload('Navigation backend indisponible : '+error.message);return true}
 }
-function handleDownloadCommand(raw,forced){
+function ensurePageNavigationControls(){
+ document.querySelectorAll('.view[id^="page-"]').forEach(view=>{
+  if(view.querySelector('.page-navigation-controls'))return;
+  const pageId=view.id.slice(5);
+  const controls=document.createElement('div');
+  controls.className='page-navigation-controls app-actions';
+  controls.style.cssText='display:flex;justify-content:space-between;gap:8px;margin:16px 0;padding-top:12px;border-top:1px solid var(--line)';
+  controls.innerHTML='<button type="button" class="btn" data-page-nav="previous" aria-label="Page précédente">← Précédent</button><span class="tiny muted" style="align-self:center">'+esc(pages[pageId]?.[0]||pageId)+'</span><button type="button" class="btn" data-page-nav="next" aria-label="Page suivante">Suivant →</button>';
+  view.appendChild(controls);
+  controls.querySelectorAll('[data-page-nav]').forEach(button=>button.addEventListener('click',()=>requestPageNavigation(button.dataset.pageNav,button.dataset.pageNav==='next'?'page suivante':'page précédente')));
+ });
+}
+async function handleDownloadCommand(raw,forced){
  const q=raw.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
- if(navigateByVeroxCommand(q))return;
+ const direction=navigationDirection(q);
+ if(direction){await requestPageNavigation(direction,raw);return}
  let platform=forced;
  if(platform==='auto'){if(/\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\b/.test(q))platform='pc';else if(/\b(android|mobile|telephone|apk|termux|metatrader|mt5)\b/.test(q))platform='android';else platform='all'}
  const terms=q.split(/[^a-z0-9]+/).filter(w=>w.length>2&&!['telecharge','telecharger','download','application','applications','android','mobile','telephone','ordinateur','desktop','windows','installer','installe','prepare','tout','toutes','tous'].includes(w));
@@ -247,8 +273,9 @@ document.addEventListener('click',e=>{
 });
 renderDownloadApps();
 const pages={downloads:['Téléchargements Android & PC','Catalogue officiel et préparation contrôlée des téléchargements'],financial:['Approbations financières','Validation humaine explicite des opérations sensibles'],home:['Cerveau Verox','Chat, orchestration et commandes'],trading:['Trading','Graphiques, brokers, actualités, analyse et apprentissage'],sports:['Applications de paris sportifs','Plateformes et outils statistiques'],commerce:['E-commerce','Places de marché, sourcing et veille concurrentielle'],income:['Revenus & opportunités','Recherche et comparaison des pistes de revenus'],activity:['Activité & tâches','Suivi des tâches soumises au cerveau'],connectors:['Connecteurs','Registre et configuration des intégrations'],tools:['Outils','Catalogue des outils utilisés par le cerveau'],apis:['API & modèles IA','Fournisseurs, sélection et configuration serveur'],sdks:['SDK','Bibliothèques et kits de développement'],settings:['Paramètres','Thème, police et ergonomie'],diagnostics:['Diagnostics','Vérification des routes et services']};
-function gotoPage(p){if(!pages[p])return;$$('.view').forEach(v=>v.classList.remove('active'));$('#page-'+p)?.classList.add('active');$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));$('#pageTitle').textContent=pages[p][0];$('#pageSub').textContent=pages[p][1];$('#shell').classList.remove('mobile-nav');if(innerWidth<=780)$('#shell').classList.add('preview-off');if(p==='activity')renderTasks();if(p==='financial')initFinancialApprovals();if(p==='diagnostics')diagnostics()}
-document.addEventListener('click',e=>{const pg=e.target.closest('[data-page]');if(pg){gotoPage(pg.dataset.page);return}const pv=e.target.closest('[data-preview]');if(pv){preview(pv.dataset.preview,pv.dataset.name);return}const dl=e.target.closest('[data-download]');if(dl){downloadApp(dl.dataset.download,dl.dataset.name);return}const cfg=e.target.closest('[data-config]');if(cfg){openConfig(cfg.dataset.config,cfg.dataset.name);return}const add=e.target.closest('[data-add]');if(add){openAdd(add.dataset.add);return}const prompt=e.target.closest('[data-prompt]');if(prompt){gotoPage('home');$('#chatInput').value=prompt.dataset.prompt;$('#chatInput').focus()}});
+ensurePageNavigationControls();
+function gotoPage(p){if(!pages[p])return;$$('.view').forEach(v=>v.classList.remove('active'));$('#page-'+p)?.classList.add('active');$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));$('#pageTitle').textContent=pages[p][0];$('#pageSub').textContent=pages[p][1];$('#shell').classList.remove('mobile-nav');if(innerWidth<=780)$('#shell').classList.add('preview-off');if(p==='activity')renderTasks();if(p==='financial')initFinancialApprovals();if(p==='diagnostics')diagnostics();ensurePageNavigationControls()}
+document.addEventListener('click',e=>{const nav=e.target.closest('[data-page-nav]');if(nav){requestPageNavigation(nav.dataset.pageNav,nav.dataset.pageNav==='next'?'page suivante':'page précédente');return}const pg=e.target.closest('[data-page]');if(pg){gotoPage(pg.dataset.page);return}const pv=e.target.closest('[data-preview]');if(pv){preview(pv.dataset.preview,pv.dataset.name);return}const dl=e.target.closest('[data-download]');if(dl){downloadApp(dl.dataset.download,dl.dataset.name);return}const cfg=e.target.closest('[data-config]');if(cfg){openConfig(cfg.dataset.config,cfg.dataset.name);return}const add=e.target.closest('[data-add]');if(add){openAdd(add.dataset.add);return}const prompt=e.target.closest('[data-prompt]');if(prompt){gotoPage('home');$('#chatInput').value=prompt.dataset.prompt;$('#chatInput').focus()}});
 function preview(url,name){selectedUrl=safeUrl(url);selectedName=name||'Application';$('#previewLabel').textContent=selectedName;$('#selectedApp').textContent=selectedName+' — '+selectedUrl;$('#openPreview').disabled=!selectedUrl;const area=$('#previewArea');if(!selectedUrl){area.className='previewempty';area.textContent='URL non disponible.';return}area.className='';area.innerHTML='<iframe class="previewframe" title="Prévisualisation '+esc(selectedName)+'" src="'+esc(selectedUrl)+'" loading="lazy" referrerpolicy="no-referrer" sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe><div class="hint">Si le fournisseur interdit l’intégration, ouvrez-le dans un nouvel onglet.</div>'}
 function downloadApp(url,name){const safe=safeUrl(url);if(!safe)return;const android=/Android/i.test(navigator.userAgent);const msg=android?'Ouvrir la page officielle pour rechercher l’application Android.':'Ouvrir la page officielle pour rechercher la version PC/Windows.';if(confirm(msg+' Verox ne peut pas installer une application tierce silencieusement.'))window.open(safe,'_blank','noopener,noreferrer')}
 $('#openPreview').addEventListener('click',()=>{if(selectedUrl)window.open(selectedUrl,'_blank','noopener,noreferrer')});$('#openAllApps').addEventListener('click',()=>{const active=$('.view.active');if(!active){alert('Aucun espace actif.');return}const urls=[...new Set([...active.querySelectorAll('a[href^="http"],button[data-preview]')].map(el=>safeUrl(el.href||el.dataset.preview)).filter(Boolean))];if(!urls.length){alert('Cette page ne contient pas de liens d’applications à ouvrir. Choisissez Trading, Paris sportifs, E-commerce ou Revenus.');return}let opened=0;for(const url of urls){const w=window.open(url,'_blank','noopener,noreferrer');if(w)opened++}if(opened<urls.length)alert('Demandes d’ouverture envoyées : '+urls.length+'. Le navigateur a autorisé '+opened+' onglet(s). Autorisez les fenêtres pop-up pour ce site si certaines applications n’ont pas été ouvertes.');else alert(urls.length+' applications ouvertes dans de nouveaux onglets.');});$('#clearPreview').addEventListener('click',()=>{selectedUrl='';selectedName='';$('#previewLabel').textContent='Aucune application';$('#selectedApp').textContent='Aucune application sélectionnée.';$('#previewArea').className='previewempty';$('#previewArea').textContent='Choisissez une application dans l’un des espaces pour la prévisualiser ici.';$('#openPreview').disabled=true});
