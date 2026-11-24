@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
-from verox_brain.source_registry import get_source
+from verox_brain.source_registry import PUBLIC_PAGE_ACCESS, get_source
 from vercel.queue import send as queue_send
 
 MAX_BODY = 8_000
@@ -85,7 +85,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "Type de mission non autorisé.", "allowed": sorted(ALLOWED_TASKS)})
                 return
             source = get_source(source_id)
-            if not source or source.get("access") not in {"web", "public_web", "web_or_api"}:
+            if not source or source.get("access") not in PUBLIC_PAGE_ACCESS:
                 _json(self, 403, {"error": "La source n'est pas autorisée pour une collecte publique."})
                 return
             domain = str(data.get("domain") or source.get("domain") or "communities")
