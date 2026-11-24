@@ -852,21 +852,25 @@ async def _task_heartbeat(client, supabase_url, headers, task_id, worker_id, lea
 
 
 async def _record_execution_event(client, supabase_url, headers, task_id, event_type, severity, message, details=None):
-    """Append a real event to the canonical durable task journal."""
-    response = await client.post(
-        f"{supabase_url}/rest/v1/nexus_execution_events",
-        json={
-            "task_id": str(task_id),
-            "event_type": str(event_type)[:80],
-            "severity": severity if severity in {"debug", "info", "warning", "error", "critical"} else "info",
-            "message": str(message)[:500],
-            "details": details if isinstance(details, dict) else {},
-        },
-        headers={**headers, "Prefer": "return=representation"},
-    )
-    response.raise_for_status()
-    rows = response.json()
-    return rows[0] if isinstance(rows, list) and rows else None
+    """Append a real event to the canonical durable task journal without blocking task execution."""
+    try:
+        response = await client.post(
+            f"{supabase_url}/rest/v1/nexus_execution_events",
+            json={
+                "task_id": str(task_id),
+                "event_type": str(event_type)[:80],
+                "severity": severity if severity in {"debug", "info", "warning", "error", "critical"} else "info",
+                "message": str(message)[:500],
+                "details": details if isinstance(details, dict) else {},
+            },
+            headers={**headers, "Prefer": "return=representation"},
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if isinstance(rows, list) and rows else None
+    except Exception as exc:
+        logger.warning("Journal event write failed task_id=%s type=%s (%s)", task_id, event_type, type(exc).__name__)
+        return None
 
 
 async def _finalize_claimed_task(
@@ -1820,7 +1824,21 @@ def run_dashboard():
                 rows = response.json()
                 if not rows:
                     return self._json(502, {"error": "Supabase n'a pas retourné la tâche"})
-                return self._json(202, {"id": rows[0]["id"], "status": rows[0]["status"]})
+                task_id = str(rows[0]["id"])
+                try:
+                    with httpx.Client(timeout=5.0) as event_client:
+                        event_response = event_client.post(url + "/rest/v1/nexus_execution_events",
+                            json={"task_id": task_id, "event_type": "task_created", "severity": "info",
+                                  "message": "La tâche a été créée et ajoutée à la file persistante.",
+                                  "details": {"task_type": task_type, "source": "verox_dashboard"}},
+                            headers={**headers, "Prefer": "return=minimal"})
+                        event_response.raise_for_status()
+                except Exception as event_exc:
+                    # Task state remains authoritative even if the journal write is temporarily unavailable.
+                    logger.warning("Événement initial non enregistré task_id=%s (%s)", task_id, type(event_exc).__name__)
+                return self._json(202, {"id": task_id, "status": rows[0]["status"],
+                                        "status_url": "/api/tasks/" + task_id,
+                                        "events_url": "/api/tasks/" + task_id + "/events"})
             except Exception as exc:
                 logger.exception("Impossible de transmettre la requête du dashboard")
                 return self._json(503, {"error": str(exc)[:300]})
