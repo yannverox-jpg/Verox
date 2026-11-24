@@ -73,6 +73,11 @@ class handler(BaseHTTPRequestHandler):
             source_id = str(data.get("source_id", "")).strip()
             goal = str(data.get("goal", "")).strip()
             task_type = str(data.get("task_type", "collect_public_data")).strip()
+            if data.get("mode") == "all_public":
+                from verox_brain.research_dispatch import queue_public_source_batch
+                batch = queue_public_source_batch(SupabaseDataPlane(), limit=5, cooldown_hours=24)
+                _json(self, 202 if batch.get("queued") else 200, batch)
+                return
             if not source_id or not goal or len(goal) > 2_000:
                 _json(self, 400, {"error": "source_id et goal sont obligatoires (goal limité à 2000 caractères)."})
                 return
