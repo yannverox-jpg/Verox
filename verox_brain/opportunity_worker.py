@@ -15,7 +15,7 @@ def _record(lead: dict, observed_at: str) -> dict:
     source_url = str(lead.get("source_url") or "").strip()[:2000]
     if not title or not source_url.startswith("https://"):
         raise ValueError("scanner produced an invalid opportunity record")
-    dedupe_text = re.sub(r"\\s+", " ", title.lower()).strip() + "|" + source_url.lower()
+    dedupe_text = re.sub(r"\s+", " ", title.lower()).strip() + "|" + source_url.lower()
     return {
         "dedupe_key": hashlib.md5(dedupe_text.encode("utf-8")).hexdigest(),
         "title": title,
