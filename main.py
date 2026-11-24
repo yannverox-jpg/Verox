@@ -1155,6 +1155,18 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/api/architecture":
+                return self._json(200, {
+                    "service": "verox-architecture-bridge",
+                    "directions": {
+                        "upstream": {"label": "Correspondance ascendante", "flow": "frontend -> backend", "endpoint": "/api/architecture/upstream"},
+                        "downstream": {"label": "Correspondance descendante", "flow": "backend -> frontend", "endpoint": "/api/architecture/downstream"},
+                        "horizontal": {"label": "Correspondance horizontale", "flow": "backend -> backend", "endpoint": "/api/architecture/horizontal"}
+                    },
+                    "horizontal_targets": ["brain", "playwright", "catalog", "market", "integrations"],
+                    "playwright": {"configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()), "execution": "server-side only"},
+                    "note": "Cette route décrit le contrat de communication. Les commandes Playwright restent sur leurs routes dédiées."
+                })
             if parsed.path == "/api/integrations":
                 # Return readiness booleans only; never expose secret values.
                 groups = [
@@ -1351,6 +1363,59 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path
+            architecture_routes = {
+                "/api/architecture/upstream": "upstream",
+                "/api/architecture/downstream": "downstream",
+                "/api/architecture/horizontal": "horizontal",
+            }
+            if request_path in architecture_routes:
+                # Same-origin browser bridge: accept bounded JSON envelopes only.
+                origin = self.headers.get("Origin", "")
+                host = self.headers.get("Host", "")
+                if origin and host:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(origin).netloc != host:
+                        return self._json(403, {"error": "Origine non autorisée."})
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 12000:
+                        return self._json(400, {"error": "Taille de requête invalide."})
+                    body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(body, dict):
+                        return self._json(400, {"error": "Le corps doit être un objet JSON."})
+                    direction = architecture_routes[request_path]
+                    event = str(body.get("event", "status")).strip()[:80]
+                    payload = body.get("payload", {})
+                    if not isinstance(payload, dict):
+                        return self._json(400, {"error": "payload doit être un objet JSON."})
+                    if direction == "upstream":
+                        source, target = "frontend", "backend"
+                    elif direction == "downstream":
+                        source, target = "backend", "frontend"
+                    else:
+                        source = "backend"
+                        target = str(body.get("target", "")).strip().lower()
+                        if target not in {"brain", "playwright", "catalog", "market", "integrations"}:
+                            return self._json(400, {"error": "Cible horizontale non autorisée."})
+                    # Correlation envelope confirms the route and preserves a traceable request ID.
+                    correlation_id = str(body.get("correlation_id", "")).strip()[:80] or str(uuid.uuid4())
+                    return self._json(200, {
+                        "ok": True,
+                        "service": "verox-architecture-bridge",
+                        "direction": direction,
+                        "source": source,
+                        "target": target,
+                        "event": event,
+                        "correlation_id": correlation_id,
+                        "payload": payload,
+                        "delivery": "request_acknowledged",
+                        "note": "Le pont a validé et accusé réception de l'enveloppe; cela ne déclenche pas à lui seul une action Playwright ou métier."
+                    })
+                except (ValueError, UnicodeDecodeError):
+                    return self._json(400, {"error": "JSON invalide."})
+                except Exception as exc:
+                    logger.warning("Architecture bridge error: %s", type(exc).__name__)
+                    return self._json(500, {"error": "Pont d'architecture indisponible."})
             if request_path == "/api/browser/vercel":
                 token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
                 if not token:
