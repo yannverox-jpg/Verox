@@ -213,7 +213,32 @@ function applySettings(){const theme=$('#themeSelect').value;document.documentEl
 $('#saveSettings').addEventListener('click',()=>{applySettings();alert('Préférences visuelles appliquées à ce navigateur.')});$('#modelSelect').addEventListener('change',e=>localStorage.setItem('verox.modelPreference',e.target.value));
 $('#resetLocal').addEventListener('click',()=>{if(confirm('Réinitialiser les catalogues et préférences locaux de ce navigateur ?')){localStorage.removeItem('verox.catalogs');localStorage.removeItem('verox.settings');localStorage.removeItem('verox.modelPreference');location.reload()}});
 function loadSettings(){try{const s=JSON.parse(localStorage.getItem('verox.settings')||'{}');if(s.theme)$('#themeSelect').value=s.theme;if(s.font)$('#fontSelect').value=s.font;if(s.size)$('#fontSize').value=s.size;applySettings();$('#modelSelect').value=localStorage.getItem('verox.modelPreference')||'auto'}catch{}}
+function addServerRouteButtons(){
+ const routeMap={
+  'monetly':'monetly','metatrader 5':'mt5','1xbet':'1xbet','tradingview':'tradingview','oanda':'oanda','fxpro':'fxpro',
+  'google chrome':'chrome','aws console':'aws','connexion google':'google','pont web playwright':'bridge',
+  'airtel money':'airtel_money','youtube':'youtube','visual studio code':'vscode','github':'github','supabase':'supabase',
+  'vercel':'vercel','render':'render','files by google':'files_by_google','besoccer':'besoccer'
+ };
+ document.querySelectorAll('article.card').forEach(card=>{
+  const title=card.querySelector('.app-meta strong');
+  if(!title || card.querySelector('[data-server-route-link]')) return;
+  const key=String(title.textContent||'').trim().toLowerCase();
+  const slug=routeMap[key];
+  if(!slug) return;
+  const actions=card.querySelector('.app-actions')||card;
+  const link=document.createElement('a');
+  link.className='btn';
+  link.href='/api/browser/'+slug;
+  link.target='_blank';
+  link.rel='noopener noreferrer';
+  link.textContent='Route serveur ↗';
+  link.setAttribute('data-server-route-link','');
+  link.title='Consulter le statut de la route serveur. Cette action ne lance pas Playwright.';
+  actions.appendChild(link);
+ });
+}
 async function loadIntegrationStatus(){try{const r=await fetch('/api/integrations',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();for(const item of d.items||[]){const el=document.querySelector('[data-integration-status="'+CSS.escape(item.id)+'"]');if(el)el.textContent=item.credential_configured?'Variable serveur détectée — test fournisseur non effectué.':(item.mode==='manual_only'?'Ouverture manuelle uniquement.':'Aucune variable reconnue détectée — connexion non vérifiée.')}const g=$('#googleOAuthStatus');if(g)g.textContent=d.google_oauth_configured?'Variables OAuth Google présentes ; flux de connexion à tester.':'OAuth Google non configuré ou variables non reconnues. Google Authenticator (OTP) est distinct de Google OAuth.';const b=$('#browserBridgeStatus');if(b)b.textContent=d.browser_bridge_configured?'Jeton du pont présent côté serveur ; test Playwright séparé requis.':'VEROX_BROWSER_BRIDGE_TOKEN absent ou nom de variable différent.'}catch(e){for(const el of $('[data-integration-status]'))el.textContent='État serveur indisponible (connexion/OTP requise).';const g=$('#googleOAuthStatus');if(g)g.textContent='État OAuth indisponible : authentifiez-vous puis réessayez.'}}
 $('#privateModeHelp')?.addEventListener('click',()=>alert('Sur Android : ouvrez le menu ⋮ de Chrome puis choisissez « Nouvel onglet privé ». Une page web ne peut pas forcer ce mode.'));
-renderCatalogs();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
+renderCatalogs();addServerRouteButtons();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
 </script></body></html>
