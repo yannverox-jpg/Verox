@@ -851,6 +851,24 @@ async def _task_heartbeat(client, supabase_url, headers, task_id, worker_id, lea
             # On retente au prochain intervalle; la finalisation reste protégée par le bail.
 
 
+async def _record_execution_event(client, supabase_url, headers, task_id, event_type, severity, message, details=None):
+    """Append a real event to the canonical durable task journal."""
+    response = await client.post(
+        f"{supabase_url}/rest/v1/nexus_execution_events",
+        json={
+            "task_id": str(task_id),
+            "event_type": str(event_type)[:80],
+            "severity": severity if severity in {"debug", "info", "warning", "error", "critical"} else "info",
+            "message": str(message)[:500],
+            "details": details if isinstance(details, dict) else {},
+        },
+        headers={**headers, "Prefer": "return=representation"},
+    )
+    response.raise_for_status()
+    rows = response.json()
+    return rows[0] if isinstance(rows, list) and rows else None
+
+
 async def _finalize_claimed_task(
     client, supabase_url, headers, task_id, worker_id, status, result, error=None
 ):
@@ -978,6 +996,11 @@ async def run_worker(worker_id: int = 0):
                         continue
 
                     task_id = task["id"]
+                    await _record_execution_event(
+                        client, supabase_url, headers, task_id,
+                        "task_claimed", "info", "La tâche a été réservée par un worker.",
+                        {"worker_id": worker_name, "task_type": task.get("task_type")},
+                    )
                     heartbeat = asyncio.create_task(
                         _task_heartbeat(
                             client, supabase_url, headers, task_id, worker_name,
@@ -1024,7 +1047,17 @@ async def run_worker(worker_id: int = 0):
                                     "La tâche est arrêtée plutôt que simulée."
                                 )
 
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "brain_started", "info", "Le cerveau cognitif commence le traitement réel.",
+                            {"task_type": task_type, "provider_filter": provider_filter},
+                        )
                         evidence = await brain.run(query, email, provider_filter=provider_filter)
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "evidence_collected", "info", "Le traitement des connecteurs est terminé.",
+                            {"evidence_count": len(evidence or [])},
+                        )
                         if route and provider_filter and not any(
                             provider_filter.lower() in str(item.get("connector", "")).lower()
                             and "résultat web" in str(item.get("title", "")).lower()
@@ -1058,6 +1091,11 @@ async def run_worker(worker_id: int = 0):
 
                         if not answer or not str(answer).strip():
                             raise RuntimeError("Aucun modèle IA n'a produit de réponse exploitable. Vérifier la clé Gemini et le modèle.")
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "answer_generated", "info", "Le modèle a produit une réponse exploitable.",
+                            {"provider": "gemini" if requested_provider == "gemini" else (route.provider if route and provider_filter else "brain"), "answer_chars": len(str(answer))},
+                        )
 
                         result = {
                             "answer": answer or "",
