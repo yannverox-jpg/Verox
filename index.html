@@ -213,6 +213,31 @@ function applySettings(){const theme=$('#themeSelect').value;document.documentEl
 $('#saveSettings').addEventListener('click',()=>{applySettings();alert('Préférences visuelles appliquées à ce navigateur.')});$('#modelSelect').addEventListener('change',e=>localStorage.setItem('verox.modelPreference',e.target.value));
 $('#resetLocal').addEventListener('click',()=>{if(confirm('Réinitialiser les catalogues et préférences locaux de ce navigateur ?')){localStorage.removeItem('verox.catalogs');localStorage.removeItem('verox.settings');localStorage.removeItem('verox.modelPreference');location.reload()}});
 function loadSettings(){try{const s=JSON.parse(localStorage.getItem('verox.settings')||'{}');if(s.theme)$('#themeSelect').value=s.theme;if(s.font)$('#fontSelect').value=s.font;if(s.size)$('#fontSize').value=s.size;applySettings();$('#modelSelect').value=localStorage.getItem('verox.modelPreference')||'auto'}catch{}}
+async function sendArchitectureMessage(direction,target=''){
+ const endpoint='/api/architecture/'+direction;
+ const status=document.querySelector('#architectureBridgeStatus');
+ const buttons=document.querySelectorAll('[data-architecture-direction]');
+ buttons.forEach(b=>b.disabled=true);
+ if(status)status.textContent='Transmission vers le backend…';
+ try{
+  const body={event:'status',payload:{requested_at:new Date().toISOString(),ui:'index.html'}};
+  if(target)body.target=target;
+  const r=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+  const data=await r.json();
+  if(!r.ok)throw new Error(data.error||'HTTP '+r.status);
+  if(status)status.textContent=data.direction+' · '+data.source+' → '+data.target+' · accusé reçu · '+data.correlation_id;
+ }catch(err){if(status)status.textContent='Échec du pont : '+err.message}
+ finally{buttons.forEach(b=>b.disabled=false)}
+}
+function addArchitectureBridgePanel(){
+ if(document.querySelector('#architectureBridgePanel'))return;
+ const panel=document.createElement('section');
+ panel.id='architectureBridgePanel';
+ panel.style.cssText='margin:12px;padding:14px;border:1px solid var(--line,#2a3955);border-radius:14px;background:var(--panel,#121b2e);color:var(--text,#eef3ff);';
+ panel.innerHTML='<h2 style="margin:0 0 8px;font-size:16px">Architecture Verox · Pont Front-end ↔ Backend</h2><p class="tiny muted" style="margin:0 0 10px">Les libellés des boutons correspondent aux routes serveur.</p><div style="display:flex;flex-wrap:wrap;gap:8px"><button class="btn" type="button" data-architecture-direction="upstream">Correspondance ascendante ↑</button><button class="btn" type="button" data-architecture-direction="downstream">Correspondance descendante ↓</button><button class="btn" type="button" data-architecture-direction="horizontal">Correspondance horizontale ↔</button></div><p id="architectureBridgeStatus" class="tiny muted" aria-live="polite">Pont prêt · en attente d’une commande.</p>';
+ document.body.insertBefore(panel,document.body.firstChild);
+ panel.querySelectorAll('[data-architecture-direction]').forEach(button=>button.addEventListener('click',()=>sendArchitectureMessage(button.dataset.architectureDirection,button.dataset.architectureDirection==='horizontal'?'brain':'')));
+}
 function addServerRouteButtons(){
  const routeMap={
   'monetly':'monetly','metatrader 5':'mt5','1xbet':'1xbet','tradingview':'tradingview','oanda':'oanda','fxpro':'fxpro',
@@ -240,5 +265,5 @@ function addServerRouteButtons(){
 }
 async function loadIntegrationStatus(){try{const r=await fetch('/api/integrations',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();for(const item of d.items||[]){const el=document.querySelector('[data-integration-status="'+CSS.escape(item.id)+'"]');if(el)el.textContent=item.credential_configured?'Variable serveur détectée — test fournisseur non effectué.':(item.mode==='manual_only'?'Ouverture manuelle uniquement.':'Aucune variable reconnue détectée — connexion non vérifiée.')}const g=$('#googleOAuthStatus');if(g)g.textContent=d.google_oauth_configured?'Variables OAuth Google présentes ; flux de connexion à tester.':'OAuth Google non configuré ou variables non reconnues. Google Authenticator (OTP) est distinct de Google OAuth.';const b=$('#browserBridgeStatus');if(b)b.textContent=d.browser_bridge_configured?'Jeton du pont présent côté serveur ; test Playwright séparé requis.':'VEROX_BROWSER_BRIDGE_TOKEN absent ou nom de variable différent.'}catch(e){for(const el of $('[data-integration-status]'))el.textContent='État serveur indisponible (connexion/OTP requise).';const g=$('#googleOAuthStatus');if(g)g.textContent='État OAuth indisponible : authentifiez-vous puis réessayez.'}}
 $('#privateModeHelp')?.addEventListener('click',()=>alert('Sur Android : ouvrez le menu ⋮ de Chrome puis choisissez « Nouvel onglet privé ». Une page web ne peut pas forcer ce mode.'));
-renderCatalogs();addServerRouteButtons();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
+renderCatalogs();addServerRouteButtons();addArchitectureBridgePanel();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
 </script></body></html>
