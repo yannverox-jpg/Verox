@@ -1,1 +1,0 @@
-"""Verox automated tests."""
