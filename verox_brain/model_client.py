@@ -215,21 +215,10 @@ def generate_text(
     gateway_token: str | None = None,
     task_id: str | None = None,
 ) -> tuple[str, str, str]:
-    """Prefer the explicitly configured Gemini API; use Gateway and opt-in connectors as fallbacks."""
+    """Prefer Vercel AI Gateway; use Gemini and opt-in connectors only as fallbacks."""
     errors: list[str] = []
 
-    # Gemini is the primary brain when a server-side Gemini key is configured.
-    gemini_key, gemini_key_source = _gemini_key_with_source()
-    if gemini_key:
-        try:
-            return _generate_gemini(
-                prompt, system_prompt, gemini_key,
-                task_id=task_id, key_source=gemini_key_source,
-            )
-        except ModelRequestError as exc:
-            errors.append(str(exc))
-
-    # Vercel AI Gateway remains a fallback, not the primary route.
+    # Vercel AI Gateway is Verox's canonical primary model route.
     token = _gateway_token(gateway_token)
     gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
     gateway_model = os.getenv("VEROX_AI_GATEWAY_MODEL", DEFAULT_GATEWAY_MODEL).strip() or DEFAULT_GATEWAY_MODEL
@@ -248,6 +237,17 @@ def generate_text(
             message = str(exc)
             status = next((int(part.strip(".,:;")) for part in message.split() if part.strip(".,:;").isdigit() and len(part.strip(".,:;")) == 3), "provider_error")
             _trace("gateway", gateway_model, status, started, task_id=task_id, fallback_reason="gateway_failed")
+
+    # Gemini is a secondary provider when configured; it is never the canonical route.
+    gemini_key, gemini_key_source = _gemini_key_with_source()
+    if gemini_key:
+        try:
+            return _generate_gemini(
+                prompt, system_prompt, gemini_key,
+                task_id=task_id, key_source=gemini_key_source,
+            )
+        except ModelRequestError as exc:
+            errors.append(str(exc))
 
     # Optional connectors remain explicitly opt-in.
     if os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() == "true":
