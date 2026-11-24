@@ -1,26 +1,50 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
+  "services": {
+    "verox": {
+      "root": ".",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "playwright_worker",
+          "format": "url",
+          "env": "VEROX_PLAYWRIGHT_WORKER_URL"
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/api/connectors",
+          "destination": "/api/connectors.py"
+        },
+        {
+          "source": "/api/browser/jobs",
+          "destination": "/api/browser_jobs.py"
+        },
+        {
+          "source": "/api/research",
+          "destination": "/api/research.py"
+        },
+        {
+          "source": "/api/:path*",
+          "destination": "/api/index.py"
+        },
+        {
+          "source": "/",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    "playwright_worker": {
+      "root": "verox_playwright_service/",
+      "runtime": "container"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/connectors",
-      "destination": "/api/connectors.py"
-    },
-    {
-      "source": "/api/browser/jobs",
-      "destination": "/api/browser_jobs.py"
-    },
-    {
-      "source": "/api/research",
-      "destination": "/api/research.py"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/",
-      "destination": "/index.html"
+      "source": "/(.*)",
+      "destination": {
+        "service": "verox"
+      }
     }
   ],
   "crons": [
