@@ -1193,6 +1193,82 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            # Durable SSE replay from the same execution journal used by the worker.
+            match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/events", parsed.path)
+            if match:
+                task_id = match.group(1)
+                try:
+                    uuid.UUID(task_id)
+                except ValueError:
+                    return self._json(400, {"error": "Identifiant de tâche invalide"})
+                origin, host = self.headers.get("Origin", ""), self.headers.get("Host", "")
+                if origin and host:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(origin).netloc != host:
+                        return self._json(403, {"error": "Origine non autorisée."})
+                try:
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=5.0) as client:
+                        check = client.get(url + "/rest/v1/nexus_tasks",
+                            params={"id": "eq." + task_id, "select": "id,status", "limit": "1"},
+                            headers=headers)
+                        check.raise_for_status()
+                        if not check.json():
+                            return self._json(404, {"error": "Tâche introuvable"})
+                except Exception as exc:
+                    logger.warning("SSE task lookup failed task_id=%s (%s)", task_id, type(exc).__name__)
+                    return self._json(503, {"error": "Journal de tâche indisponible."})
+                try:
+                    cursor = max(0, int(self.headers.get("Last-Event-ID", "0") or "0"))
+                except ValueError:
+                    cursor = 0
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, no-transform")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                terminal = {"task_succeeded", "task_failed", "task_cancelled"}
+                heartbeat_at = __import__("time").monotonic()
+                try:
+                    while True:
+                        with httpx.Client(timeout=5.0) as client:
+                            result = client.get(url + "/rest/v1/nexus_execution_events",
+                                params={"task_id": "eq." + task_id, "id": "gt." + str(cursor),
+                                        "select": "id,task_id,event_type,severity,message,details,created_at",
+                                        "order": "id.asc", "limit": "100"},
+                                headers=headers)
+                            result.raise_for_status()
+                            events = result.json()
+                        for row in events:
+                            event_id = int(row["id"])
+                            payload = {"event_id": event_id, "task_id": task_id,
+                                "type": row.get("event_type", "execution_event"),
+                                "timestamp": row.get("created_at"), "severity": row.get("severity", "info"),
+                                "message": row.get("message", ""), "data": row.get("details") or {}}
+                            encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                            self.wfile.write(("id: " + str(event_id) + "\nevent: execution\ndata: " + encoded + "\n\n").encode("utf-8"))
+                            self.wfile.flush()
+                            cursor = event_id
+                            if payload["type"] in terminal:
+                                return
+                        now = __import__("time").monotonic()
+                        if now - heartbeat_at >= 15:
+                            self.wfile.write(b": keep-alive\n\n")
+                            self.wfile.flush()
+                            heartbeat_at = now
+                        # Poll persisted events; no synthetic progress is generated.
+                        __import__("time").sleep(1)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as exc:
+                    logger.warning("SSE stream stopped task_id=%s (%s)", task_id, type(exc).__name__)
+                    try:
+                        self.wfile.write(b"event: stream_error\ndata: {\"message\":\"Flux interrompu; reconnectez-vous pour reprendre l’historique.\"}\n\n")
+                        self.wfile.flush()
+                    except Exception:
+                        pass
+                return
             if parsed.path == "/api/architecture/back":
                 return self._json(200, {
                     "service": "verox-architecture-bridge",
