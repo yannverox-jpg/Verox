@@ -454,7 +454,7 @@ def _requires_owner_session(method: str, path: str) -> bool:
     if method == "GET":
         # Vercel Cron authenticates this route with CRON_SECRET; let its handler
         # validate that bearer token instead of requiring an owner OTP session.
-        if path == "/api/opportunities/scan":
+        if path in {"/api/opportunities/scan", "/api/research/scan"}:
             return False
         if path in {
             "/api/health",
@@ -534,6 +534,20 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 404, {"error": "Source inconnue dans le registre."})
             except PermissionError:
                 _json(self, 403, {"error": "Cette source nécessite un compte ou un accès explicitement autorisé; aucun accès connecté n'est tenté."})
+            return
+        if path == "/api/research/scan":
+            # Vercel Cron fans out the next bounded batch across all registered public sources.
+            cron_token = os.getenv("CRON_SECRET", "").strip()
+            if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
+                _json(self, 401, {"error": "Authentification du planificateur requise."})
+                return
+            try:
+                from verox_brain.data_plane import SupabaseDataPlane
+                from verox_brain.research_dispatch import queue_public_source_batch
+                result = queue_public_source_batch(SupabaseDataPlane(), limit=5, cooldown_hours=24)
+                _json(self, 202 if result.get("queued") else 200, result)
+            except Exception:
+                _json(self, 503, {"error": "La rotation des sources publiques a échoué; aucun revenu n'est confirmé."})
             return
         if path == "/api/opportunities/public":
             # Publicly sourced lead metadata only; never return credentials or internal task payloads.
