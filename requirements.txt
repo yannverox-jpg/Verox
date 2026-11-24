@@ -5,3 +5,4 @@ playwright-stealth>=2.0.0
 vercel-queue==0.10.0
 pydantic>=2.7,<3
 pytest>=8.0,<9
+fastapi>=0.115,<1
