@@ -6,10 +6,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from vercel.queue import send as queue_send
-from verox_brain.source_registry import list_sources
+from verox_brain.source_registry import PUBLIC_PAGE_ACCESS, list_sources
 
 BROWSER_QUEUE_TOPIC = "verox-browser-jobs"
-PUBLIC_ACCESS = {"web", "public_web", "web_or_api"}
+PUBLIC_ACCESS = PUBLIC_PAGE_ACCESS
 MAX_BATCH_SIZE = 25
 
 DOMAIN_GOALS = {
