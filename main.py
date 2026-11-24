@@ -851,6 +851,28 @@ async def _task_heartbeat(client, supabase_url, headers, task_id, worker_id, lea
             # On retente au prochain intervalle; la finalisation reste protégée par le bail.
 
 
+async def _record_execution_event(client, supabase_url, headers, task_id, event_type, severity, message, details=None):
+    """Append a real event to the canonical durable task journal without blocking task execution."""
+    try:
+        response = await client.post(
+            f"{supabase_url}/rest/v1/nexus_execution_events",
+            json={
+                "task_id": str(task_id),
+                "event_type": str(event_type)[:80],
+                "severity": severity if severity in {"debug", "info", "warning", "error", "critical"} else "info",
+                "message": str(message)[:500],
+                "details": details if isinstance(details, dict) else {},
+            },
+            headers={**headers, "Prefer": "return=representation"},
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if isinstance(rows, list) and rows else None
+    except Exception as exc:
+        logger.warning("Journal event write failed task_id=%s type=%s (%s)", task_id, event_type, type(exc).__name__)
+        return None
+
+
 async def _finalize_claimed_task(
     client, supabase_url, headers, task_id, worker_id, status, result, error=None
 ):
@@ -978,6 +1000,11 @@ async def run_worker(worker_id: int = 0):
                         continue
 
                     task_id = task["id"]
+                    await _record_execution_event(
+                        client, supabase_url, headers, task_id,
+                        "task_claimed", "info", "La tâche a été réservée par un worker.",
+                        {"worker_id": worker_name, "task_type": task.get("task_type")},
+                    )
                     heartbeat = asyncio.create_task(
                         _task_heartbeat(
                             client, supabase_url, headers, task_id, worker_name,
@@ -1024,7 +1051,17 @@ async def run_worker(worker_id: int = 0):
                                     "La tâche est arrêtée plutôt que simulée."
                                 )
 
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "brain_started", "info", "Le cerveau cognitif commence le traitement réel.",
+                            {"task_type": task_type, "provider_filter": provider_filter},
+                        )
                         evidence = await brain.run(query, email, provider_filter=provider_filter)
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "evidence_collected", "info", "Le traitement des connecteurs est terminé.",
+                            {"evidence_count": len(evidence or [])},
+                        )
                         if route and provider_filter and not any(
                             provider_filter.lower() in str(item.get("connector", "")).lower()
                             and "résultat web" in str(item.get("title", "")).lower()
@@ -1058,6 +1095,11 @@ async def run_worker(worker_id: int = 0):
 
                         if not answer or not str(answer).strip():
                             raise RuntimeError("Aucun modèle IA n'a produit de réponse exploitable. Vérifier la clé Gemini et le modèle.")
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "answer_generated", "info", "Le modèle a produit une réponse exploitable.",
+                            {"provider": "gemini" if requested_provider == "gemini" else (route.provider if route and provider_filter else "brain"), "answer_chars": len(str(answer))},
+                        )
 
                         result = {
                             "answer": answer or "",
@@ -1155,6 +1197,82 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            # Durable SSE replay from the same execution journal used by the worker.
+            match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/events", parsed.path)
+            if match:
+                task_id = match.group(1)
+                try:
+                    uuid.UUID(task_id)
+                except ValueError:
+                    return self._json(400, {"error": "Identifiant de tâche invalide"})
+                origin, host = self.headers.get("Origin", ""), self.headers.get("Host", "")
+                if origin and host:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(origin).netloc != host:
+                        return self._json(403, {"error": "Origine non autorisée."})
+                try:
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=5.0) as client:
+                        check = client.get(url + "/rest/v1/nexus_tasks",
+                            params={"id": "eq." + task_id, "select": "id,status", "limit": "1"},
+                            headers=headers)
+                        check.raise_for_status()
+                        if not check.json():
+                            return self._json(404, {"error": "Tâche introuvable"})
+                except Exception as exc:
+                    logger.warning("SSE task lookup failed task_id=%s (%s)", task_id, type(exc).__name__)
+                    return self._json(503, {"error": "Journal de tâche indisponible."})
+                try:
+                    cursor = max(0, int(self.headers.get("Last-Event-ID", "0") or "0"))
+                except ValueError:
+                    cursor = 0
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, no-transform")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                terminal = {"task_succeeded", "task_failed", "task_cancelled"}
+                heartbeat_at = __import__("time").monotonic()
+                try:
+                    while True:
+                        with httpx.Client(timeout=5.0) as client:
+                            result = client.get(url + "/rest/v1/nexus_execution_events",
+                                params={"task_id": "eq." + task_id, "id": "gt." + str(cursor),
+                                        "select": "id,task_id,event_type,severity,message,details,created_at",
+                                        "order": "id.asc", "limit": "100"},
+                                headers=headers)
+                            result.raise_for_status()
+                            events = result.json()
+                        for row in events:
+                            event_id = int(row["id"])
+                            payload = {"event_id": event_id, "task_id": task_id,
+                                "type": row.get("event_type", "execution_event"),
+                                "timestamp": row.get("created_at"), "severity": row.get("severity", "info"),
+                                "message": row.get("message", ""), "data": row.get("details") or {}}
+                            encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                            self.wfile.write(("id: " + str(event_id) + "\nevent: execution\ndata: " + encoded + "\n\n").encode("utf-8"))
+                            self.wfile.flush()
+                            cursor = event_id
+                            if payload["type"] in terminal:
+                                return
+                        now = __import__("time").monotonic()
+                        if now - heartbeat_at >= 15:
+                            self.wfile.write(b": keep-alive\n\n")
+                            self.wfile.flush()
+                            heartbeat_at = now
+                        # Poll persisted events; no synthetic progress is generated.
+                        __import__("time").sleep(1)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as exc:
+                    logger.warning("SSE stream stopped task_id=%s (%s)", task_id, type(exc).__name__)
+                    try:
+                        self.wfile.write(b"event: stream_error\ndata: {\"message\":\"Flux interrompu; reconnectez-vous pour reprendre l’historique.\"}\n\n")
+                        self.wfile.flush()
+                    except Exception:
+                        pass
+                return
             if parsed.path == "/api/architecture/back":
                 return self._json(200, {
                     "service": "verox-architecture-bridge",
@@ -1706,7 +1824,21 @@ def run_dashboard():
                 rows = response.json()
                 if not rows:
                     return self._json(502, {"error": "Supabase n'a pas retourné la tâche"})
-                return self._json(202, {"id": rows[0]["id"], "status": rows[0]["status"]})
+                task_id = str(rows[0]["id"])
+                try:
+                    with httpx.Client(timeout=5.0) as event_client:
+                        event_response = event_client.post(url + "/rest/v1/nexus_execution_events",
+                            json={"task_id": task_id, "event_type": "task_created", "severity": "info",
+                                  "message": "La tâche a été créée et ajoutée à la file persistante.",
+                                  "details": {"task_type": task_type, "source": "verox_dashboard"}},
+                            headers={**headers, "Prefer": "return=minimal"})
+                        event_response.raise_for_status()
+                except Exception as event_exc:
+                    # Task state remains authoritative even if the journal write is temporarily unavailable.
+                    logger.warning("Événement initial non enregistré task_id=%s (%s)", task_id, type(event_exc).__name__)
+                return self._json(202, {"id": task_id, "status": rows[0]["status"],
+                                        "status_url": "/api/tasks/" + task_id,
+                                        "events_url": "/api/tasks/" + task_id + "/events"})
             except Exception as exc:
                 logger.exception("Impossible de transmettre la requête du dashboard")
                 return self._json(503, {"error": str(exc)[:300]})
