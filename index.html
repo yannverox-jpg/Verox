@@ -209,8 +209,28 @@ function prepareDownload(app){
  $('#downloadActionButtons').innerHTML='<a class="btn primary" href="'+esc(app.url)+'" target="_blank" rel="noopener noreferrer">Ouvrir le téléchargement ↗</a><a class="btn" href="'+esc(app.official)+'" target="_blank" rel="noopener noreferrer">Page officielle</a>';
  logDownload('Action préparée pour '+app.name+' ('+app.platform+'). Aucun téléchargement lancé automatiquement.');
 }
+function navigateByVeroxCommand(q){
+ const command=q.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+ const next=/\\b(page\\s+suivante|suivante|page\\s+suivant|suivant|va\\s+(a\\s+)?la\\s+page\\s+suivante|affiche\\s+la\\s+page\\s+suivante)\\b/.test(command);
+ const previous=/\\b(page\\s+precedente|precedente|page\\s+precedent|precedent|page\\s+d'avant|page\\s+precedente|retourne\\s+a\\s+la\\s+page\\s+precedente|affiche\\s+la\\s+page\\s+precedente)\\b/.test(command);
+ if(!next&&!previous)return false;
+ const visiblePages=[...document.querySelectorAll('.view[id^="page-"]')].map(el=>el.id.slice(5)).filter(id=>typeof pages!=='undefined'&&pages[id]);
+ const active=document.querySelector('.view.active[id^="page-"]');
+ const current=active?active.id.slice(5):'';
+ const index=visiblePages.indexOf(current);
+ const targetIndex=index+(next?1:-1);
+ if(index<0||targetIndex<0||targetIndex>=visiblePages.length){
+  logDownload(next?'Vous êtes déjà sur la dernière page.':'Vous êtes déjà sur la première page.');
+  return true;
+ }
+ const target=visiblePages[targetIndex];
+ gotoPage(target);
+ logDownload('Commande de navigation exécutée : '+(next?'page suivante':'page précédente')+' → '+pages[target][0]+'.');
+ return true;
+}
 function handleDownloadCommand(raw,forced){
  const q=raw.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ if(navigateByVeroxCommand(q))return;
  let platform=forced;
  if(platform==='auto'){if(/\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\\b/.test(q))platform='pc';else if(/\b(android|mobile|telephone|apk|termux|metatrader|mt5)\\b/.test(q))platform='android';else platform='all'}
  const terms=q.split(/[^a-z0-9]+/).filter(w=>w.length>2&&!['telecharge','telecharger','download','application','applications','android','mobile','telephone','ordinateur','desktop','windows','installer','installe','prepare','tout','toutes','tous'].includes(w));
