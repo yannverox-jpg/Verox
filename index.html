@@ -257,8 +257,22 @@ function addStealthNavigatorPanel(){
   const buttons=panel.querySelectorAll('button');buttons.forEach(b=>b.disabled=true);
   try{
    const response=await fetch('/api/browser/stealth/navigate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({url,selector:clickSelector?selector:'',action:clickSelector&&selector?'inspect_and_click':'inspect',source:'index.html'})});
-   const data=await response.json().catch(()=>({error:'Réponse serveur non JSON'}));
+   let data=await response.json().catch(()=>({error:'Réponse serveur non JSON'}));
    if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+   if(response.status===202&&data.status_url){
+    status.textContent='Tâche mise en file. Le cerveau attend le worker…';
+    let completed=false;
+    for(let i=0;i<60;i++){
+     await new Promise(resolve=>setTimeout(resolve,1000));
+     const poll=await fetch(data.status_url,{credentials:'same-origin',cache:'no-store'});
+     const state=await poll.json().catch(()=>({error:'État de tâche illisible'}));
+     if(!poll.ok)throw new Error(state.error||'Impossible de lire l’état de la tâche');
+     if(state.status==='completed'){data=state.result||state;completed=true;break}
+     if(state.status==='failed'||state.status==='error')throw new Error(state.error||'Le worker a échoué');
+     status.textContent='Tâche en cours dans le worker… ('+(i+1)+' s)';
+    }
+    if(!completed)throw new Error('Délai dépassé en attente du worker. Consultez le statut de la tâche '+data.id);
+   }
    status.textContent='Navigation terminée · résultat reçu.';
    out.textContent=JSON.stringify(data,null,2).slice(0,8000);
   }catch(error){
