@@ -1392,8 +1392,8 @@ def run_dashboard():
                     direction_hint = str(body.get("direction", "")).strip().lower()
                     normalized = unicodedata.normalize("NFD", command.lower())
                     normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
-                    next_match = bool(re.search(r"\\b(page\\s+suivante|suivante|page\\s+suivant|suivant|next\\s+page|next)\\b", normalized))
-                    previous_match = bool(re.search(r"\\b(page\\s+precedente|precedente|precedent|page\\s+d'avant|previous\\s+page|previous|back)\\b", normalized))
+                    next_match = bool(re.search(r"\b(page\s+suivante|suivante|page\s+suivant|suivant|next\s+page|next)\b", normalized))
+                    previous_match = bool(re.search(r"\b(page\s+precedente|precedente|precedent|page\s+d'avant|previous\s+page|previous|back)\b", normalized))
                     direction = direction_hint if direction_hint in {"next", "previous"} else ("next" if next_match and not previous_match else ("previous" if previous_match and not next_match else ""))
                     if not direction:
                         return self._json(200, {"ok": True, "action": "not_navigation", "message": "Commande non reconnue comme navigation."})
