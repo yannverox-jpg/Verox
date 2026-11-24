@@ -1155,6 +1155,14 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/api/architecture/back":
+                return self._json(200, {
+                    "service": "verox-architecture-bridge",
+                    "direction": "back",
+                    "method": "POST",
+                    "label": "Retour",
+                    "note": "Cette route reçoit une commande de retour d'interface; elle ne pilote pas encore une session Playwright persistante."
+                })
             if parsed.path == "/api/architecture":
                 return self._json(200, {
                     "service": "verox-architecture-bridge",
@@ -1367,6 +1375,7 @@ def run_dashboard():
                 "/api/architecture/upstream": "upstream",
                 "/api/architecture/downstream": "downstream",
                 "/api/architecture/horizontal": "horizontal",
+                "/api/architecture/back": "back",
             }
             if request_path in architecture_routes:
                 # Same-origin browser bridge: accept bounded JSON envelopes only.
@@ -1392,6 +1401,9 @@ def run_dashboard():
                         source, target = "frontend", "backend"
                     elif direction == "downstream":
                         source, target = "backend", "frontend"
+                    elif direction == "back":
+                        source, target = "frontend", "backend"
+                        event = "back"
                     else:
                         source = "backend"
                         target = str(body.get("target", "")).strip().lower()
