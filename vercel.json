@@ -51,6 +51,10 @@
     {
       "path": "/api/opportunities/scan",
       "schedule": "15 6 * * *"
+    },
+    {
+      "path": "/api/research/scan",
+      "schedule": "0 10 * * *"
     }
   ]
 }
