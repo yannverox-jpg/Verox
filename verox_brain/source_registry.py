@@ -7,6 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
+PUBLIC_PAGE_ACCESS = frozenset({
+    "web", "public_web", "web_or_api", "web_or_account", "web_or_app",
+    "public_web_or_account",
+})
+
 DOMAINS = {
     "microtasks_services": "Micro-tâches & revenus de services",
     "sports_horse_betting": "Données sportives & hippiques",
