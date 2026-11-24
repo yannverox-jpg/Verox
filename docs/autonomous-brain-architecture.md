@@ -53,7 +53,7 @@ The new tables are server-only: RLS is enabled and browser-facing `anon` / `auth
 
 - AI-to-AI messages and agent handoffs are machine-governed: validate the envelope, verify trusted evidence, check the parent/transition, persist the trace, then route automatically. They do not require a human click.
 - Research, analysis, planning, code review and preparation can continue autonomously when their connectors and task permissions allow it.
-- The dispatch status explicitly reports `requires_human_approval_for_agent_handoff: false`; this is separate from the policy for external side effects.
+- Dispatch status explicitly reports `requires_human_approval_for_agent_handoff: false`. Routine internal work and read-only research do not require a human click; only destructive/irreversible actions and live financial execution retain their separate authorization boundaries.
 - T6 financial execution remains fail-closed: live trades, wagers, withdrawals, transfers and deposits must pass the dedicated financial authorization guard. A model decision, A2A message, route status or notification is not financial authorization. This boundary is intentionally not disabled by the agent-handoff policy.
 - If an operation is only a simulation, backtest, draft or read-only analysis, it should remain in that non-executing mode and must not create a live financial side effect.
 
