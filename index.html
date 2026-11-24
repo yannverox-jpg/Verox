@@ -218,7 +218,7 @@ function navigationDirection(command){
 async function requestPageNavigation(direction,command){
  const active=document.querySelector('.view.active[id^="page-"]');
  const current=active?active.id.slice(5):'';
- const pageOrder=[...document.querySelectorAll('.view[id^="page-"]')].map(el=>el.id.slice(5)).filter(id=>pages[id]);
+ const pageOrder=[...new Set([...document.querySelectorAll('[data-page]')].map(el=>el.dataset.page).filter(id=>pages[id]))];
  const index=pageOrder.indexOf(current);
  const targetIndex=index+(direction==='next'?1:-1);
  const target=targetIndex>=0&&targetIndex<pageOrder.length?pageOrder[targetIndex]:'';
