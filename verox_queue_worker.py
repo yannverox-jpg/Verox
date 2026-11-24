@@ -8,7 +8,12 @@ from typing import TypedDict
 import httpx
 from vercel.queue import subscribe
 
-from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text
+from verox_brain.model_client import ModelConfigurationError, ModelRequestError, generate_text, generate_text_with_tools
+from verox_brain.playwright_tools import (
+    PLAYWRIGHT_FUNCTION_DECLARATIONS,
+    PLAYWRIGHT_TOOL_MANUAL,
+    build_playwright_tool_handlers,
+)
 from verox_brain.runtime_guardrails import (
     RuntimeGuardError,
     classify_task_envelope,
@@ -108,7 +113,20 @@ async def process_agent_task(message: QueueMessage) -> None:
         return
 
     try:
-        answer, provider, model = await asyncio.to_thread(generate_text, prompt, SYSTEM_PROMPT)
+        if task_type in {"chat", "research"}:
+            # Expose only the bounded public-source tools to Gemini; browser work stays async.
+            answer, provider, model = await asyncio.to_thread(
+                generate_text_with_tools,
+                prompt,
+                SYSTEM_PROMPT + "\n\n" + PLAYWRIGHT_TOOL_MANUAL,
+                tools=[{"functionDeclarations": PLAYWRIGHT_FUNCTION_DECLARATIONS}],
+                handlers=build_playwright_tool_handlers(),
+                task_id=task_id,
+            )
+        else:
+            answer, provider, model = await asyncio.to_thread(
+                generate_text, prompt, SYSTEM_PROMPT, task_id=task_id
+            )
         rpc("complete", task_id, result={"answer": answer, "provider": provider, "model": model})
     except (ModelConfigurationError, ModelRequestError) as exc:
         rpc("fail", task_id, error=str(exc)[:500])
