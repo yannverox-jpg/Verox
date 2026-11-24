@@ -24,7 +24,7 @@ from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
 QUEUE_TOPIC = "verox-agent-tasks"
-TASK_TYPES = {"analysis", "research", "chat", "code_review", "browser_navigation"}
+TASK_TYPES = {"analysis", "research", "chat", "code_review"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
     "Distingue les faits vérifiés, les hypothèses et les recommandations. Protège les données privées. Ne prétends jamais "
