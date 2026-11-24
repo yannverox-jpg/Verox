@@ -1,7 +1,8 @@
 """Deterministic routing for Verox's specialized AI agents.
 
-This module only selects a role and its required connector. It never claims that a
-provider is connected and never performs external actions or financial transactions.
+Agent-to-agent handoffs are autonomous after the canonical A2A pipeline validates
+and persists a message. This routing table never claims that a provider is
+connected and never performs external actions or financial transactions.
 """
 from __future__ import annotations
 
@@ -16,6 +17,9 @@ class AgentRoute:
     connector: str
     purpose: str
     requires_browser_setup: bool = False
+    # Agent coordination itself never waits for a human decision.
+    requires_human_approval_for_agent_handoff: bool = False
+    # Separate external side effects remain subject to their own policy guards.
     requires_human_approval_for_side_effects: bool = True
 
 
@@ -104,5 +108,6 @@ def route_status(task_type: str, configured_connectors: set[str] | None = None) 
         "requires_browser_setup": route.requires_browser_setup,
         "connector_configured": route.connector in configured,
         "status": "configured" if route.connector in configured else "not_configured",
+        "requires_human_approval_for_agent_handoff": route.requires_human_approval_for_agent_handoff,
         "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
     }
