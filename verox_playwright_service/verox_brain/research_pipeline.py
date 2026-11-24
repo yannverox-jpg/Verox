@@ -146,16 +146,17 @@ def complete_research_run(
                 "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        return {"status": "needs_review", "model_available": False, "completed_agents": 0}
+        return {"status": "needs_review", "model_available": False}
 
     model_name = completed[0].get("model", "unknown")
     provider = completed[0].get("provider", "google-gemini-api")
-    analysis = "\n\n".join(
-        f"### Agent {item['agent_id']}\n{item.get('answer', '')}"
+    analysis = completed[0].get("answer", "")[:12000]
+    delegated_analysis = "\\n\\n".join(
+        f"### Agent {item['agent_id']}\\n{item.get('answer', '')}"
         for item in agent_results if item.get("status") == "completed"
     )
     if len(completed) != len(agents):
-        analysis += "\n\nUn agent délégué n’a pas répondu; les résultats sont partiels."
+        delegated_analysis += "\\n\\nUn agent délégué n’a pas répondu; les résultats sont partiels."
     store._request(
         "PATCH", "verox_analysis_runs", params={"id": f"eq.{run_id}"},
         body={
@@ -163,7 +164,7 @@ def complete_research_run(
             "model_provider": provider, "model_name": model_name,
             "prompt_version": PROMPT_VERSION,
             "findings": {"evidence": evidence, "agents": agent_results,
-                         "analysis": analysis[:12000], "review_required": True},
+                         "analysis": analysis, "delegated_analysis": delegated_analysis[:12000], "review_required": True},
             "metrics": {
                 "text_chars": len(page_text), "model_available": True,
                 "evidence_verified": False, "agent_count": len(agents),
