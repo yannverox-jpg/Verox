@@ -32,7 +32,15 @@ def _json(handler, status, payload):
 def _authorized(handler):
     expected = os.getenv("VEROX_INTERNAL_TASK_TOKEN", "").strip()
     supplied = handler.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    return bool(expected and supplied and hmac.compare_digest(expected, supplied))
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return True
+    # The dashboard may use its HttpOnly owner session for explicit research.
+    # Never send VEROX_INTERNAL_TASK_TOKEN to the browser.
+    try:
+        from verox_brain.session_auth import is_valid_owner_session
+        return is_valid_owner_session(handler)
+    except Exception:
+        return False
 
 
 def _body(handler):
