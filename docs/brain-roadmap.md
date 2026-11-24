@@ -4,12 +4,10 @@
 Verox est un agent de travail et de recherche, pas seulement un chatbot. Il doit comprendre une demande, planifier des étapes, utiliser les outils autorisés, exécuter, vérifier, conserver l'état et rendre compte honnêtement du résultat.
 
 ## Architecture canonique
-- **Modèle principal : Vercel AI Gateway**, via le Virtual Model `vmc/verox-free-brain`.
-- **Routage du modèle :** le Virtual Model `verox-free-brain` est configuré avec `nvidia/nemotron-3.5-lightning-free` en principal et `reflection/beam-free` en secours. Ne pas ajouter de modèle payant ou de repli payant.
-- **Authentification :** sur Vercel, utiliser le jeton OIDC fourni dans l'en-tête `x-vercel-oidc-token` de la requête entrante. Une clé AI Gateway explicite n'est requise que si l'OIDC n'est pas disponible. Ne jamais exposer ni journaliser les jetons.
-- **Secours fournisseur :** les clés Gemini configurées sont un secours explicite si le Gateway échoue. Elles ne sont pas le cerveau principal. Le fournisseur et le modèle réellement utilisés doivent être enregistrés dans le résultat de chaque tâche.
-- **Mémoire et état :** Supabase est la source persistante pour les tâches, leur statut et les résultats. Ne jamais annoncer une mémoire conversationnelle durable tant que la lecture/écriture de messages n'est pas implémentée et testée.
-- **Exécution :** GitHub est le dépôt de code; Vercel héberge l'API. Une tâche n'est terminée que lorsque son état final et son résultat sont persistés et vérifiables.
+- **Modèle : Gemini** via l'API Google, avec les clés `GEMINI_API_KEY`, `GEMINI_API_KEY_2` ou `Gemini` configurées côté serveur.
+- **Fournisseur unique :** aucune inférence secondaire n'est activée. Le fournisseur et le modèle réellement utilisés sont enregistrés avec chaque résultat.
+- **Mémoire et état :** Supabase est la source persistante pour les tâches, leur statut et les résultats. Ne jamais annoncer une mémoire conversationnelle durable tant que la lecture/écriture de messages n'est pas implémentée et vérifiée.
+- **Exécution :** GitHub héberge le code, Render exécute le worker et Supabase conserve l'état. Une tâche n'est terminée que lorsque son état final et son résultat sont persistés et vérifiables.
 
 ## Règles de conduite
 1. Séparer explicitement les faits vérifiés, les hypothèses et les actions proposées.
@@ -57,7 +55,7 @@ Le cerveau central planifie les recherches, distribue le travail aux agents spé
 - Enregistrer fournisseur/modèle réellement utilisés et les métriques sans journaliser de secrets.
 - Dédupliquer les observations, garder les résultats non vérifiés en état non vérifié, et séparer explicitement collecte réussie et analyse réussie.
 - Accepter ce jalon seulement après une recherche fraîche, persistée et relue dans Supabase; l’état du déploiement seul ne suffit pas.
-- **Blocage observé le 24 novembre 2026 sur le projet Supabase Verox :** 60 tâches navigateur réussies, 60 observations avec hash, dont 56 contenant du texte; 0 observation vérifiée. Les 60 analyses n’ont aucun fournisseur/modèle ni texte d’analyse, et 0 clé Gateway/OIDC/Gemini est signalée présente. 141 pistes d’opportunité sont en état detected_unverified; 0 validée et 0 actionnable. Il faut configurer une authentification modèle côté worker avant de déclarer l’analyse fonctionnelle.
+- Le worker planifié est déclenché par GitHub Actions, mais s'exécute sur Render avec ses propres identifiants Gemini et Supabase. GitHub Actions ne reçoit aucun secret Supabase ni clé Gemini.
 
 ### P1 — construire l’orchestrateur central
 - Relier planification, agents spécialisés et connecteurs via des contrats de capacité avec permissions minimales.
@@ -106,25 +104,8 @@ La première version fiable n’exige pas toute l’autonomie économique; elle 
 
 
 
-## Connecteurs additionnels (optionnels, désactivés par défaut)
-
-### Hugging Face Inference Providers
-- Variables : `VEROX_HF_ENABLED=true`, `HF_TOKEN`, `VEROX_HF_MODEL`.
-- Endpoint OpenAI-compatible : `https://router.huggingface.co/v1/chat/completions`.
-- Hugging Face Inference Providers n'est pas garanti gratuit : le compte Free n'inclut pas de crédits d'inférence mensuels selon la tarification publiée. Ne pas activer sans vérifier le coût/les crédits du compte. Le connecteur reste désactivé tant que `VEROX_HF_ENABLED` n'est pas explicitement à `true`.
-
-### PocketPal (inférence locale sur Android)
-- PocketPal peut exposer un serveur API local compatible OpenAI quand un modèle est chargé et que le serveur local est activé.
-- Variables : `VEROX_POCKETPAL_ENABLED=true`, `POCKETPAL_BASE_URL`, `POCKETPAL_MODEL`, `POCKETPAL_API_KEY`.
-- L'URL doit être HTTPS pour ce connecteur cloud. Une adresse privée comme `http://192.168.x.x:port` n'est pas accessible depuis une fonction Vercel. Pour relier le téléphone au cerveau cloud, il faut un tunnel HTTPS authentifié et stable, ou bien exécuter l'orchestrateur local sur le même réseau. Ne jamais exposer le serveur du téléphone sur Internet sans authentification.
-- Ce connecteur reste désactivé par défaut. La connexion ne sera déclarée opérationnelle qu'après un appel réel réussi et une vérification de sécurité.
-
-### Ordre de routage
-1. Vercel AI Gateway et le modèle virtuel `vmc/verox-free-brain`.
-2. PocketPal si explicitement activé et accessible.
-3. Hugging Face si explicitement activé et authentifié.
-4. Les clés Gemini configurées, comme secours.
-Aucun connecteur optionnel n'est activé automatiquement et aucun modèle payant n'est sélectionné silencieusement.
+## Fournisseur IA
+Le client d'inférence utilise exclusivement Gemini. Configure une clé Gemini chiffrée dans l'environnement du service qui exécute le cerveau. Les autres connecteurs du catalogue ne sont pas des fournisseurs d'inférence actifs.
 
 
 ## Registre de sources OSINT (P4)
