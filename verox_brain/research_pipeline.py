@@ -44,7 +44,7 @@ def complete_research_run(
     started_at = datetime.now(timezone.utc).isoformat()
     credential_presence = {
         name: bool(os.getenv(name, "").strip())
-        for name in ("AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "Gemini")
+        for name in ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "Gemini")
     }
     now = started_at
     evidence = {
