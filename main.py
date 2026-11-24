@@ -1389,7 +1389,6 @@ def run_dashboard():
                     command = str(body.get("command", "")).strip()[:500]
                     current_page = str(body.get("current_page", "")).strip()[:80]
                     target_page = str(body.get("target_page", "")).strip()[:80]
-                    direction_hint = str(body.get("direction", "")).strip().lower()
                     normalized = unicodedata.normalize("NFD", command.lower())
                     normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
                     next_match = bool(re.search(r"\b(page\s+suivante|suivante|page\s+suivant|suivant|next\s+page|next)\b", normalized))
