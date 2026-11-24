@@ -1376,7 +1376,7 @@ def run_dashboard():
                 import hmac
                 token = os.getenv("VEROX_RENDER_WORKER_TOKEN", "").strip()
                 supplied = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-                if not token or not supplied or not hmac.compare_digest(token, supplied):
+                if len(token) < 32 or not supplied or not hmac.compare_digest(token, supplied):
                     return self._json(401, {"error": "Authentification de service requise."})
                 if not _research_cycle_lock.acquire(blocking=False):
                     return self._json(202, {"accepted": True, "status": "already_running"})
