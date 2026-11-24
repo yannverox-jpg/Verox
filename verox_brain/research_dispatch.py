@@ -49,7 +49,7 @@ async def _send_messages(job_ids: list[str]) -> list[tuple[str, str | None]]:
 
 def queue_public_source_batch(store: Any, *, limit: int = MAX_BATCH_SIZE,
                               cooldown_hours: int = 24, domain: str | None = None,
-                              source_ids: list[str] | None = None) -> dict[str, Any]:
+                              source_ids: list[str] | None = None, goal: str | None = None) -> dict[str, Any]:
     """Queue due public sources in one bounded batch; expose account-only skips."""
     limit = max(1, min(int(limit), MAX_BATCH_SIZE))
     cooldown_hours = max(1, min(int(cooldown_hours), 168))
@@ -128,7 +128,7 @@ def queue_public_source_batch(store: Any, *, limit: int = MAX_BATCH_SIZE,
         "policy_mode": "read_only",
         "requested_capabilities": ["navigate", "read_text", "save_observation"],
         "input": {
-            "url": s["url"], "goal": DOMAIN_GOALS.get(s.get("domain"), DOMAIN_GOALS["communities"]),
+            "url": s["url"], "goal": (str(goal).strip()[:2000] if goal else DOMAIN_GOALS.get(s.get("domain"), DOMAIN_GOALS["communities"])),
             "analysis_run_id": run_by_source[str(s["id"])],
         },
         "artifact_refs": [],
