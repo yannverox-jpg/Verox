@@ -1370,7 +1370,7 @@ def run_dashboard():
             return super().do_GET()
 
         def do_POST(self):
-            request_path = urlparse(self.path).path
+            request_path = urlparse(self.path).path.rstrip("/")
             architecture_routes = {
                 "/api/architecture/upstream": "upstream",
                 "/api/architecture/downstream": "downstream",

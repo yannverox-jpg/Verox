@@ -54,7 +54,7 @@ Continuously index lawful public tenders, procurement notices, grants, supplier 
 
 - GitHub: versioned source code, schemas, tests and research-method versions.
 - Supabase: durable observations, source registry, analysis runs, hypotheses, evaluations, odds/market snapshots, feature records, supplier/catalog snapshots and opportunity records, with server-only service-role access and row-level security.
-- Vercel AI Gateway: model access for synthesis/classification, with model/version and prompt version recorded; models must reason only from retrieved evidence and must cite evidence IDs.
+- Google Gemini: model access for synthesis/classification, with model/version and prompt version recorded; models must reason only from retrieved evidence and must cite evidence IDs.
 - Isolated Playwright worker: allowlisted public pages, read-only by default, bounded timeouts, page-size limits, robots/terms-aware collection, SSRF protection and explicit download approval. Browser extraction is evidence collection, not truth verification.
 - Separate adapters per data provider; never scrape behind authentication or bypass access controls.
 - Activity log and approval gate for all writes, purchases, external messages, trading orders, downloads, or destructive operations.
@@ -80,7 +80,7 @@ Continuously index lawful public tenders, procurement notices, grants, supplier 
 4. Add trading quote/spread/latency collection and paper-only microstructure evaluation.
 5. Add supplier catalog and fulfillment adapters.
 6. Add public opportunity ingestion, deduplication and evidence-backed ranking.
-7. Wire the Vercel AI Gateway synthesis stage only after deterministic evidence retrieval and tests work.
+7. Wire the Google Gemini synthesis stage only after deterministic evidence retrieval and tests work.
 
 ## Non-goals
 

@@ -13,3 +13,6 @@ test = ["pytest>=8.0,<9"]
 
 [[tool.vercel.subscribers]]
 entrypoint = "verox_queue_worker:process_agent_task"
+
+[[tool.vercel.subscribers]]
+entrypoint = "verox_browser_queue_worker:process_browser_job"

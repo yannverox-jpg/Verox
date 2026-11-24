@@ -16,7 +16,7 @@ class FakeStore:
 class ResearchPipelineTests(unittest.TestCase):
     def test_model_result_is_saved_as_unverified_review(self):
         store = FakeStore()
-        with patch("verox_brain.research_pipeline.generate_text", return_value=("Analyse limitée", "vercel-ai-gateway", "test-model")):
+        with patch("verox_brain.research_pipeline.generate_text", return_value=("Analyse limitée", "google-gemini-api", "test-model")):
             result = complete_research_run(
                 store, run_id="run-1", source_id="soccerstats",
                 source_url="https://www.soccerstats.com/", page_title="Stats",

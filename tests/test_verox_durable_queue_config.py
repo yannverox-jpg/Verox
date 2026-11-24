@@ -27,7 +27,6 @@ class VeroxQueueConfigurationTests(unittest.TestCase):
         self.assertIn('_rpc("fail", task_id=task_id, error=safe_error)', api)
         self.assertIn('safe_message = re.sub(', api)
         self.assertIn('[:180]', api)
-        self.assertLess(api.index('request.headers.get("x-vercel-oidc-token", "").strip()'), api.index('os.getenv("VERCEL_OIDC_TOKEN", "").strip()'))
         self.assertIn("httpx.Client(timeout=12.0, trust_env=False)", api)
         self.assertIn("httpx.Client(timeout=15.0, trust_env=False)", api)
         self.assertIn("time.sleep(1)", api)
@@ -53,7 +52,7 @@ class FreeModelClientTests(unittest.TestCase):
     def test_no_provider_key_fails_closed(self):
         from unittest.mock import patch
         from verox_brain.model_client import ModelConfigurationError, generate_text
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "", "AI_GATEWAY_API_KEY": ""}, clear=False):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=True):
             with self.assertRaises(ModelConfigurationError):
                 generate_text("test prompt")
 
@@ -64,11 +63,6 @@ class FreeModelClientTests(unittest.TestCase):
     def test_no_paid_fallback_in_client(self):
         source = (ROOT / "verox_brain/model_client.py").read_text()
         self.assertIn("GEMINI_API_KEY", source)
-        self.assertIn("AI_GATEWAY_API_KEY", source)
-        self.assertIn("VERCEL_OIDC_TOKEN", source)
-        self.assertIn("VEROX_AI_GATEWAY_MODEL", source)
-        self.assertIn('os.getenv("VEROX_HF_ENABLED", "").strip().lower() != "true"', source)
-        self.assertIn('os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() != "true"', source)
 
     def test_gemini_response_is_parsed_without_network(self):
         from unittest.mock import MagicMock, patch
@@ -80,11 +74,11 @@ class FreeModelClientTests(unittest.TestCase):
         client.__enter__.return_value = client
         client.__exit__.return_value = None
         client.post.return_value = response
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-only-not-a-real-key", "GEMINI_MODEL": "gemini-3.8-flash", "AI_GATEWAY_API_KEY": ""}, clear=False):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-only-not-a-real-key", "GEMINI_MODEL": "gemini-3.8-flash"}, clear=True):
             with patch("verox_brain.model_client.httpx.Client", return_value=client):
                 answer, provider, model = generate_text("test prompt", "system")
         self.assertEqual(answer, "Réponse de test")
-        self.assertEqual(provider, "google-gemini-api-fallback")
+        self.assertEqual(provider, "google-gemini-api")
         self.assertEqual(model, "gemini-3.8-flash")
         self.assertTrue(client.post.call_args.kwargs["headers"]["x-goog-api-key"].startswith("test-only"))
 

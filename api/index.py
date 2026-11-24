@@ -76,15 +76,6 @@ def _bearer_matches(authorization: str, *expected_tokens: str) -> bool:
     return any(token and hmac.compare_digest(token, supplied) for token in expected_tokens)
 
 
-def _gateway_token(request: BaseHTTPRequestHandler | None = None) -> str:
-    # Prefer the fresh short-lived OIDC token attached to this request over any
-    # build-time token, which may be stale by runtime.
-    return (
-        os.getenv("AI_GATEWAY_API_KEY", "").strip()
-        or (request.headers.get("x-vercel-oidc-token", "").strip() if request else "")
-        or os.getenv("VERCEL_OIDC_TOKEN", "").strip()
-    )
-
 
 def _rpc(action: str, *, task_id: str | None = None, task_type: str | None = None,
          payload: dict | None = None, result: dict | None = None, error: str | None = None) -> dict:
@@ -227,7 +218,7 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
             _rpc("fail", task_id=task_id, error="Type de tâche non pris en charge.")
             return "blocked_task_type"
         try:
-            answer, provider, model = generate_text(prompt, SYSTEM_PROMPT, gateway_token=_gateway_token(request))
+            answer, provider, model = generate_text(prompt, SYSTEM_PROMPT)
         except (ModelConfigurationError, ModelRequestError) as exc:
             _rpc("fail", task_id=task_id, error=str(exc)[:500])
             return "failed_provider"
@@ -463,7 +454,7 @@ def _requires_owner_session(method: str, path: str) -> bool:
     if method == "GET":
         # Vercel Cron authenticates this route with CRON_SECRET; let its handler
         # validate that bearer token instead of requiring an owner OTP session.
-        if path == "/api/opportunities/scan":
+        if path in {"/api/opportunities/scan", "/api/research/scan"}:
             return False
         if path in {
             "/api/health",
@@ -544,6 +535,20 @@ class handler(BaseHTTPRequestHandler):
             except PermissionError:
                 _json(self, 403, {"error": "Cette source nécessite un compte ou un accès explicitement autorisé; aucun accès connecté n'est tenté."})
             return
+        if path == "/api/research/scan":
+            # Vercel Cron fans out the next bounded batch across all registered public sources.
+            cron_token = os.getenv("CRON_SECRET", "").strip()
+            if not _bearer_matches(self.headers.get("authorization", ""), cron_token):
+                _json(self, 401, {"error": "Authentification du planificateur requise."})
+                return
+            try:
+                from verox_brain.data_plane import SupabaseDataPlane
+                from verox_brain.research_dispatch import queue_public_source_batch
+                result = queue_public_source_batch(SupabaseDataPlane(), limit=59, cooldown_hours=24)
+                _json(self, 202 if result.get("queued") else 200, result)
+            except Exception:
+                _json(self, 503, {"error": "La rotation des sources publiques a échoué; aucun revenu n'est confirmé."})
+            return
         if path == "/api/opportunities/public":
             # Publicly sourced lead metadata only; never return credentials or internal task payloads.
             try:
@@ -613,22 +618,7 @@ class handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/health":
-            gateway_enabled = os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"}
-            gateway_auth_available = bool(_gateway_token(self))
-            pocketpal_ready = (
-                os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() == "true"
-                and _configured("POCKETPAL_BASE_URL")
-            )
-            huggingface_ready = (
-                os.getenv("VEROX_HF_ENABLED", "").strip().lower() == "true"
-                and (_configured("HF_TOKEN") or _configured("HUGGINGFACEHUB_API_TOKEN"))
-            )
-            model_ready = (
-                (gateway_enabled and gateway_auth_available and _configured("VEROX_AI_GATEWAY_MODEL"))
-                or _gemini_key_configured()
-                or pocketpal_ready
-                or huggingface_ready
-            )
+            model_ready = _gemini_key_configured()
             supabase_configured = all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN"))
             database_verified = False
             if supabase_configured:
@@ -640,13 +630,6 @@ class handler(BaseHTTPRequestHandler):
             _json(self, 200, {
                 "ok": model_ready and database_verified, "service": "verox-vercel-brain", "runtime": "vercel",
                 "gemini_configured": _gemini_key_configured(),
-                "ai_gateway_enabled": gateway_enabled,
-                "ai_gateway_api_key_configured": _configured("AI_GATEWAY_API_KEY"),
-                "ai_gateway_oidc_available": gateway_auth_available,
-                "huggingface_enabled": os.getenv("VEROX_HF_ENABLED", "").strip().lower() == "true",
-                "huggingface_configured": huggingface_ready,
-                "pocketpal_enabled": os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() == "true",
-                "pocketpal_configured": pocketpal_ready,
                 "model_configured": model_ready,
                 "supabase_configured": supabase_configured, "database_verified": database_verified,
                 "background_workflows": "queue_delivery_unverified_inline_fallback",
@@ -658,9 +641,6 @@ class handler(BaseHTTPRequestHandler):
             # Catalogue presence is not a claim that a platform account is connected.
             items = [
                 {"id": "google_gemini_api", "label": "Google Gemini API (free tier)", "group": "IA", "lifecycle": "configured" if _gemini_key_configured() else "needs_free_api_key", "category": "connector"},
-                {"id": "vercel_ai_gateway", "label": "Vercel AI Gateway", "group": "IA", "lifecycle": ("configured" if _gateway_token(self) else "needs_vercel_oidc_or_gateway_auth") if os.getenv("VEROX_AI_GATEWAY_ENABLED", "true").strip().lower() not in {"false", "0", "no", "off"} else "disabled_by_configuration", "category": "connector"},
-                {"id": "huggingface", "label": "Hugging Face Inference Providers", "group": "IA", "lifecycle": "disabled_or_unverified", "category": "connector"},
-                {"id": "pocketpal", "label": "PocketPal local model", "group": "IA locale", "lifecycle": "disabled_or_unverified", "category": "connector"},
                 {"id": "supabase", "label": "Supabase", "group": "Mémoire et données", "lifecycle": "configured" if all(_configured(k) for k in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "VEROX_INTERNAL_TASK_TOKEN")) else "needs_configuration", "category": "connector"},
                 {"id": "vercel_queues", "label": "Vercel Queues", "group": "Exécution en arrière-plan", "lifecycle": "configured_in_code_unverified_runtime", "category": "connector"},
             ]

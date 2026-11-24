@@ -1,30 +1,28 @@
-# Verox browser worker operations
+# Verox Playwright worker operations
 
-## Runtime boundary
+## Runtime on Vercel
 
-The Playwright worker runs as a short-lived GitHub Actions job, separate from Vercel's request handlers. It processes at most five queued jobs per run and exits. The workflow is scheduled every 15 minutes and can also be run manually after it is present on the repository's default branch.
+Public research requests from the chat create a Supabase analysis run and browser job, then publish its job ID to the Vercel Queue topic `verox-browser-jobs`. A Vercel Queue consumer calls the private `playwright_worker` container service through the `VEROX_PLAYWRIGHT_WORKER_URL` binding. The browser service has no public rewrite. Vercel retries delivery; job claiming is conditional on `status=queued`, so redeliveries do not run an already claimed job again.
 
-## Required GitHub Actions secrets
+The Vercel project must have Vercel Services enabled and set as its framework. The repository defines the service and binding in `vercel.json`; confirm Services access in the Vercel project before merging/deploying this migration.
 
-Configure these repository secrets under **Settings → Secrets and variables → Actions**:
+## Opportunity-wide rotation and delegated analysis
+
+The dashboard's **Lancer un balayage maintenant** action queues the next five due registered web sources. The daily Vercel Cron at `/api/research/scan` queues all due sources from the registry every 24 hours; it uses the existing Vercel `CRON_SECRET`. Sources with account-only access are reported as excluded. Mixed-access entries are visited only at their registered public HTTPS URL, with an empty browser context; login-gated material remains unavailable.
+
+Each captured page is analyzed concurrently by two domain-specialist roles (for example, opportunity discovery and eligibility/payout review). To honor the repository's Gemini-only configuration, these are delegated analyses using the configured Gemini provider, not separate paid model vendors. Results are persisted as unverified findings and require review; no revenue is marked earned or confirmed.
+
+## Required Vercel environment variables
+
+Set the existing server-side values in Vercel for the `verox` service and the Playwright service:
 
 - `SUPABASE_URL`: the HTTPS URL of the Verox Supabase project.
-- `SUPABASE_SERVICE_ROLE_KEY`: the server-only Supabase service-role key for that same project.
+- `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase key used by the browser worker.
+- `GEMINI_API_KEY`: server-side Gemini API key used for analysis.
+- `CRON_SECRET`: shared secret checked by both scheduled source-scan routes.
 
-For the model analysis stage, add `AI_GATEWAY_API_KEY` as a GitHub Actions secret. The browser worker runs in GitHub Actions, so it does not receive the request-scoped `x-vercel-oidc-token` that exists inside a Vercel request. Keep the Gateway key server-side. If this secret is absent, collection can still save observations, but model analysis stays unavailable and the run remains needs_review; do not count it as an analyzed result.
+No Render URL, Render worker token, or GitHub Actions secret is used for browser execution.
 
-Never place either value in source code, workflow YAML, issue comments, logs, or browser output. The workflow checks only whether they exist and whether the URL uses HTTPS; it never prints their values.
+## Read-only policy
 
-The protected Vercel endpoint `/api/browser/jobs` also uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server, plus `VEROX_INTERNAL_TASK_TOKEN` for caller authentication. These are server-side variables, not `NEXT_PUBLIC_*` values. The currently inspected Vercel project had no non-empty `SUPABASE_SERVICE_ROLE_KEY` entry, so queue creation will remain unavailable until an authorized administrator configures it.
-
-## Job policy
-
-- Only registered public HTTPS hosts are eligible.
-- The worker blocks off-host requests, disables JavaScript, blocks service workers and does not reuse browser profiles or cookies.
-- Account logins, MFA/CAPTCHA bypass, form submissions, betting, trading orders, purchases, and other external mutations are out of scope.
-- `download_public_file` remains held for approval; this worker does not download arbitrary files.
-- Observations remain unverified until a separate validation process supports them.
-
-## Verification
-
-The workflow runs the browser-worker policy tests before touching the queue. A successful workflow means the worker process ran; it does not by itself prove every source is reliable or every hypothesis is correct. Confirm the resulting job status, observation hash, source provenance and timestamps in Supabase.
+The worker only processes HTTPS URLs in the registered catalogue and inspects their public pages without credentials. It uses a fresh browser context with no cookies, disables JavaScript and downloads, blocks service workers, and rejects navigation outside the registered host. Login, form submission, purchases, bets, trades, messages, or other external actions are not implemented. The analysis is unverified research for human review, not proof of eligibility or income. If a platform's terms prohibit automated access, do not add it to automated sources.

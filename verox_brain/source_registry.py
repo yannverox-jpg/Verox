@@ -7,6 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
+PUBLIC_PAGE_ACCESS = frozenset({
+    "web", "public_web", "web_or_api", "web_or_account", "web_or_app",
+    "public_web_or_account",
+})
+
 DOMAINS = {
     "microtasks_services": "Micro-tâches & revenus de services",
     "sports_horse_betting": "Données sportives & hippiques",
@@ -70,6 +75,13 @@ _ROWS = [
     ("telemetr", "Telemetr", "communities", "public_channel_index", "https://telemetr.io/", "public_web", "Index de canaux publics; ne garantit pas la fiabilité des pronostics."),
     ("whalealert", "Whale Alert", "communities", "public_market_alerts", "https://whale-alert.io/", "public_web_or_account", "Alertes on-chain publiques; ne prouvent pas l'intention de marché."),
     ("wublockchain", "Wu Blockchain", "communities", "market_news", "https://wublockchain.com/", "public_web", "Actualités crypto; recouper les informations."),
+
+    ("clickworker_requirements", "Clickworker — conditions pour les Clickworkers", "microtasks_services", "platform_eligibility", "https://www.clickworker.com/clickworker-job/", "public_web", "Page publique d’information; vérifier pays, qualification et paiement affichés. Aucune inscription ou mission exécutée."),
+    ("appen_crowdgen_safety", "Appen CrowdGen — canaux officiels et sécurité", "microtasks_services", "platform_policy", "https://www.appen.com/legal-policies/scam-awareness", "public_web", "Vérifier les canaux officiels avant toute démarche; aucune candidature transmise."),
+    ("usertesting_participant_requirements", "UserTesting — critères participants", "microtasks_services", "platform_eligibility", "https://www.usertesting.com/get-paid-to-test/application-process", "public_web", "Lire les critères et moyens de paiement publiés; inscription, profil et tests restent manuels."),
+    ("upwork_automation_policy", "Upwork — politique relative aux outils automatisés", "microtasks_services", "platform_policy", "https://support.upwork.com/hc/en-us/articles/43342677368467-Use-bots-and-other-automation-properly", "public_web", "Politique publique; le scraping et les propositions automatisées ne sont pas autorisés sans accès exprès."),
+    ("ungm_procurement_notices", "UNGM — appels d’offres publics", "microtasks_services", "public_procurement", "https://www.ungm.org/Public/notice", "public_web", "Qualifier les avis selon pays, échéance, expérience et codes UNSPSC. Aucun dossier n’est soumis."),
+    ("ted_eu_tender_notices", "TED — appels d’offres de l’Union européenne", "microtasks_services", "public_procurement", "https://ted.europa.eu/en/", "public_web", "Examiner CPV, lieu, échéance et critères publiés; aucune offre n’est déposée."),
 ]
 
 def list_sources(*, domain: str | None = None, query: str | None = None) -> dict[str, Any]:

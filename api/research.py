@@ -5,6 +5,7 @@ GET returns the run and its linked browser jobs. Model analysis is deliberately
 not fabricated: the worker must store an observation before a run can be analyzed.
 """
 from __future__ import annotations
+import asyncio
 import hmac
 import json
 import os
@@ -12,9 +13,11 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
-from verox_brain.source_registry import get_source
+from verox_brain.source_registry import PUBLIC_PAGE_ACCESS, get_source
+from vercel.queue import send as queue_send
 
 MAX_BODY = 8_000
+BROWSER_QUEUE_TOPIC = "verox-browser-jobs"
 ALLOWED_TASKS = {"inspect_page", "collect_public_data", "test_connector", "capture_evidence"}
 DOMAIN_ALLOWLIST = {"sports_horse_betting", "trading", "ecommerce", "microtasks_services", "communities", "public_sector"}
 
@@ -70,6 +73,11 @@ class handler(BaseHTTPRequestHandler):
             source_id = str(data.get("source_id", "")).strip()
             goal = str(data.get("goal", "")).strip()
             task_type = str(data.get("task_type", "collect_public_data")).strip()
+            if data.get("mode") == "all_public":
+                from verox_brain.research_dispatch import queue_public_source_batch
+                batch = queue_public_source_batch(SupabaseDataPlane(), limit=5, cooldown_hours=24)
+                _json(self, 202 if batch.get("queued") else 200, batch)
+                return
             if not source_id or not goal or len(goal) > 2_000:
                 _json(self, 400, {"error": "source_id et goal sont obligatoires (goal limité à 2000 caractères)."})
                 return
@@ -77,7 +85,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": "Type de mission non autorisé.", "allowed": sorted(ALLOWED_TASKS)})
                 return
             source = get_source(source_id)
-            if not source or source.get("access") not in {"web", "public_web", "web_or_api"}:
+            if not source or source.get("access") not in PUBLIC_PAGE_ACCESS:
                 _json(self, 403, {"error": "La source n'est pas autorisée pour une collecte publique."})
                 return
             domain = str(data.get("domain") or source.get("domain") or "communities")
@@ -110,6 +118,14 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "La mission navigateur n'a pas été mise en file."})
                 return
             created = jobs[0]
+            try:
+                awaitable = queue_send(BROWSER_QUEUE_TOPIC, {"job_id": str(created.get("id", ""))})
+                asyncio.run(awaitable)
+            except Exception:
+                store._request("PATCH", "verox_browser_jobs", params={"id": f"eq.{created.get('id', '')}"}, body={"status": "failed", "error": "queue_unavailable"})
+                store._request("PATCH", "verox_analysis_runs", params={"id": f"eq.{run_id}"}, body={"status": "failed", "error": "queue_unavailable"})
+                _json(self, 503, {"error": "Le worker Playwright Vercel n'a pas pu être mis en file."})
+                return
             _json(self, 202, {
                 "analysis_run_id": run_id,
                 "browser_job_id": created.get("id"),

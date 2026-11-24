@@ -14,7 +14,7 @@ import httpx
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
 from verox_brain.research_pipeline import complete_research_run
-from verox_brain.source_registry import get_source, list_sources
+from verox_brain.source_registry import PUBLIC_PAGE_ACCESS, get_source, list_sources
 
 POLL_SECONDS = 4
 MAX_JOBS_PER_CYCLE = 5
@@ -61,7 +61,7 @@ class BrowserWorker:
         registry = list_sources()
         candidates = [
             source for source in registry.get("sources", [])
-            if source.get("access") in {"web", "public_web", "web_or_api"}
+            if source.get("access") in PUBLIC_PAGE_ACCESS
         ]
         if not candidates:
             return {"queued": 0, "sources": []}
@@ -107,7 +107,7 @@ class BrowserWorker:
             status = "needs_approval" if task_type == "download_public_file" else "failed"
             self._finish(job_id, status, error="job_type_not_allowlisted", audit={"policy":"read_only", "decision":"denied"})
             return {"status":"denied", "reason":"job_type_not_allowlisted"}
-        if not source or source.get("access") not in {"web", "public_web", "web_or_api"}:
+        if not source or source.get("access") not in PUBLIC_PAGE_ACCESS:
             self._finish(job_id,"failed",error="source_not_public_allowlisted",audit={"policy":"read_only","decision":"denied"})
             return {"status":"denied","reason":"source_not_public_allowlisted"}
         target_url = str((job.get("input") or {}).get("url") or source["url"])
