@@ -1,20 +1,21 @@
-# Verox browser worker operations
+# Verox Playwright worker operations
 
-## Runtime boundary
+## Runtime on Vercel
 
-The Playwright worker runs as a short-lived GitHub Actions job, separate from Vercel's request handlers. It processes at most five queued jobs per run and exits. The workflow is scheduled every 15 minutes and can also be run manually after it is present on the repository's default branch.
+Public research requests from the chat create a Supabase analysis run and browser job, then publish its job ID to the Vercel Queue topic `verox-browser-jobs`. A Vercel Queue consumer calls the private `playwright_worker` container service through the `VEROX_PLAYWRIGHT_WORKER_URL` binding. The browser service has no public rewrite. Vercel retries delivery; job claiming is conditional on `status=queued`, so redeliveries do not run an already claimed job again.
 
-## Required GitHub Actions secrets
+The Vercel project must have Vercel Services enabled and set as its framework. The repository defines the service and binding in `vercel.json`; confirm Services access in the Vercel project before merging/deploying this migration.
 
-Configure these repository secrets under **Settings → Secrets and variables → Actions**:
+## Required Vercel environment variables
+
+Set the existing server-side values in Vercel for the `verox` service and the Playwright service:
 
 - `SUPABASE_URL`: the HTTPS URL of the Verox Supabase project.
-- `SUPABASE_SERVICE_ROLE_KEY`: the server-only Supabase service-role key for that same project.
+- `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase key used by the browser worker.
+- `GEMINI_API_KEY`: server-side Gemini API key used for analysis.
 
-The scheduled GitHub Actions workflow now makes a signed HTTPS request to the Render service at `/api/internal/read-only-research/run`. The workflow calls the configured Render URL directly. Configure the `VEROX_RENDER_WORKER_TOKEN` Actions secret and the same `VEROX_RENDER_WORKER_TOKEN` on the Render service. Gemini and Supabase credentials stay on Render; the workflow runner receives none of them. The endpoint accepts only a bounded read-only cycle and returns immediately while the worker processes it.
+No Render URL, Render worker token, or GitHub Actions secret is used for browser execution.
 
-## Platform eligibility research
+## Read-only policy
 
-The scheduled browser worker inspects only registered public HTTPS pages, without account cookies or login. It asks Gemini to extract visible eligibility, country, published payout terms, deadlines, evidence URLs, and restrictions on automation. A blocked login page remains unknown; the worker does not bypass it. Results are unverified research notes for human review, not proof of eligibility or income. Sources whose terms prohibit automated access are excluded from automated inspection.
-
-Configure VEROX_OPPORTUNITY_FEEDS on Render as a JSON array of public HTTPS RSS/Atom feeds from publishers that permit automated reading. The feed scanner enforces a feed limit and checks public World Bank procurement notices. The browser cycle also inspects registered UNGM/TED public notice pages. Tender submissions and platform applications are never automated.
+The worker only processes registered public HTTPS sources. It uses a fresh browser context with no cookies, disables JavaScript and downloads, blocks service workers, and rejects navigation outside the registered host. Login, form submission, purchases, bets, trades, messages, or other external actions are not implemented. The analysis is unverified research for human review, not proof of eligibility or income. If a platform's terms prohibit automated access, do not add it to automated sources.
