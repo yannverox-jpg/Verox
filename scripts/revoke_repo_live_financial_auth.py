@@ -49,16 +49,16 @@ ENV_KEYS = {
 }
 EXECUTION_MODE_KEY = "VEROX_EXECUTION_MODE"
 SQL_RE = re.compile(
-    r"\\b(grant|revoke|create\\s+(or\\s+replace\\s+)?function|"
-    r"security\\s+definer|execute\\s+on\\s+function|"
+    r"\b(grant|revoke|create\s+(or\s+replace\s+)?function|"
+    r"security\s+definer|execute\s+on\s+function|"
     r"financial[_ ]approval|live[_ ]trading|place_order|"
-    r"submit_order|withdraw|transfer)\\b",
+    r"submit_order|withdraw|transfer)\b",
     re.IGNORECASE,
 )
 ASSIGNMENT_RE = re.compile(
-    r"^(?P<prefix>\\s*(?:(?:export)\\s+)?[\\\"']?"
-    r"(?P<key>[A-Za-z_][A-Za-z0-9_-]*)[\\\"']?\\s*[:=]\\s*)"
-    r"(?P<value>.*?)(?P<newline>\\r?\\n)?$"
+    r"^(?P<prefix>\s*(?:(?:export)\s+)?[\\"']?"
+    r"(?P<key>[A-Za-z_][A-Za-z0-9_-]*)[\\"']?\s*[:=]\s*)"
+    r"(?P<value>.*?)(?P<newline>\r?\n)?$"
 )
 JSON_TRUE_KEYS = {key for key in LIVE_FLAG_KEYS}
 
@@ -89,8 +89,8 @@ def _line_key_value_rewrite(text: str, suffix: str) -> tuple[str, list[str]]:
         if not match:
             output.append(line)
             continue
-        key = match.group("key").strip("\\"'").lower()
-        current = match.group("value").strip().strip("\\"'").lower()
+        key = match.group("key").strip("\"'").lower()
+        current = match.group("value").strip().strip("\"'").lower()
         target: str | None = None
         if key in LIVE_FLAG_KEYS or key.upper() in ENV_KEYS:
             target = "false"
