@@ -48,14 +48,28 @@ async def _send_messages(job_ids: list[str]) -> list[tuple[str, str | None]]:
 
 
 def queue_public_source_batch(store: Any, *, limit: int = MAX_BATCH_SIZE,
-                              cooldown_hours: int = 24) -> dict[str, Any]:
+                              cooldown_hours: int = 24, domain: str | None = None,
+                              source_ids: list[str] | None = None) -> dict[str, Any]:
     """Queue due public sources in one bounded batch; expose account-only skips."""
     limit = max(1, min(int(limit), MAX_BATCH_SIZE))
     cooldown_hours = max(1, min(int(cooldown_hours), 168))
     registry = list_sources()
     all_sources = registry.get("sources", [])
-    eligible = [s for s in all_sources if s.get("access") in PUBLIC_ACCESS]
+    clean_domain = (domain or "").strip().lower()
+    if clean_domain and clean_domain not in {item["id"] for item in registry.get("domains", [])}:
+        raise ValueError("unknown_research_domain")
+    requested_ids = {str(item).strip() for item in (source_ids or []) if str(item).strip()}
+    public_sources = [s for s in all_sources if s.get("access") in PUBLIC_ACCESS]
     excluded = [s for s in all_sources if s.get("access") not in PUBLIC_ACCESS]
+    eligible = [
+        s for s in public_sources
+        if (not clean_domain or s.get("domain") == clean_domain)
+        and (not requested_ids or str(s.get("id")) in requested_ids)
+    ]
+    rejected_sources = [
+        {"id": source_id, "reason": "not_in_public_source_allowlist"}
+        for source_id in sorted(requested_ids - {str(s.get("id")) for s in eligible})
+    ]
     if not eligible:
         return {"status": "no_public_sources", "eligible_sources": 0, "queued": 0,
                 "excluded_account_sources": len(excluded), "sources": []}
@@ -74,7 +88,8 @@ def queue_public_source_batch(store: Any, *, limit: int = MAX_BATCH_SIZE,
         return {
             "status": "up_to_date", "eligible_sources": len(eligible),
             "excluded_account_sources": len(excluded), "cooldown_hours": cooldown_hours,
-            "batch_limit": limit, "queued": 0, "sources": [], "revenue_confirmed": False,
+            "batch_limit": limit, "queued": 0, "sources": [],
+            "rejected_sources": rejected_sources, "revenue_confirmed": False,
         }
 
     source_rows = [{
@@ -156,6 +171,7 @@ def queue_public_source_batch(store: Any, *, limit: int = MAX_BATCH_SIZE,
         "eligible_sources": len(eligible), "excluded_account_sources": len(excluded),
         "cooldown_hours": cooldown_hours, "batch_limit": limit,
         "queued": len(successful), "sources": successful, "failures": failure_rows,
+        "rejected_sources": rejected_sources,
         "excluded_sources": [
             {"id": str(s.get("id", "")), "name": str(s.get("name", "")),
              "access": str(s.get("access", ""))}
