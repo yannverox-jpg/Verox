@@ -211,8 +211,8 @@ function prepareDownload(app){
 }
 function navigateByVeroxCommand(q){
  const command=q.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
- const next=/\\b(page\\s+suivante|suivante|page\\s+suivant|suivant|va\\s+(a\\s+)?la\\s+page\\s+suivante|affiche\\s+la\\s+page\\s+suivante)\\b/.test(command);
- const previous=/\\b(page\\s+precedente|precedente|page\\s+precedent|precedent|page\\s+d'avant|page\\s+precedente|retourne\\s+a\\s+la\\s+page\\s+precedente|affiche\\s+la\\s+page\\s+precedente)\\b/.test(command);
+ const next=/\b(page\s+suivante|suivante|page\s+suivant|suivant|va\s+(a\s+)?la\s+page\s+suivante|affiche\s+la\s+page\s+suivante)\b/.test(command);
+ const previous=/\b(page\s+precedente|precedente|page\s+precedent|precedent|page\s+d'avant|page\s+precedente|retourne\s+a\s+la\s+page\s+precedente|affiche\s+la\s+page\s+precedente)\b/.test(command);
  if(!next&&!previous)return false;
  const visiblePages=[...document.querySelectorAll('.view[id^="page-"]')].map(el=>el.id.slice(5)).filter(id=>typeof pages!=='undefined'&&pages[id]);
  const active=document.querySelector('.view.active[id^="page-"]');
@@ -232,7 +232,7 @@ function handleDownloadCommand(raw,forced){
  const q=raw.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
  if(navigateByVeroxCommand(q))return;
  let platform=forced;
- if(platform==='auto'){if(/\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\\b/.test(q))platform='pc';else if(/\b(android|mobile|telephone|apk|termux|metatrader|mt5)\\b/.test(q))platform='android';else platform='all'}
+ if(platform==='auto'){if(/\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\b/.test(q))platform='pc';else if(/\b(android|mobile|telephone|apk|termux|metatrader|mt5)\b/.test(q))platform='android';else platform='all'}
  const terms=q.split(/[^a-z0-9]+/).filter(w=>w.length>2&&!['telecharge','telecharger','download','application','applications','android','mobile','telephone','ordinateur','desktop','windows','installer','installe','prepare','tout','toutes','tous'].includes(w));
  let list=downloadApps.filter(a=>(platform==='all'||a.platform===platform)&&(!terms.length||terms.some(w=>(a.name+' '+a.desc+' '+a.id).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(w))));
  if(!list.length)list=downloadApps.filter(a=>platform==='all'||a.platform===platform);
