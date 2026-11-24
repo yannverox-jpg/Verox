@@ -3,7 +3,7 @@ name: Verox read-only browser worker
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
 
 permissions:
   contents: read
@@ -20,6 +20,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      VEROX_OPPORTUNITY_FEEDS: ${{ vars.VEROX_OPPORTUNITY_FEEDS }}
     steps:
       - name: Check required server-side secrets
         shell: bash
@@ -31,6 +33,9 @@ jobs:
           if [[ "$SUPABASE_URL" != https://* ]]; then
             echo "::error::SUPABASE_URL must use HTTPS."
             exit 1
+          fi
+          if [[ -z "$AI_GATEWAY_API_KEY" && -z "$GEMINI_API_KEY" ]]; then
+            echo "::warning::No model credential configured; browser observations will be collected, but analyses will remain pending review. Add AI_GATEWAY_API_KEY or GEMINI_API_KEY to repository Actions secrets."
           fi
 
       - name: Check out repository
@@ -51,6 +56,9 @@ jobs:
 
       - name: Run browser worker policy tests
         run: python -m unittest discover -s tests -p "test_browser_worker.py" -v
+
+      - name: Scan and persist public revenue leads
+        run: python -m verox_brain.opportunity_worker
 
       - name: Process a bounded batch of read-only jobs
         run: python -m verox_brain.browser_worker --cycle

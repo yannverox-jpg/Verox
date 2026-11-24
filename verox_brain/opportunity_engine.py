@@ -255,7 +255,8 @@ def scan_feeds(
         )
     clean_run_id = str(run_id or "").strip()
     configured = feeds if feeds is not None else load_feeds()
-    if not configured:
+    world_bank_enabled = os.getenv("VEROX_WORLD_BANK_PROCUREMENT_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+    if not configured and not world_bank_enabled:
         return {
             "status": "not_configured",
             "sources_configured": 0,
