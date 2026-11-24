@@ -53,7 +53,7 @@ class FreeModelClientTests(unittest.TestCase):
     def test_no_provider_key_fails_closed(self):
         from unittest.mock import patch
         from verox_brain.model_client import ModelConfigurationError, generate_text
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "", "AI_GATEWAY_API_KEY": ""}, clear=False):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=True):
             with self.assertRaises(ModelConfigurationError):
                 generate_text("test prompt")
 
@@ -64,11 +64,9 @@ class FreeModelClientTests(unittest.TestCase):
     def test_no_paid_fallback_in_client(self):
         source = (ROOT / "verox_brain/model_client.py").read_text()
         self.assertIn("GEMINI_API_KEY", source)
-        self.assertIn("AI_GATEWAY_API_KEY", source)
-        self.assertIn("VERCEL_OIDC_TOKEN", source)
-        self.assertIn("VEROX_AI_GATEWAY_MODEL", source)
-        self.assertIn('os.getenv("VEROX_HF_ENABLED", "").strip().lower() != "true"', source)
-        self.assertIn('os.getenv("VEROX_POCKETPAL_ENABLED", "").strip().lower() != "true"', source)
+        self.assertNotIn("AI_GATEWAY_API_KEY", source)
+        self.assertNotIn("VERCEL_OIDC_TOKEN", source)
+        self.assertNotIn("VEROX_AI_GATEWAY_MODEL", source)
 
     def test_gemini_response_is_parsed_without_network(self):
         from unittest.mock import MagicMock, patch
@@ -80,11 +78,11 @@ class FreeModelClientTests(unittest.TestCase):
         client.__enter__.return_value = client
         client.__exit__.return_value = None
         client.post.return_value = response
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-only-not-a-real-key", "GEMINI_MODEL": "gemini-3.8-flash", "AI_GATEWAY_API_KEY": ""}, clear=False):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-only-not-a-real-key", "GEMINI_MODEL": "gemini-3.8-flash", "OBSOLETE_AI_GATEWAY_API_KEY": "must_not_be_used"}, clear=False):
             with patch("verox_brain.model_client.httpx.Client", return_value=client):
                 answer, provider, model = generate_text("test prompt", "system")
         self.assertEqual(answer, "Réponse de test")
-        self.assertEqual(provider, "google-gemini-api-fallback")
+        self.assertEqual(provider, "google-gemini-api")
         self.assertEqual(model, "gemini-3.8-flash")
         self.assertTrue(client.post.call_args.kwargs["headers"]["x-goog-api-key"].startswith("test-only"))
 
