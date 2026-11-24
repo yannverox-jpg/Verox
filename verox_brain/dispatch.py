@@ -19,8 +19,9 @@ class AgentRoute:
     requires_browser_setup: bool = False
     # Agent coordination itself never waits for a human decision.
     requires_human_approval_for_agent_handoff: bool = False
-    # Separate external side effects remain subject to their own policy guards.
-    requires_human_approval_for_side_effects: bool = True
+    # Human approval is reserved for irreversible/destructive actions and live financial execution.
+    requires_human_approval_for_destructive_actions: bool = True
+    requires_human_approval_for_financial_actions: bool = True
 
 
 ROUTES: Final[dict[str, AgentRoute]] = {
@@ -109,5 +110,6 @@ def route_status(task_type: str, configured_connectors: set[str] | None = None) 
         "connector_configured": route.connector in configured,
         "status": "configured" if route.connector in configured else "not_configured",
         "requires_human_approval_for_agent_handoff": route.requires_human_approval_for_agent_handoff,
-        "requires_human_approval_for_side_effects": route.requires_human_approval_for_side_effects,
+        "requires_human_approval_for_destructive_actions": route.requires_human_approval_for_destructive_actions,
+        "requires_human_approval_for_financial_actions": route.requires_human_approval_for_financial_actions,
     }
