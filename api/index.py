@@ -544,7 +544,7 @@ class handler(BaseHTTPRequestHandler):
             try:
                 from verox_brain.data_plane import SupabaseDataPlane
                 from verox_brain.research_dispatch import queue_public_source_batch
-                result = queue_public_source_batch(SupabaseDataPlane(), limit=25, cooldown_hours=24)
+                result = queue_public_source_batch(SupabaseDataPlane(), limit=59, cooldown_hours=24)
                 _json(self, 202 if result.get("queued") else 200, result)
             except Exception:
                 _json(self, 503, {"error": "La rotation des sources publiques a échoué; aucun revenu n'est confirmé."})
