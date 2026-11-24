@@ -218,7 +218,7 @@ def _process_inline_fallback(request: BaseHTTPRequestHandler, task_id: str, task
             _rpc("fail", task_id=task_id, error="Type de tâche non pris en charge.")
             return "blocked_task_type"
         try:
-            answer, provider, model = generate_text(prompt, SYSTEM_PROMPT, gateway_token=_gateway_token(request))
+            answer, provider, model = generate_text(prompt, SYSTEM_PROMPT)
         except (ModelConfigurationError, ModelRequestError) as exc:
             _rpc("fail", task_id=task_id, error=str(exc)[:500])
             return "failed_provider"
