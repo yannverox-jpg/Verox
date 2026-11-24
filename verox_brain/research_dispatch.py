@@ -10,7 +10,7 @@ from verox_brain.source_registry import PUBLIC_PAGE_ACCESS, list_sources
 
 BROWSER_QUEUE_TOPIC = "verox-browser-jobs"
 PUBLIC_ACCESS = PUBLIC_PAGE_ACCESS
-MAX_BATCH_SIZE = 25
+MAX_BATCH_SIZE = 59
 
 DOMAIN_GOALS = {
     "microtasks_services": (
