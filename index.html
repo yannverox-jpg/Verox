@@ -280,6 +280,51 @@ $('#runDiagnostics').addEventListener('click',diagnostics);
 $('#refreshConnectors').addEventListener('click',async()=>{const el=$('#remoteConnectors');el.innerHTML='<div class="card muted tiny">Lecture du registre distant…</div>';try{const r=await fetch('/api/connectors',{cache:'no-store'}),d=await r.json();if(!r.ok)throw new Error(d.error||'HTTP '+r.status);el.innerHTML=(d.connectors||[]).map(c=>'<div class="card"><h3>'+esc(c.connector_id)+'</h3><div class="statusline"><span class="tag">'+esc(c.status)+'</span><span class="tag">'+esc(c.permission_profile)+'</span></div><p class="tiny muted">'+esc((c.capabilities||[]).join(', '))+'</p></div>').join('')||'<div class="card muted tiny">Le registre ne contient aucun connecteur.</div>'}catch(e){el.innerHTML='<div class="card muted tiny">Registre distant indisponible : '+esc(e.message)+'. Les ajouts locaux ne sont pas des connexions persistantes.</div>'}});
 $('#loadSources').addEventListener('click',async()=>{const el=$('#opportunityResults');el.innerHTML='<div class="card muted tiny">Chargement du catalogue de sources…</div>';try{const r=await fetch('/api/sources',{cache:'no-store'}),d=await r.json();if(!r.ok)throw new Error(d.error||'HTTP '+r.status);const list=Array.isArray(d)?d:(d.sources||[]);el.innerHTML=list.slice(0,30).map(s=>'<div class="card"><h3>'+esc(s.name||s.source_id||s.id||'Source')+'</h3><p class="tiny muted">'+esc(s.domain||s.description||'Source publique enregistrée')+'</p></div>').join('')||'<div class="card muted tiny">Aucune source retournée.</div>'}catch(e){el.innerHTML='<div class="card muted tiny">Catalogue de sources indisponible : '+esc(e.message)+'</div>'}});
 
+async function loadPublicOpportunities(){
+ const el=$('#publicOpportunityResults');if(!el)return;
+ el.innerHTML='<div class="card muted tiny">Chargement des pistes persistées…</div>';
+ try{
+  const r=await fetch('/api/opportunities/public',{cache:'no-store'}),d=await r.json();
+  if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
+  const rows=d.opportunities||[];
+  el.innerHTML=rows.map(x=>'<article class="card"><h3>'+esc(x.title||'Piste sans titre')+'</h3><p class="tiny muted">'+esc(x.source_name||'Source')+' · '+esc(x.status||'detected_unverified')+' · score '+esc(x.score||0)+'</p><p class="tiny">'+esc(x.summary||'')+'</p>'+(x.published_at?'<p class="tiny muted">Publié : '+esc(x.published_at)+'</p>':'')+(x.source_url?'<a class="btn" href="'+esc(safeUrl(x.source_url))+'" target="_blank" rel="noopener noreferrer">Vérifier la source ↗</a>':'')+'</article>').join('')||'<div class="card muted tiny">Aucune piste persistée.</div>';
+ }catch(e){el.innerHTML='<div class="card muted tiny">Pistes indisponibles : '+esc(e.message)+'</div>'}
+}
+async function loadResearchSources(){
+ const select=$('#researchSource');if(!select)return;
+ try{
+  const r=await fetch('/api/sources',{cache:'no-store'}),d=await r.json();
+  if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
+  const rows=(d.sources||[]).filter(s=>['web','public_web','web_or_api'].includes(s.access));
+  select.innerHTML='<option value="">Choisir une source publique</option>'+rows.map(s=>'<option value="'+esc(s.id)+'" data-domain="'+esc(s.domain)+'">'+esc(s.name)+' · '+esc(s.domain)+'</option>').join('');
+ }catch(e){select.innerHTML='<option value="">Sources indisponibles</option>';$('#browserResearchStatus').textContent='Sources indisponibles : '+e.message}
+}
+async function startBrowserResearch(){
+ const source=$('#researchSource').value,goal=$('#researchGoal').value.trim(),status=$('#browserResearchStatus');
+ if(!source||!goal){status.textContent='Choisissez une source et saisissez une question.';return}
+ status.textContent='Envoi de la collecte en lecture seule…';
+ try{
+  const selected=$('#researchSource').selectedOptions[0];
+  const r=await fetch('/api/research',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({source_id:source,goal,task_type:'collect_public_data',domain:selected.dataset.domain})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
+  localStorage.setItem('verox.researchRunId',d.analysis_run_id);
+  status.textContent='Collecte mise en file · '+d.browser_job_id+' · en attente du prochain cycle du worker.';
+ }catch(e){status.textContent='Collecte non créée : '+e.message+' Si le verrou OTP apparaît, authentifiez-vous puis relancez.'}
+}
+async function refreshBrowserResearch(){
+ const status=$('#browserResearchStatus'),id=localStorage.getItem('verox.researchRunId');
+ if(!id){status.textContent='Aucune analyse de cette session à actualiser.';return}
+ try{
+  const r=await fetch('/api/research?id='+encodeURIComponent(id),{cache:'no-store',credentials:'same-origin'}),d=await r.json();
+  if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
+  const job=(d.browser_jobs||[])[0]||{},analysis=d.analysis||{};
+  status.textContent='Collecte : '+(job.status||'inconnue')+' · analyse : '+(analysis.status||'en attente')+(analysis.model_provider?' · modèle : '+analysis.model_provider+' / '+analysis.model_name:'')+(analysis.error?' · '+analysis.error:'');
+ }catch(e){status.textContent='Statut indisponible : '+e.message}
+}
+$('#loadOpportunities').addEventListener('click',loadPublicOpportunities);
+$('#startBrowserResearch').addEventListener('click',startBrowserResearch);
+$('#refreshBrowserResearch').addEventListener('click',refreshBrowserResearch);
+
 let financialConfig=null;
 const financialTokenKey='verox.owner.otp_session';
 function financialToken(){return ''}
