@@ -15,31 +15,25 @@ concurrency:
 jobs:
   trigger-render-worker:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Validate trigger configuration
+      - name: Validate trigger secret
         env:
-          RENDER_WORKER_URL: ${{ vars.VEROX_RENDER_WORKER_URL }}
           RENDER_WORKER_TOKEN: ${{ secrets.VEROX_RENDER_WORKER_TOKEN }}
         shell: bash
         run: |
-          if [[ -z "$RENDER_WORKER_URL" || -z "$RENDER_WORKER_TOKEN" ]]; then
-            echo "::error::Configure the VEROX_RENDER_WORKER_URL repository variable and VEROX_RENDER_WORKER_TOKEN Actions secret."
-            exit 1
-          fi
-          if [[ "$RENDER_WORKER_URL" != https://* ]]; then
-            echo "::error::VEROX_RENDER_WORKER_URL must use HTTPS."
+          if [[ -z "$RENDER_WORKER_TOKEN" || ${#RENDER_WORKER_TOKEN} -lt 32 ]]; then
+            echo "::error::Configure VEROX_RENDER_WORKER_TOKEN (at least 32 characters) in GitHub Actions and Render."
             exit 1
           fi
       - name: Trigger bounded read-only research cycle on Render
         env:
-          RENDER_WORKER_URL: ${{ vars.VEROX_RENDER_WORKER_URL }}
           RENDER_WORKER_TOKEN: ${{ secrets.VEROX_RENDER_WORKER_TOKEN }}
         shell: bash
         run: |
           curl --fail-with-body --silent --show-error \
-            --max-time 30 \
+            --max-time 120 \
             --request POST \
             --header "Authorization: Bearer $RENDER_WORKER_TOKEN" \
             --header "Content-Length: 0" \
-            "$RENDER_WORKER_URL/api/internal/read-only-research/run"
+            "https://verox-juqt.onrender.com/api/internal/read-only-research/run"
