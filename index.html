@@ -238,6 +238,36 @@ function addArchitectureBridgePanel(){
  document.body.insertBefore(panel,document.body.firstChild);
  panel.querySelectorAll('[data-architecture-direction]').forEach(button=>button.addEventListener('click',()=>sendArchitectureMessage(button.dataset.architectureDirection,button.dataset.architectureDirection==='horizontal'?'brain':'')));
 }
+function addStealthNavigatorPanel(){
+ if(document.querySelector('#stealthNavigatorPanel'))return;
+ const panel=document.createElement('section');
+ panel.id='stealthNavigatorPanel';
+ panel.className='card';
+ panel.style.cssText='margin:12px;padding:14px';
+ panel.innerHTML='<h2 style="margin:0 0 8px;font-size:16px">Cerveau cognitif · Navigation Playwright</h2><p class="tiny muted">Configurez la page cible et, si nécessaire, un sélecteur de bouton. Le navigateur doit être exécuté côté worker, jamais dans le navigateur du visiteur.</p><div class="field"><label for="stealthTargetUrl">URL cible (VEROX_INDEX_URL)</label><input id="stealthTargetUrl" type="url" maxlength="2048" value="https://verox-brain.vercel.app/" placeholder="https://…"></div><div class="field"><label for="stealthSelector">Sélecteur CSS facultatif</label><input id="stealthSelector" maxlength="300" placeholder="#mon-bouton ou [data-action=\\"ouvrir\\"]"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="stealthInspect">Inspecter la cible</button><button class="btn primary" type="button" id="stealthNavigate">Inspecter puis cliquer</button></div><p id="stealthNavigatorStatus" class="tiny muted" role="status" aria-live="polite">Interface prête. L’exécution nécessite la route serveur /api/browser/stealth/navigate.</p><pre id="stealthNavigatorResult" class="tiny muted" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>';
+ const main=document.querySelector('main');
+ if(main)main.prepend(panel);else document.body.prepend(panel);
+ const run=async clickSelector=>{
+  const status=panel.querySelector('#stealthNavigatorStatus'),out=panel.querySelector('#stealthNavigatorResult');
+  const url=panel.querySelector('#stealthTargetUrl').value.trim(),selector=panel.querySelector('#stealthSelector').value.trim();
+  if(!url){status.textContent='Indiquez une URL cible.';return}
+  let parsed;try{parsed=new URL(url)}catch{status.textContent='URL invalide.';return}
+  if(!['https:','http:','file:'].includes(parsed.protocol)){status.textContent='Protocole non autorisé dans l’interface.';return}
+  status.textContent='Envoi de la demande au cerveau…';out.textContent='';
+  const buttons=panel.querySelectorAll('button');buttons.forEach(b=>b.disabled=true);
+  try{
+   const response=await fetch('/api/browser/stealth/navigate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({url,selector:clickSelector?selector:'',action:clickSelector&&selector?'inspect_and_click':'inspect',source:'index.html'})});
+   const data=await response.json().catch(()=>({error:'Réponse serveur non JSON'}));
+   if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+   status.textContent='Navigation terminée · résultat reçu.';
+   out.textContent=JSON.stringify(data,null,2).slice(0,8000);
+  }catch(error){
+   status.textContent='Navigation non exécutée : '+error.message+'. Vérifiez que le backend/worker expose /api/browser/stealth/navigate.';
+  }finally{buttons.forEach(b=>b.disabled=false)}
+ };
+ panel.querySelector('#stealthInspect').addEventListener('click',()=>run(false));
+ panel.querySelector('#stealthNavigate').addEventListener('click',()=>run(true));
+}
 function addServerRouteButtons(){
  const routeMap={
   'monetly':'monetly','metatrader 5':'mt5','1xbet':'1xbet','tradingview':'tradingview','oanda':'oanda','fxpro':'fxpro',
@@ -265,5 +295,5 @@ function addServerRouteButtons(){
 }
 async function loadIntegrationStatus(){try{const r=await fetch('/api/integrations',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();for(const item of d.items||[]){const el=document.querySelector('[data-integration-status="'+CSS.escape(item.id)+'"]');if(el)el.textContent=item.credential_configured?'Variable serveur détectée — test fournisseur non effectué.':(item.mode==='manual_only'?'Ouverture manuelle uniquement.':'Aucune variable reconnue détectée — connexion non vérifiée.')}const g=$('#googleOAuthStatus');if(g)g.textContent=d.google_oauth_configured?'Variables OAuth Google présentes ; flux de connexion à tester.':'OAuth Google non configuré ou variables non reconnues. Google Authenticator (OTP) est distinct de Google OAuth.';const b=$('#browserBridgeStatus');if(b)b.textContent=d.browser_bridge_configured?'Jeton du pont présent côté serveur ; test Playwright séparé requis.':'VEROX_BROWSER_BRIDGE_TOKEN absent ou nom de variable différent.'}catch(e){for(const el of $('[data-integration-status]'))el.textContent='État serveur indisponible (connexion/OTP requise).';const g=$('#googleOAuthStatus');if(g)g.textContent='État OAuth indisponible : authentifiez-vous puis réessayez.'}}
 $('#privateModeHelp')?.addEventListener('click',()=>alert('Sur Android : ouvrez le menu ⋮ de Chrome puis choisissez « Nouvel onglet privé ». Une page web ne peut pas forcer ce mode.'));
-renderCatalogs();addServerRouteButtons();addArchitectureBridgePanel();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
+renderCatalogs();addServerRouteButtons();addArchitectureBridgePanel();addStealthNavigatorPanel();loadSettings();(async()=>{const valid=await validateOwnerSession();setGate(valid);if(valid){await initFinancialApprovals();await loadIntegrationStatus()}})();health();setInterval(health,60000);$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC';addEventListener('resize',()=>$('#viewportTag').textContent=innerWidth<=780?'Format Android / mobile':'Format PC');
 </script></body></html>
