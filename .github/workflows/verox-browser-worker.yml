@@ -20,6 +20,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - name: Check required server-side secrets
         shell: bash
@@ -31,6 +32,9 @@ jobs:
           if [[ "$SUPABASE_URL" != https://* ]]; then
             echo "::error::SUPABASE_URL must use HTTPS."
             exit 1
+          fi
+          if [[ -z "$AI_GATEWAY_API_KEY" && -z "$GEMINI_API_KEY" ]]; then
+            echo "::warning::No model credential configured; browser observations will be collected, but analyses will remain pending review. Add AI_GATEWAY_API_KEY or GEMINI_API_KEY to repository Actions secrets."
           fi
 
       - name: Check out repository
