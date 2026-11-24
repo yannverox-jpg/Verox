@@ -11,6 +11,8 @@ Configure these repository secrets under **Settings â†’ Secrets and variables â†
 - `SUPABASE_URL`: the HTTPS URL of the Verox Supabase project.
 - `SUPABASE_SERVICE_ROLE_KEY`: the server-only Supabase service-role key for that same project.
 
+For the model analysis stage, add `AI_GATEWAY_API_KEY` as a GitHub Actions secret. The browser worker runs in GitHub Actions, so it does not receive the request-scoped `x-vercel-oidc-token` that exists inside a Vercel request. Keep the Gateway key server-side. If this secret is absent, collection can still save observations, but model analysis stays unavailable and the run remains needs_review; do not count it as an analyzed result.
+
 Never place either value in source code, workflow YAML, issue comments, logs, or browser output. The workflow checks only whether they exist and whether the URL uses HTTPS; it never prints their values.
 
 The protected Vercel endpoint `/api/browser/jobs` also uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server, plus `VEROX_INTERNAL_TASK_TOKEN` for caller authentication. These are server-side variables, not `NEXT_PUBLIC_*` values. The currently inspected Vercel project had no non-empty `SUPABASE_SERVICE_ROLE_KEY` entry, so queue creation will remain unavailable until an authorized administrator configures it.
