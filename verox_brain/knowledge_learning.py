@@ -300,3 +300,83 @@ def ingest_learning_source(args: dict[str, Any], store: Any | None = None) -> di
         "credentials_used": False,
         "code_executed": False,
     }
+
+
+ALLOWED_ASSESSMENT_TOPICS = {
+    "automation", "account_sharing", "rate_limits", "commercial_use",
+    "access_control", "data_use", "api_terms", "license", "payments", "other",
+}
+
+
+def record_learning_assessment(args: dict[str, Any], store: Any | None = None) -> dict[str, Any]:
+    """Persist an evidence-linked AI assessment as unverified learning, never policy approval."""
+    resource_id = str(args.get("resource_id", "")).strip()
+    resource = LEARNING_SOURCES.get(resource_id)
+    if not resource:
+        raise ValueError("unknown_learning_source")
+    summary = str(args.get("summary", "")).strip()
+    clauses = args.get("clauses")
+    if not summary or len(summary) > 3000 or not isinstance(clauses, list) or len(clauses) > 20:
+        raise ValueError("assessment_requires_summary_and_at_most_twenty_clauses")
+    normalized = []
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            raise ValueError("clause_must_be_object")
+        topic = str(clause.get("topic", "other")).strip().lower()
+        confidence = clause.get("confidence", 0.0)
+        if topic not in ALLOWED_ASSESSMENT_TOPICS or isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+            raise ValueError("clause_topic_or_confidence_invalid")
+        finding = str(clause.get("finding", "")).strip()
+        evidence = str(clause.get("evidence_excerpt", "")).strip()
+        if not finding or not evidence or len(finding) > 1000 or len(evidence) > 600:
+            raise ValueError("clause_requires_bounded_finding_and_evidence_excerpt")
+        normalized.append({
+            "topic": topic,
+            "finding": finding,
+            "evidence_excerpt": evidence,
+            "confidence": float(confidence),
+        })
+    if store is None:
+        store = SupabaseDataPlane()
+    source_id = f"learning-ref-{resource_id}"
+    current = store._request(
+        "GET", "verox_sources",
+        params={"source_id": f"eq.{source_id}", "select": "source_id,metadata", "limit": "1"},
+    ) or []
+    metadata = current[0].get("metadata") if current and isinstance(current[0].get("metadata"), dict) else {}
+    assessment = {
+        "resource_id": resource_id,
+        "source_url": resource["url"],
+        "terms_url": resource["terms_url"],
+        "summary": summary,
+        "clauses": normalized,
+        "assessed_at": datetime.now(timezone.utc).isoformat(),
+        "status": "ai_assessment_unverified",
+        "policy_approval": False,
+    }
+    metadata["learning_assessment"] = assessment
+    updated_at = datetime.now(timezone.utc).isoformat()
+    store._request(
+        "POST", "verox_sources",
+        params={"on_conflict": "source_id"},
+        body=[{
+            "source_id": source_id,
+            "domain": "communities",
+            "name": resource["name"],
+            "canonical_url": resource["url"],
+            "source_kind": "learning_reference",
+            "access_mode": "public_documentation" if resource["fetch_enabled"] else "manual_reference_only",
+            "status": "assessment",
+            "trust_level": "unverified",
+            "enabled": False,
+            "metadata": metadata,
+            "updated_at": updated_at,
+        }],
+        prefer="resolution=merge-duplicates,return=minimal",
+    )
+    return {
+        "status": "assessment_saved_unverified",
+        "resource_id": resource_id,
+        "clause_count": len(normalized),
+        "policy_approval": False,
+    }
