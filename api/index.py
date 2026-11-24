@@ -24,7 +24,7 @@ from vercel.queue import send as queue_send
 
 MAX_BODY_BYTES = 32_000
 QUEUE_TOPIC = "verox-agent-tasks"
-TASK_TYPES = {"analysis", "research", "chat", "code_review"}
+TASK_TYPES = {"analysis", "research", "chat", "code_review", "browser_navigation"}
 BASE_SYSTEM_PROMPT = (
     "Tu es Verox, agent de recherche et de travail fiable. Réponds en français si l'utilisateur écrit en français. "
     "Distingue les faits vérifiés, les hypothèses et les recommandations. Protège les données privées. Ne prétends jamais "
@@ -139,10 +139,16 @@ def _public_task_status(task: dict) -> dict:
     result = task.get("result")
     safe_result: dict = {}
     if isinstance(result, dict):
-        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type"):
+        for key in ("answer", "summary", "provider", "model", "execution_mode", "task_type", "url", "title", "webdriver_hidden", "action_status"):
             value = result.get(key)
             if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 20_000:
                 safe_result[key] = value
+        labels = result.get("labels")
+        if isinstance(labels, list):
+            safe_result["labels"] = [str(item)[:240] for item in labels[:80] if isinstance(item, str)]
+        after_click = result.get("after_click")
+        if isinstance(after_click, dict):
+            safe_result["after_click"] = {key: str(after_click[key])[:2000] for key in ("url", "title") if isinstance(after_click.get(key), str)}
         evidence = result.get("evidence")
         if isinstance(evidence, list):
             safe_evidence = []
@@ -761,6 +767,51 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 _json(self, 503, {"error": "L'approbation n'a pas pu être confirmée."})
             return
+        if path == "/api/browser/stealth/navigate":
+            try:
+                payload = _read_json(self)
+            except (ValueError, json.JSONDecodeError):
+                _json(self, 400, {"error": "Corps JSON invalide ou trop volumineux."})
+                return
+            target = str(payload.get("url", "")).strip()
+            selector = str(payload.get("selector", "")).strip()
+            action = str(payload.get("action", "inspect")).strip()
+            if len(target) > 2048 or len(selector) > 300 or action not in {"inspect", "inspect_and_click"}:
+                _json(self, 400, {"error": "Paramètres de navigation invalides."})
+                return
+            try:
+                from urllib.parse import urlsplit
+                parsed = urlsplit(target)
+                configured_target = os.getenv("VEROX_INDEX_URL", "https://verox-brain.vercel.app/").strip()
+                allowed_hosts = {"verox-brain.vercel.app"}
+                configured_host = urlsplit(configured_target).hostname
+                if configured_host:
+                    allowed_hosts.add(configured_host.lower())
+                if (parsed.scheme not in {"https", "http"} or not parsed.hostname
+                        or parsed.username or parsed.password or parsed.hostname.lower() not in allowed_hosts):
+                    _json(self, 403, {"error": "La navigation est limitée à l'hôte de l'interface Verox configuré."})
+                    return
+                if action == "inspect_and_click" and not selector:
+                    _json(self, 400, {"error": "Un sélecteur CSS est requis pour le clic."})
+                    return
+                stored_payload = {
+                    "url": target, "selector": selector if action == "inspect_and_click" else "",
+                    "action": action, "source": "index.html", "user_initiated": True,
+                }
+                task = _rpc("create", task_type="browser_navigation", payload=stored_payload)
+                task_id = str(task["id"])
+                message_id = asyncio.run(queue_send(QUEUE_TOPIC, {"task_id": task_id}))
+                _json(self, 202, {
+                    "id": task_id, "status": "queued", "task_type": "browser_navigation",
+                    "queue_message_id": message_id, "execution_mode": "queued",
+                    "status_url": f"/api/tasks/{task_id}",
+                })
+            except httpx.HTTPStatusError:
+                _json(self, 503, {"error": "Le stockage de la tâche de navigation est indisponible."})
+            except Exception:
+                _json(self, 503, {"error": "Impossible de placer la navigation dans la file durable."})
+            return
+
         if path == "/api/tasks":
             try:
                 payload = _read_json(self)
