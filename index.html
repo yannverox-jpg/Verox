@@ -210,11 +210,11 @@ function prepareDownload(app){
  logDownload('Action préparée pour '+app.name+' ('+app.platform+'). Aucun téléchargement lancé automatiquement.');
 }
 function handleDownloadCommand(raw,forced){
- const q=raw.toLocaleLowerCase('fr').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+ const q=raw.toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
  let platform=forced;
- if(platform==='auto'){if(/\\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\\b/.test(q))platform='pc';else if(/\\b(android|mobile|telephone|apk|termux|metatrader|mt5)\\b/.test(q))platform='android';else platform='all'}
+ if(platform==='auto'){if(/\b(pc|windows|ordinateur|desktop|python|vscode|visual studio|git)\\b/.test(q))platform='pc';else if(/\b(android|mobile|telephone|apk|termux|metatrader|mt5)\\b/.test(q))platform='android';else platform='all'}
  const terms=q.split(/[^a-z0-9]+/).filter(w=>w.length>2&&!['telecharge','telecharger','download','application','applications','android','mobile','telephone','ordinateur','desktop','windows','installer','installe','prepare','tout','toutes','tous'].includes(w));
- let list=downloadApps.filter(a=>(platform==='all'||a.platform===platform)&&(!terms.length||terms.some(w=>(a.name+' '+a.desc+' '+a.id).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').includes(w))));
+ let list=downloadApps.filter(a=>(platform==='all'||a.platform===platform)&&(!terms.length||terms.some(w=>(a.name+' '+a.desc+' '+a.id).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(w))));
  if(!list.length)list=downloadApps.filter(a=>platform==='all'||a.platform===platform);
  if(!list.length){logDownload('Aucune application disponible pour cette commande.');return}
  downloadFilter=platform;renderDownloadApps();prepareDownload(list[0]);
