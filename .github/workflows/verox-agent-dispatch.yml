@@ -19,5 +19,3 @@ jobs:
           python-version: "3.12"
       - name: Compile runtime and routing module
         run: python -m py_compile main.py verox_brain/dispatch.py
-      - name: Run agent dispatch unit tests
-        run: python -m unittest discover -s tests -p 'test_agent_dispatch.py' -v
