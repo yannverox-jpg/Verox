@@ -1747,3 +1747,121 @@ if __name__ == "__main__":
         asyncio.run(run_server())
     else:
         asyncio.run(run_worker())
+
+// =============================================================================
+// API ASGI centrale — transition contrôlée vers main.py
+// Le runtime cognitif/worker historique ci-dessus est conservé.
+// =============================================================================
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from typing import Literal
+
+BASE_DIR = Path(__file__).resolve().parent
+INDEX_HTML = BASE_DIR / "index.html"
+app = FastAPI(title="Verox — backend central", version="1.0.0")
+
+_ARCH_STATE: Dict[str, Any] = {
+    "entered": False,
+    "current_node": None,
+    "scroll_offset": 0,
+    "last_direction": None,
+    "platform": "android",
+}
+
+class _ArchitectureEnter(BaseModel):
+    node: str = Field(default="architecture_root", min_length=1, max_length=120)
+    platform: str = Field(default="android", max_length=40)
+    source: str = Field(default="index.html", max_length=80)
+
+class _ArchitectureExit(BaseModel):
+    from_node: Optional[str] = Field(default=None, max_length=120)
+    platform: str = Field(default="android", max_length=40)
+    source: str = Field(default="index.html", max_length=80)
+
+class _ArchitectureScroll(BaseModel):
+    direction: Literal["up", "down"]
+    delta: int = Field(default=240, ge=0, le=100000)
+    offset: Optional[int] = Field(default=None, ge=0, le=10000000)
+    platform: str = Field(default="android", max_length=40)
+    source: str = Field(default="index.html", max_length=80)
+
+class _ChatPayload(BaseModel):
+    message: str = Field(..., min_length=1, max_length=20000)
+    platform: str = Field(default="android", max_length=40)
+    architecture_entered: bool = False
+    selected_node: Optional[str] = Field(default=None, max_length=120)
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+async def _serve_verox_frontend():
+    if not INDEX_HTML.is_file():
+        raise HTTPException(status_code=404, detail="index.html introuvable")
+    return FileResponse(str(INDEX_HTML), media_type="text/html; charset=utf-8")
+
+@app.get("/api/health")
+async def _verox_health():
+    return {
+        "status": "ok",
+        "service": "verox-main",
+        "frontend": "index.html",
+        "frontend_exists": INDEX_HTML.is_file(),
+        "architecture": dict(_ARCH_STATE),
+        "brain_class_available": "CognitiveBrain" in globals(),
+    }
+
+@app.post("/api/architecture/enter")
+async def _architecture_enter(payload: _ArchitectureEnter):
+    _ARCH_STATE.update(entered=True, current_node=payload.node, platform=payload.platform)
+    return {"ok": True, "route": "/api/architecture/enter", "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/exit")
+async def _architecture_exit(payload: _ArchitectureExit):
+    previous = _ARCH_STATE["current_node"] or payload.from_node
+    _ARCH_STATE.update(entered=False, current_node=None, platform=payload.platform)
+    return {"ok": True, "route": "/api/architecture/exit", "previous_node": previous, "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/scroll")
+async def _architecture_scroll(payload: _ArchitectureScroll):
+    current = int(_ARCH_STATE["scroll_offset"])
+    if payload.offset is not None:
+        current = payload.offset
+    else:
+        current = max(0, current + (payload.delta if payload.direction == "down" else -payload.delta))
+    _ARCH_STATE.update(scroll_offset=current, last_direction=payload.direction, platform=payload.platform)
+    return {"ok": True, "route": "/api/architecture/scroll", "direction": payload.direction, "delta": payload.delta, "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/upstream")
+async def _architecture_upstream(payload: Dict[str, Any]):
+    _ARCH_STATE["last_direction"] = "upstream"
+    return {"ok": True, "route": "/api/architecture/upstream", "direction": "upstream", "source": "index.html", "target": str(payload.get("target") or "backend"), "correlation_id": str(uuid.uuid4()), "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/downstream")
+async def _architecture_downstream(payload: Dict[str, Any]):
+    _ARCH_STATE["last_direction"] = "downstream"
+    return {"ok": True, "route": "/api/architecture/downstream", "direction": "downstream", "source": "backend", "target": str(payload.get("target") or "index.html"), "correlation_id": str(uuid.uuid4()), "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/horizontal")
+async def _architecture_horizontal(payload: Dict[str, Any]):
+    _ARCH_STATE["last_direction"] = "horizontal"
+    return {"ok": True, "route": "/api/architecture/horizontal", "direction": "horizontal", "source": "backend", "target": str(payload.get("target") or "brain"), "correlation_id": str(uuid.uuid4()), "state": dict(_ARCH_STATE)}
+
+@app.post("/api/architecture/back")
+async def _architecture_back(payload: Dict[str, Any]):
+    previous = _ARCH_STATE["current_node"]
+    _ARCH_STATE.update(entered=False, current_node=None, last_direction="back")
+    return {"ok": True, "route": "/api/architecture/back", "direction": "back", "source": "index.html", "target": "previous", "previous_node": previous, "correlation_id": str(uuid.uuid4()), "state": dict(_ARCH_STATE)}
+
+@app.post("/api/chat")
+async def _verox_chat(payload: _ChatPayload):
+    # Réutilise le moteur cognitif déjà présent dans ce fichier, sans import circulaire.
+    try:
+        brain = CognitiveBrain()
+        reply = await brain.ask_gemini(payload.message, [])
+    except Exception:
+        logger.exception("Échec du traitement du chat par le cerveau cognitif")
+        reply = None
+    if not reply:
+        raise HTTPException(status_code=503, detail="Le cerveau n'a pas pu produire de réponse. Vérifiez la configuration du fournisseur côté serveur.")
+    return {"ok": True, "route": "/api/chat", "reply": reply, "architecture": dict(_ARCH_STATE)}
+

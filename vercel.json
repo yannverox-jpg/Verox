@@ -3,6 +3,18 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/main.py"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/main.py"
+    },
+    {
+      "source": "/api/architecture/:path*",
+      "destination": "/main.py"
+    },
+    {
       "source": "/api/connectors",
       "destination": "/api/connectors.py"
     },
@@ -15,12 +27,16 @@
       "destination": "/api/research.py"
     },
     {
-      "source": "/api/:path*",
-      "destination": "/api/index.py"
+      "source": "/index.html",
+      "destination": "/main.py"
     },
     {
       "source": "/",
-      "destination": "/index.html"
+      "destination": "/main.py"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index.py"
     }
   ],
   "crons": [
