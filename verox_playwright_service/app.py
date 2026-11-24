@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -30,7 +31,7 @@ def _run(job_id: str) -> dict:
     ) or []
     if not jobs:
         return {"status": "already_claimed_or_missing"}
-    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     claimed = worker._rest(
         "PATCH",
         "verox_browser_jobs",
