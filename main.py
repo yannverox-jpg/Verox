@@ -722,7 +722,29 @@ class CognitiveBrain:
             except Exception:
                 logger.exception("[Supabase] Échec de l'archivage dans nexus_memory.")
 
-    async def run(self, user_query: str, user_email: str = "", provider_filter: Optional[str] = None):
+    async def run(self, user_query: str, user_email: str = "", provider_filter: Optional[str] = None, event_callback=None):
+        async def run_tool(tool_name, awaitable):
+            """Record actual invocation boundaries; no event is emitted unless the tool is called."""
+            async def emit(event_type, severity, message, details):
+                if event_callback is not None:
+                    try:
+                        await event_callback(event_type, severity, message, details)
+                    except Exception as journal_exc:
+                        logger.warning("Tool event callback failed tool=%s (%s)", tool_name, type(journal_exc).__name__)
+            await emit("tool_call_started", "info", f"Appel réel de l’outil : {tool_name}", {"tool": tool_name, "phase": "started"})
+            try:
+                result = await awaitable
+            except Exception as tool_exc:
+                await emit("tool_call_failed", "error", f"Échec réel de l’outil : {tool_name}", {"tool": tool_name, "phase": "failed", "error_type": type(tool_exc).__name__})
+                raise
+            details = {"tool": tool_name, "phase": "completed"}
+            if isinstance(result, (list, tuple, set)):
+                details["result_count"] = len(result)
+            elif isinstance(result, dict):
+                details["result_fields"] = len(result)
+            await emit("tool_call_succeeded", "info", f"Retour réel de l’outil : {tool_name}", details)
+            return result
+
         strategy_id, strategy_description = self.drive.choose_strategy(user_query)
         self.store.remember("user_request", user_query, {"strategy": strategy_id, "description": strategy_description})
         print("\n" + "="*65)
@@ -730,7 +752,7 @@ class CognitiveBrain:
         print("="*65)
 
         # 1. Contrôle de la contrainte de géolocalisation fixe
-        net_status = await self.gateway.verify_exit_ip()
+        net_status = await run_tool("NetworkGateway.verify_exit_ip", self.gateway.verify_exit_ip())
 
         # 2. Compréhension des contraintes de la requête
         constraints = self.analyzer.evaluate_constraints(user_query)
@@ -740,12 +762,12 @@ class CognitiveBrain:
         async with self.gateway.get_http_client() as client:
             tasks = []
             if constraints["use_academic_apis"]:
-                tasks.append(self.hub.fetch_openalex(client, user_query))
-                tasks.append(self.hub.fetch_arxiv(client, user_query))
+                tasks.append(run_tool("OpenAlex.fetch_openalex", self.hub.fetch_openalex(client, user_query)))
+                tasks.append(run_tool("arXiv.fetch_arxiv", self.hub.fetch_arxiv(client, user_query)))
             if constraints["use_osint_connectors"]:
-                tasks.append(self.hub.fetch_osint4all_and_threat(client, user_query))
+                tasks.append(run_tool("AlienVaultOTX.fetch_osint4all_and_threat", self.hub.fetch_osint4all_and_threat(client, user_query)))
             if constraints.get("use_model_catalog"):
-                tasks.append(self.hub.fetch_huggingface_models(client, user_query))
+                tasks.append(run_tool("HuggingFace.fetch_huggingface_models", self.hub.fetch_huggingface_models(client, user_query)))
 
             if tasks:
                 batches = await asyncio.gather(*tasks, return_exceptions=True)
@@ -757,10 +779,13 @@ class CognitiveBrain:
         await asyncio.sleep(constraints["rate_limit_delay"])
 
         if constraints["use_stealth_browser"]:
-            web_results = await self.hub.fetch_stealth_web_interfaces(user_query)
+            web_results = await run_tool("PlaywrightStealth.fetch_stealth_web_interfaces", self.hub.fetch_stealth_web_interfaces(user_query))
             raw_evidence.extend(web_results)
 
-        raw_evidence.extend(await self.hub.fetch_web_llm_interfaces(user_query, user_email, provider_filter=provider_filter))
+        raw_evidence.extend(await run_tool(
+            "BrowserLLM.fetch_web_llm_interfaces",
+            self.hub.fetch_web_llm_interfaces(user_query, user_email, provider_filter=provider_filter),
+        ))
 
         # 4. Filtrage et dédoublonnage strict
         unique_evidence = []
@@ -774,7 +799,7 @@ class CognitiveBrain:
         # 5. Secours Gemini : uniquement si les connecteurs n'ont fourni aucune preuve exploitable.
         # Gemini ne reçoit jamais le droit d'exécuter arbitrairement du code ou de manipuler des secrets.
         if not unique_evidence:
-            fallback_answer = await self.ask_gemini(user_query, [])
+            fallback_answer = await run_tool("GeminiFallback.ask_gemini", self.ask_gemini(user_query, []))
             if fallback_answer:
                 unique_evidence = [{
                     "connector": "Gemini fallback",
@@ -1056,7 +1081,15 @@ async def run_worker(worker_id: int = 0):
                             "brain_started", "info", "Le cerveau cognitif commence le traitement réel.",
                             {"task_type": task_type, "provider_filter": provider_filter},
                         )
-                        evidence = await brain.run(query, email, provider_filter=provider_filter)
+                        async def emit_tool_event(event_type, severity, message, details):
+                            await _record_execution_event(
+                                client, supabase_url, headers, task_id,
+                                event_type, severity, message, details,
+                            )
+                        evidence = await brain.run(
+                            query, email, provider_filter=provider_filter,
+                            event_callback=emit_tool_event,
+                        )
                         await _record_execution_event(
                             client, supabase_url, headers, task_id,
                             "evidence_collected", "info", "Le traitement des connecteurs est terminé.",
