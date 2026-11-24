@@ -142,7 +142,9 @@ class BrowserWorker:
                 browser.close()
             captured_at = _now()
             evidence = self.store.save_observation(source_id=source_id,text=text,url=final_url,content_type=content_type,metadata={"title":title,"http_status":status_code,"task_type":task_type,"worker":"verox-playwright-readonly-v1","captured_at":captured_at})
-            run_id = str((job.get("input") or {}).get("analysis_run_id") or "")
+            job_input = job.get("input") or {}
+            run_id = str(job_input.get("analysis_run_id") or "")
+            research_goal = str(job_input.get("goal") or "")[:2000]
             analysis = None
             if not run_id and evidence.get("observation_id"):
                 analysis_rows = self.store.create_analysis_run(
@@ -153,7 +155,7 @@ class BrowserWorker:
                 if analysis_rows and isinstance(analysis_rows, list) and isinstance(analysis_rows[0], dict):
                     run_id = str(analysis_rows[0].get("id") or "")
             if run_id:
-                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,observation_id=evidence.get("observation_id"),captured_at=captured_at)
+                analysis = complete_research_run(self.store,run_id=run_id,source_id=source_id,source_url=final_url,page_title=title,page_text=text,research_goal=research_goal,observation_id=evidence.get("observation_id"),captured_at=captured_at)
             self._finish(job_id,"succeeded",audit={"policy":"read_only","decision":"completed","final_url":final_url,"captured_at":captured_at,"text_chars":len(text),"analysis_status":(analysis or {}).get("status","not_requested")},artifacts=[{"type":"observation",**evidence}])
             return {"status":"succeeded","observation":evidence,"analysis":analysis}
         except (ValueError, PlaywrightTimeoutError) as exc:
