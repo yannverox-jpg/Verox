@@ -23,3 +23,5 @@ services:
         sync: false
       - key: VEROX_RENDER_WORKER_TOKEN
         sync: false
+      - key: VEROX_OPPORTUNITY_FEEDS
+        sync: false
