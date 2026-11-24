@@ -250,7 +250,6 @@ function ensurePageNavigationControls(){
   controls.style.cssText='display:flex;justify-content:space-between;gap:8px;margin:16px 0;padding-top:12px;border-top:1px solid var(--line)';
   controls.innerHTML='<button type="button" class="btn" data-page-nav="previous" aria-label="Page précédente">← Précédent</button><span class="tiny muted" style="align-self:center">'+esc(pages[pageId]?.[0]||pageId)+'</span><button type="button" class="btn" data-page-nav="next" aria-label="Page suivante">Suivant →</button>';
   view.appendChild(controls);
-  controls.querySelectorAll('[data-page-nav]').forEach(button=>button.addEventListener('click',()=>requestPageNavigation(button.dataset.pageNav,button.dataset.pageNav==='next'?'page suivante':'page précédente')));
  });
 }
 async function handleDownloadCommand(raw,forced){
