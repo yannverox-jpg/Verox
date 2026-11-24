@@ -1268,7 +1268,7 @@ def run_dashboard():
                 except Exception as exc:
                     logger.warning("SSE stream stopped task_id=%s (%s)", task_id, type(exc).__name__)
                     try:
-                        self.wfile.write(b"event: stream_error\ndata: {\"message\":\"Flux interrompu; reconnectez-vous pour reprendre l’historique.\"}\n\n")
+                        self.wfile.write("event: stream_error\ndata: {\"message\":\"Flux interrompu; reconnectez-vous pour reprendre l’historique.\"}\n\n".encode("utf-8"))
                         self.wfile.flush()
                     except Exception:
                         pass
