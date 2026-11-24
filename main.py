@@ -325,7 +325,7 @@ class ConnectorHub:
 
 
 
-    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "", provider_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def fetch_web_llm_interfaces(self, query: str, user_email: str = "", provider_filter: Optional[str] = None, event_callback=None) -> List[Dict[str, Any]]:
         results = []
         provider_sets = {"chrome": [("Claude Web", "https://claude.ai/new"), ("GPT Web", "https://chatgpt.com/"), ("Grok Web", "https://grok.com/")], "firefox": [("Gemini Web", "https://gemini.google.com/app")]}
         provider_names = {"claude": "Claude Web", "gpt": "GPT Web", "chatgpt": "GPT Web", "gemini": "Gemini Web", "grok": "Grok Web"}
@@ -348,6 +348,14 @@ class ConnectorHub:
                 try:
                     browser = await (p.chromium.launch(headless=headless) if browser_name == "chrome" else p.firefox.launch(headless=headless))
                     for provider, url in providers:
+                        provider_outcome = "completed"
+                        if event_callback is not None:
+                            try:
+                                await event_callback("tool_call_started", "info", f"Appel navigateur réel : {provider}", {
+                                    "tool": provider, "browser": browser_name, "operation": "navigate_and_query", "url": url,
+                                })
+                            except Exception as event_exc:
+                                logger.warning("Unable to journal provider start (%s)", type(event_exc).__name__)
                         if self.session_manager:
                             profile = self.session_manager.profile_for(provider)
                             state_path = Path(profile["storage_state_path"])
@@ -385,13 +393,16 @@ class ConnectorHub:
                                         if await prompt_check.count():
                                             break
                                     else:
+                                        provider_outcome = "authentication_required"
                                         results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification incomplète", "year": "État de session", "evidence": "La connexion nécessite une action manuelle dans le navigateur ouvert."})
                                         continue
                                 else:
+                                    provider_outcome = "authentication_required"
                                     results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: authentification requise", "year": "État de session", "evidence": "Le worker distant est sans interface interactive. Lance le moteur localement avec VEROX_BROWSER_HEADLESS=false pour terminer la connexion."})
                                     continue
                             prompt = page.locator('textarea, [contenteditable="true"], [role="textbox"]').first
                             if not await prompt.count():
+                                provider_outcome = "interface_unavailable"
                                 results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: interface indisponible", "year": "État de session", "evidence": "Aucun champ de conversation détecté."})
                                 continue
                             await prompt.fill(query, timeout=5000)
@@ -411,6 +422,7 @@ class ConnectorHub:
                             body = " ".join((await page.locator("body").inner_text()).split())
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: résultat Web", "year": "Temps réel", "evidence": body[-1800:] or "Aucun contenu lisible retourné."})
                         except Exception as e:
+                            provider_outcome = "failed"
                             results.append({"connector": f"{provider} via {browser_name}", "title": f"{provider}: échec de navigation", "year": "Erreur", "evidence": str(e)[:500]})
                         finally:
                             try:
@@ -425,6 +437,14 @@ class ConnectorHub:
                             except Exception as state_error:
                                 logger.debug("État de session non sauvegardé pour %s: %s", provider, state_error)
                             await context.close()
+                            if event_callback is not None:
+                                try:
+                                    event_type = "tool_call_failed" if provider_outcome == "failed" else "tool_call_succeeded"
+                                    await event_callback(event_type, "error" if provider_outcome == "failed" else "info",
+                                        f"Fin de l’appel navigateur : {provider}",
+                                        {"tool": provider, "browser": browser_name, "outcome": provider_outcome, "url": url})
+                                except Exception as event_exc:
+                                    logger.warning("Unable to journal provider result (%s)", type(event_exc).__name__)
                 except Exception as e:
                     results.append({"connector": f"Navigateur {browser_name}", "title": f"Échec de démarrage {browser_name}", "year": "Erreur", "evidence": str(e)[:500]})
                 finally:
@@ -722,7 +742,29 @@ class CognitiveBrain:
             except Exception:
                 logger.exception("[Supabase] Échec de l'archivage dans nexus_memory.")
 
-    async def run(self, user_query: str, user_email: str = "", provider_filter: Optional[str] = None):
+    async def run(self, user_query: str, user_email: str = "", provider_filter: Optional[str] = None, event_callback=None):
+        async def run_tool(tool_name, awaitable):
+            """Record actual invocation boundaries; no event is emitted unless the tool is called."""
+            async def emit(event_type, severity, message, details):
+                if event_callback is not None:
+                    try:
+                        await event_callback(event_type, severity, message, details)
+                    except Exception as journal_exc:
+                        logger.warning("Tool event callback failed tool=%s (%s)", tool_name, type(journal_exc).__name__)
+            await emit("tool_call_started", "info", f"Appel réel de l’outil : {tool_name}", {"tool": tool_name, "phase": "started"})
+            try:
+                result = await awaitable
+            except Exception as tool_exc:
+                await emit("tool_call_failed", "error", f"Échec réel de l’outil : {tool_name}", {"tool": tool_name, "phase": "failed", "error_type": type(tool_exc).__name__})
+                raise
+            details = {"tool": tool_name, "phase": "completed"}
+            if isinstance(result, (list, tuple, set)):
+                details["result_count"] = len(result)
+            elif isinstance(result, dict):
+                details["result_fields"] = len(result)
+            await emit("tool_call_completed", "info", f"Fin de l’appel réel : {tool_name}", details)
+            return result
+
         strategy_id, strategy_description = self.drive.choose_strategy(user_query)
         self.store.remember("user_request", user_query, {"strategy": strategy_id, "description": strategy_description})
         print("\n" + "="*65)
@@ -730,7 +772,7 @@ class CognitiveBrain:
         print("="*65)
 
         # 1. Contrôle de la contrainte de géolocalisation fixe
-        net_status = await self.gateway.verify_exit_ip()
+        net_status = await run_tool("NetworkGateway.verify_exit_ip", self.gateway.verify_exit_ip())
 
         # 2. Compréhension des contraintes de la requête
         constraints = self.analyzer.evaluate_constraints(user_query)
@@ -740,12 +782,12 @@ class CognitiveBrain:
         async with self.gateway.get_http_client() as client:
             tasks = []
             if constraints["use_academic_apis"]:
-                tasks.append(self.hub.fetch_openalex(client, user_query))
-                tasks.append(self.hub.fetch_arxiv(client, user_query))
+                tasks.append(run_tool("OpenAlex.fetch_openalex", self.hub.fetch_openalex(client, user_query)))
+                tasks.append(run_tool("arXiv.fetch_arxiv", self.hub.fetch_arxiv(client, user_query)))
             if constraints["use_osint_connectors"]:
-                tasks.append(self.hub.fetch_osint4all_and_threat(client, user_query))
+                tasks.append(run_tool("AlienVaultOTX.fetch_osint4all_and_threat", self.hub.fetch_osint4all_and_threat(client, user_query)))
             if constraints.get("use_model_catalog"):
-                tasks.append(self.hub.fetch_huggingface_models(client, user_query))
+                tasks.append(run_tool("HuggingFace.fetch_huggingface_models", self.hub.fetch_huggingface_models(client, user_query)))
 
             if tasks:
                 batches = await asyncio.gather(*tasks, return_exceptions=True)
@@ -757,10 +799,15 @@ class CognitiveBrain:
         await asyncio.sleep(constraints["rate_limit_delay"])
 
         if constraints["use_stealth_browser"]:
-            web_results = await self.hub.fetch_stealth_web_interfaces(user_query)
+            web_results = await run_tool("PlaywrightStealth.fetch_stealth_web_interfaces", self.hub.fetch_stealth_web_interfaces(user_query))
             raw_evidence.extend(web_results)
 
-        raw_evidence.extend(await self.hub.fetch_web_llm_interfaces(user_query, user_email, provider_filter=provider_filter))
+        raw_evidence.extend(await run_tool(
+            "BrowserLLM.fetch_web_llm_interfaces",
+            self.hub.fetch_web_llm_interfaces(
+                user_query, user_email, provider_filter=provider_filter, event_callback=event_callback,
+            ),
+        ))
 
         # 4. Filtrage et dédoublonnage strict
         unique_evidence = []
@@ -774,7 +821,7 @@ class CognitiveBrain:
         # 5. Secours Gemini : uniquement si les connecteurs n'ont fourni aucune preuve exploitable.
         # Gemini ne reçoit jamais le droit d'exécuter arbitrairement du code ou de manipuler des secrets.
         if not unique_evidence:
-            fallback_answer = await self.ask_gemini(user_query, [])
+            fallback_answer = await run_tool("GeminiFallback.ask_gemini", self.ask_gemini(user_query, []))
             if fallback_answer:
                 unique_evidence = [{
                     "connector": "Gemini fallback",
@@ -849,6 +896,28 @@ async def _task_heartbeat(client, supabase_url, headers, task_id, worker_id, lea
         except Exception as exc:
             logger.warning("Heartbeat indisponible task_id=%s (%s)", task_id, type(exc).__name__)
             # On retente au prochain intervalle; la finalisation reste protégée par le bail.
+
+
+async def _record_execution_event(client, supabase_url, headers, task_id, event_type, severity, message, details=None):
+    """Append a real event to the canonical durable task journal without blocking task execution."""
+    try:
+        response = await client.post(
+            f"{supabase_url}/rest/v1/nexus_execution_events",
+            json={
+                "task_id": str(task_id),
+                "event_type": str(event_type)[:80],
+                "severity": severity if severity in {"debug", "info", "warning", "error", "critical"} else "info",
+                "message": str(message)[:500],
+                "details": details if isinstance(details, dict) else {},
+            },
+            headers={**headers, "Prefer": "return=representation"},
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if isinstance(rows, list) and rows else None
+    except Exception as exc:
+        logger.warning("Journal event write failed task_id=%s type=%s (%s)", task_id, event_type, type(exc).__name__)
+        return None
 
 
 async def _finalize_claimed_task(
@@ -978,6 +1047,11 @@ async def run_worker(worker_id: int = 0):
                         continue
 
                     task_id = task["id"]
+                    await _record_execution_event(
+                        client, supabase_url, headers, task_id,
+                        "task_claimed", "info", "La tâche a été réservée par un worker.",
+                        {"worker_id": worker_name, "task_type": task.get("task_type")},
+                    )
                     heartbeat = asyncio.create_task(
                         _task_heartbeat(
                             client, supabase_url, headers, task_id, worker_name,
@@ -1024,7 +1098,25 @@ async def run_worker(worker_id: int = 0):
                                     "La tâche est arrêtée plutôt que simulée."
                                 )
 
-                        evidence = await brain.run(query, email, provider_filter=provider_filter)
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "brain_started", "info", "Le cerveau cognitif commence le traitement réel.",
+                            {"task_type": task_type, "provider_filter": provider_filter},
+                        )
+                        async def emit_tool_event(event_type, severity, message, details):
+                            await _record_execution_event(
+                                client, supabase_url, headers, task_id,
+                                event_type, severity, message, details,
+                            )
+                        evidence = await brain.run(
+                            query, email, provider_filter=provider_filter,
+                            event_callback=emit_tool_event,
+                        )
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "evidence_collected", "info", "Le traitement des connecteurs est terminé.",
+                            {"evidence_count": len(evidence or [])},
+                        )
                         if route and provider_filter and not any(
                             provider_filter.lower() in str(item.get("connector", "")).lower()
                             and "résultat web" in str(item.get("title", "")).lower()
@@ -1058,6 +1150,11 @@ async def run_worker(worker_id: int = 0):
 
                         if not answer or not str(answer).strip():
                             raise RuntimeError("Aucun modèle IA n'a produit de réponse exploitable. Vérifier la clé Gemini et le modèle.")
+                        await _record_execution_event(
+                            client, supabase_url, headers, task_id,
+                            "answer_generated", "info", "Le modèle a produit une réponse exploitable.",
+                            {"provider": "gemini" if requested_provider == "gemini" else (route.provider if route and provider_filter else "brain"), "answer_chars": len(str(answer))},
+                        )
 
                         result = {
                             "answer": answer or "",
@@ -1155,6 +1252,82 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            # Durable SSE replay from the same execution journal used by the worker.
+            match = re.fullmatch(r"/api/tasks/([0-9a-fA-F-]{36})/events", parsed.path)
+            if match:
+                task_id = match.group(1)
+                try:
+                    uuid.UUID(task_id)
+                except ValueError:
+                    return self._json(400, {"error": "Identifiant de tâche invalide"})
+                origin, host = self.headers.get("Origin", ""), self.headers.get("Host", "")
+                if origin and host:
+                    from urllib.parse import urlparse as _urlparse
+                    if _urlparse(origin).netloc != host:
+                        return self._json(403, {"error": "Origine non autorisée."})
+                try:
+                    url, headers = self._supabase()
+                    with httpx.Client(timeout=5.0) as client:
+                        check = client.get(url + "/rest/v1/nexus_tasks",
+                            params={"id": "eq." + task_id, "select": "id,status", "limit": "1"},
+                            headers=headers)
+                        check.raise_for_status()
+                        if not check.json():
+                            return self._json(404, {"error": "Tâche introuvable"})
+                except Exception as exc:
+                    logger.warning("SSE task lookup failed task_id=%s (%s)", task_id, type(exc).__name__)
+                    return self._json(503, {"error": "Journal de tâche indisponible."})
+                try:
+                    cursor = max(0, int(self.headers.get("Last-Event-ID", "0") or "0"))
+                except ValueError:
+                    cursor = 0
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, no-transform")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                terminal = {"task_succeeded", "task_failed", "task_cancelled"}
+                heartbeat_at = __import__("time").monotonic()
+                try:
+                    while True:
+                        with httpx.Client(timeout=5.0) as client:
+                            result = client.get(url + "/rest/v1/nexus_execution_events",
+                                params={"task_id": "eq." + task_id, "id": "gt." + str(cursor),
+                                        "select": "id,task_id,event_type,severity,message,details,created_at",
+                                        "order": "id.asc", "limit": "100"},
+                                headers=headers)
+                            result.raise_for_status()
+                            events = result.json()
+                        for row in events:
+                            event_id = int(row["id"])
+                            payload = {"event_id": event_id, "task_id": task_id,
+                                "type": row.get("event_type", "execution_event"),
+                                "timestamp": row.get("created_at"), "severity": row.get("severity", "info"),
+                                "message": row.get("message", ""), "data": row.get("details") or {}}
+                            encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                            self.wfile.write(("id: " + str(event_id) + "\nevent: execution\ndata: " + encoded + "\n\n").encode("utf-8"))
+                            self.wfile.flush()
+                            cursor = event_id
+                            if payload["type"] in terminal:
+                                return
+                        now = __import__("time").monotonic()
+                        if now - heartbeat_at >= 15:
+                            self.wfile.write(b": keep-alive\n\n")
+                            self.wfile.flush()
+                            heartbeat_at = now
+                        # Poll persisted events; no synthetic progress is generated.
+                        __import__("time").sleep(1)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as exc:
+                    logger.warning("SSE stream stopped task_id=%s (%s)", task_id, type(exc).__name__)
+                    try:
+                        self.wfile.write("event: stream_error\ndata: {\"message\":\"Flux interrompu; reconnectez-vous pour reprendre l’historique.\"}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                    except Exception:
+                        pass
+                return
             if parsed.path == "/api/architecture/back":
                 return self._json(200, {
                     "service": "verox-architecture-bridge",
@@ -1706,7 +1879,21 @@ def run_dashboard():
                 rows = response.json()
                 if not rows:
                     return self._json(502, {"error": "Supabase n'a pas retourné la tâche"})
-                return self._json(202, {"id": rows[0]["id"], "status": rows[0]["status"]})
+                task_id = str(rows[0]["id"])
+                try:
+                    with httpx.Client(timeout=5.0) as event_client:
+                        event_response = event_client.post(url + "/rest/v1/nexus_execution_events",
+                            json={"task_id": task_id, "event_type": "task_created", "severity": "info",
+                                  "message": "La tâche a été créée et ajoutée à la file persistante.",
+                                  "details": {"task_type": task_type, "source": "verox_dashboard"}},
+                            headers={**headers, "Prefer": "return=minimal"})
+                        event_response.raise_for_status()
+                except Exception as event_exc:
+                    # Task state remains authoritative even if the journal write is temporarily unavailable.
+                    logger.warning("Événement initial non enregistré task_id=%s (%s)", task_id, type(event_exc).__name__)
+                return self._json(202, {"id": task_id, "status": rows[0]["status"],
+                                        "status_url": "/api/tasks/" + task_id,
+                                        "events_url": "/api/tasks/" + task_id + "/events"})
             except Exception as exc:
                 logger.exception("Impossible de transmettre la requête du dashboard")
                 return self._json(503, {"error": str(exc)[:300]})
