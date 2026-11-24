@@ -11,20 +11,4 @@ Configure these repository secrets under **Settings â†’ Secrets and variables â†
 - `SUPABASE_URL`: the HTTPS URL of the Verox Supabase project.
 - `SUPABASE_SERVICE_ROLE_KEY`: the server-only Supabase service-role key for that same project.
 
-For the model analysis stage, add `AI_GATEWAY_API_KEY` as a GitHub Actions secret. The browser worker runs in GitHub Actions, so it does not receive the request-scoped `x-vercel-oidc-token` that exists inside a Vercel request. Keep the Gateway key server-side. If this secret is absent, collection can still save observations, but model analysis stays unavailable and the run remains needs_review; do not count it as an analyzed result.
-
-Never place either value in source code, workflow YAML, issue comments, logs, or browser output. The workflow checks only whether they exist and whether the URL uses HTTPS; it never prints their values.
-
-The protected Vercel endpoint `/api/browser/jobs` also uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server, plus `VEROX_INTERNAL_TASK_TOKEN` for caller authentication. These are server-side variables, not `NEXT_PUBLIC_*` values. The currently inspected Vercel project had no non-empty `SUPABASE_SERVICE_ROLE_KEY` entry, so queue creation will remain unavailable until an authorized administrator configures it.
-
-## Job policy
-
-- Only registered public HTTPS hosts are eligible.
-- The worker blocks off-host requests, disables JavaScript, blocks service workers and does not reuse browser profiles or cookies.
-- Account logins, MFA/CAPTCHA bypass, form submissions, betting, trading orders, purchases, and other external mutations are out of scope.
-- `download_public_file` remains held for approval; this worker does not download arbitrary files.
-- Observations remain unverified until a separate validation process supports them.
-
-## Verification
-
-The workflow runs the browser-worker policy tests before touching the queue. A successful workflow means the worker process ran; it does not by itself prove every source is reliable or every hypothesis is correct. Confirm the resulting job status, observation hash, source provenance and timestamps in Supabase.
+The scheduled GitHub Actions workflow now makes a signed HTTPS request to the Render service at `/api/internal/read-only-research/run`. Configure the `VEROX_RENDER_WORKER_URL` repository variable, the `VEROX_RENDER_WORKER_TOKEN` Actions secret, and the same `VEROX_RENDER_WORKER_TOKEN` on the Render service. Gemini and Supabase credentials stay on Render; the workflow runner receives none of them. The endpoint accepts only a bounded read-only cycle and returns immediately while the worker processes it.
