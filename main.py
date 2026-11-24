@@ -42,6 +42,7 @@ BROWSER_TARGETS = {
     "fxpro": "https://www.fxpro.com/",
     "chrome": "https://www.google.com/chrome/",
     "aws": "https://console.aws.amazon.com/",
+    "google": "https://myaccount.google.com/",
     "airtel_money": "https://www.airtel.africa/airtel-money",
     "youtube": "https://www.youtube.com/",
     "vscode": "https://code.visualstudio.com/",
