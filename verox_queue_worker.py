@@ -97,6 +97,20 @@ async def _run_browser_navigation(payload: dict) -> dict:
                     tag = await locator.evaluate("(el) => el.tagName.toLowerCase()")
                     if tag not in {"a", "button"}:
                         raise ValueError("browser_click_requires_link_or_button")
+                    if tag == "a":
+                        href = await locator.get_attribute("href")
+                        destination = urlsplit(href or "")
+                        if destination.scheme and destination.scheme not in {"http", "https"}:
+                            raise ValueError("browser_link_scheme_not_allowed")
+                        if destination.hostname and destination.hostname.lower() not in allowed_hosts:
+                            raise ValueError("browser_external_link_not_allowed")
+                    else:
+                        button_type = await locator.get_attribute("type")
+                        has_navigation_marker = await locator.evaluate(
+                            "(el) => el.hasAttribute('data-nav') || el.getAttribute('data-action') === 'navigate'"
+                        )
+                        if button_type == "submit" or not has_navigation_marker:
+                            raise ValueError("browser_button_requires_navigation_marker")
                     label = " ".join((await locator.inner_text()).lower().split())[:300]
                     blocked_terms = ("delete", "remove", "supprimer", "effacer", "payer", "payment",
                                      "transfer", "transférer", "buy", "sell", "trade", "withdraw",
