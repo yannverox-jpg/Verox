@@ -5,6 +5,7 @@ GET returns the run and its linked browser jobs. Model analysis is deliberately
 not fabricated: the worker must store an observation before a run can be analyzed.
 """
 from __future__ import annotations
+import asyncio
 import hmac
 import json
 import os
@@ -13,8 +14,10 @@ from urllib.parse import parse_qs, urlparse
 
 from verox_brain.data_plane import DataPlaneConfigurationError, DataPlaneError, SupabaseDataPlane
 from verox_brain.source_registry import get_source
+from vercel.queue import send as queue_send
 
 MAX_BODY = 8_000
+BROWSER_QUEUE_TOPIC = "verox-browser-jobs"
 ALLOWED_TASKS = {"inspect_page", "collect_public_data", "test_connector", "capture_evidence"}
 DOMAIN_ALLOWLIST = {"sports_horse_betting", "trading", "ecommerce", "microtasks_services", "communities", "public_sector"}
 
@@ -110,6 +113,14 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 503, {"error": "La mission navigateur n'a pas été mise en file."})
                 return
             created = jobs[0]
+            try:
+                awaitable = queue_send(BROWSER_QUEUE_TOPIC, {"job_id": str(created.get("id", ""))})
+                asyncio.run(awaitable)
+            except Exception:
+                store._request("PATCH", "verox_browser_jobs", params={"id": f"eq.{created.get('id', '')}"}, body={"status": "failed", "error": "queue_unavailable"})
+                store._request("PATCH", "verox_analysis_runs", params={"id": f"eq.{run_id}"}, body={"status": "failed", "error": "queue_unavailable"})
+                _json(self, 503, {"error": "Le worker Playwright Vercel n'a pas pu être mis en file."})
+                return
             _json(self, 202, {
                 "analysis_run_id": run_id,
                 "browser_job_id": created.get("id"),
