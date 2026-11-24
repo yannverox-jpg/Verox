@@ -1133,6 +1133,31 @@ def run_dashboard():
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/api/integrations":
+                # Return readiness booleans only; never expose secret values.
+                groups = [
+                    {"id": "monetly", "label": "Monetly", "env": ["MONETLY_API_KEY", "MONETLY_API_TOKEN", "MONETLY_ACCESS_TOKEN"]},
+                    {"id": "mt5", "label": "MetaTrader 5", "env": ["MT5_API_URL", "MT5_API_TOKEN", "MT5_ACCOUNT_ID", "MT5_LOGIN"]},
+                    {"id": "1xbet", "label": "1xBet", "env": [], "mode": "manual_only"},
+                    {"id": "tradingview", "label": "TradingView", "env": ["TRADINGVIEW_API_KEY", "TRADINGVIEW_ACCESS_TOKEN"]},
+                    {"id": "oanda", "label": "OANDA", "env": ["OANDA_API_TOKEN", "OANDA_ACCESS_TOKEN", "OANDA_ACCOUNT_ID"]},
+                    {"id": "fxpro", "label": "FxPro", "env": ["FXPRO_API_KEY", "FXPRO_API_TOKEN", "FXPRO_ACCOUNT_ID"]},
+                    {"id": "aws", "label": "AWS", "env": ["AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"]},
+                    {"id": "airtel_money", "label": "Airtel Money", "env": ["AIRTEL_MONEY_CLIENT_ID", "AIRTEL_MONEY_CLIENT_SECRET", "AIRTEL_MONEY_API_KEY", "AIRTEL_MONEY_BASE_URL"]},
+                    {"id": "youtube", "label": "YouTube", "env": ["YOUTUBE_API_KEY", "GOOGLE_API_KEY"]},
+                    {"id": "vscode", "label": "Visual Studio Code", "env": [], "mode": "manual_only"},
+                    {"id": "github", "label": "GitHub", "env": ["GITHUB_TOKEN", "GH_TOKEN"]},
+                    {"id": "supabase", "label": "Supabase", "env": ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY"]},
+                    {"id": "vercel", "label": "Vercel", "env": ["VERCEL_TOKEN"]},
+                    {"id": "render", "label": "Render", "env": ["RENDER_API_KEY"]},
+                    {"id": "chrome", "label": "Google Chrome", "env": [], "mode": "manual_only"},
+                    {"id": "files_by_google", "label": "Files by Google", "env": [], "mode": "manual_only"},
+                    {"id": "besoccer", "label": "BeSoccer", "env": [], "mode": "manual_only"},
+                ]
+                items = [{"id": g["id"], "label": g["label"], "credential_configured": any(os.getenv(n, "").strip() for n in g["env"]), "mode": g.get("mode", "api_candidate")} for g in groups]
+                google_id = os.getenv("GOOGLE_CLIENT_ID", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+                google_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+                return self._json(200, {"service": "verox-integration-readiness", "items": items, "google_oauth_configured": bool(google_id and google_secret), "browser_bridge_configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()), "note": "Une variable présente ne prouve ni la validité des identifiants ni une session connectée."})
             if parsed.path == "/api/browser/bridge":
                 token_configured = bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip())
                 return self._json(200, {
@@ -1140,7 +1165,7 @@ def run_dashboard():
                     "configured": token_configured,
                     "mode": "server_side_headless_browser",
                     "device_chrome_control": False,
-                    "platforms": ["monetly", "mt5", "1xbet", "tradingview", "oanda", "fxpro", "chrome", "aws"],
+                    "platforms": ["monetly", "mt5", "1xbet", "tradingview", "oanda", "fxpro", "chrome", "aws", "airtel_money", "youtube", "vscode", "github", "supabase", "vercel", "render", "files_by_google", "besoccer"],
                     "message": "Le pont utilise Chromium côté serveur. Il ne contrôle pas le Chrome installé sur votre téléphone ou PC."
                 })
             if parsed.path == "/api/health":
@@ -1298,6 +1323,15 @@ def run_dashboard():
                         "1xbet": "https://1xbet.com/", "tradingview": "https://www.tradingview.com/",
                         "oanda": "https://www.oanda.com/", "fxpro": "https://www.fxpro.com/",
                         "chrome": "https://www.google.com/chrome/", "aws": "https://console.aws.amazon.com/",
+                        "airtel_money": "https://www.airtel.africa/airtel-money",
+                        "youtube": "https://www.youtube.com/",
+                        "vscode": "https://code.visualstudio.com/",
+                        "github": "https://github.com/",
+                        "supabase": "https://supabase.com/dashboard",
+                        "vercel": "https://vercel.com/dashboard",
+                        "render": "https://dashboard.render.com/",
+                        "files_by_google": "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.files",
+                        "besoccer": "https://www.besoccer.com/",
                     }
                     if platform not in targets:
                         return self._json(400, {"error": "Plateforme non autorisée."})
