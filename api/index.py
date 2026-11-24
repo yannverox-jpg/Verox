@@ -458,6 +458,25 @@ def _create_financial_intent(user_id: str, payload: dict) -> dict:
     return _financial_authorization_public(created[0])
 
 
+def _requires_owner_session(method: str, path: str) -> bool:
+    """Leave the dashboard and rate-limited chat public; keep private actions gated."""
+    if method == "GET":
+        if path in {
+            "/api/health",
+            "/api/extensions",
+            "/api/integrations",
+            "/api/sources",
+            "/api/opportunities/public",
+        }:
+            return False
+        # The task UUID acts as a high-entropy bearer capability for status only.
+        if re.fullmatch(r"/api/tasks/[0-9a-fA-F-]{36}", path):
+            return False
+    if method == "POST" and path == "/api/chat":
+        return False
+    return path.startswith("/api/")
+
+
 class handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Request bodies, prompts, and credentials must never be logged.
@@ -471,7 +490,7 @@ class handler(BaseHTTPRequestHandler):
             else:
                 _json(self, 200, {"authenticated": True, "expires_in_seconds": 900})
             return
-        if path.startswith("/api/") and not _private_session_valid(self):
+        if _requires_owner_session("GET", path) and not _private_session_valid(self):
             _json(self, 401, {"error": "Authentification OTP Google requise."})
             return
         if path == "/api/financial/config":
@@ -723,7 +742,7 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 _json(self, 503, {"error": "Service d'authentification indisponible."})
             return
-        if path.startswith("/api/") and not _private_session_valid(self):
+        if _requires_owner_session("POST", path) and not _private_session_valid(self):
             _json(self, 401, {"error": "Authentification OTP Google requise."})
             return
         if path == "/api/financial/authorizations":
