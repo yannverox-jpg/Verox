@@ -32,6 +32,27 @@ MARKET_PRODUCT_CATALOG = {
     "auth": "Bearer VEROX_MARKET_API_TOKEN required for task submission; never send provider secrets in task payloads."
 }
 
+# Cibles autorisées du pont navigateur : navigation publique en lecture seule.
+BROWSER_TARGETS = {
+    "monetly": "https://www.monetly.in/login",
+    "mt5": "https://www.metatrader5.com/en/trading-platform/web-trading",
+    "1xbet": "https://1xbet.com/",
+    "tradingview": "https://www.tradingview.com/",
+    "oanda": "https://www.oanda.com/",
+    "fxpro": "https://www.fxpro.com/",
+    "chrome": "https://www.google.com/chrome/",
+    "aws": "https://console.aws.amazon.com/",
+    "airtel_money": "https://www.airtel.africa/airtel-money",
+    "youtube": "https://www.youtube.com/",
+    "vscode": "https://code.visualstudio.com/",
+    "github": "https://github.com/",
+    "supabase": "https://supabase.com/dashboard",
+    "vercel": "https://vercel.com/dashboard",
+    "render": "https://dashboard.render.com/",
+    "files_by_google": "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.files",
+    "besoccer": "https://www.besoccer.com/",
+}
+
 
 # Configuration des logs pour suivre la compréhension des contraintes en temps réel
 logging.basicConfig(
@@ -1158,6 +1179,20 @@ def run_dashboard():
                 google_id = os.getenv("GOOGLE_CLIENT_ID", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
                 google_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip() or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
                 return self._json(200, {"service": "verox-integration-readiness", "items": items, "google_oauth_configured": bool(google_id and google_secret), "browser_bridge_configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()), "note": "Une variable présente ne prouve ni la validité des identifiants ni une session connectée."})
+            if parsed.path.startswith("/api/browser/"):
+                platform = parsed.path.rsplit("/", 1)[-1].strip().lower()
+                if platform in BROWSER_TARGETS:
+                    return self._json(200, {
+                        "service": "verox-playwright-platform-route",
+                        "platform": platform,
+                        "endpoint": "/api/browser/" + platform,
+                        "method": "POST",
+                        "target": BROWSER_TARGETS[platform],
+                        "configured": bool(os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()),
+                        "mode": "read_only_public_page_inspection",
+                        "login_performed": False,
+                        "actions_performed": False,
+                    })
             if parsed.path == "/api/browser/vercel":
                 return self._json(200, {
                     "service": "verox-vercel-playwright",
@@ -1337,6 +1372,29 @@ def run_dashboard():
                 except Exception as exc:
                     logger.warning("Vercel Playwright inspection failed: %s", type(exc).__name__)
                     return self._json(502, {"error": "Inspection Playwright de Vercel indisponible."})
+            if request_path.startswith("/api/browser/") and request_path.rsplit("/", 1)[-1].lower() in BROWSER_TARGETS:
+                platform = request_path.rsplit("/", 1)[-1].lower()
+                token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
+                if not token:
+                    return self._json(503, {"error": "VEROX_BROWSER_BRIDGE_TOKEN non configuré côté serveur."})
+                import hmac
+                if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
+                    return self._json(401, {"error": "Authentification du pont navigateur requise."})
+                try:
+                    async def inspect_named_public_page():
+                        async with async_playwright() as p:
+                            browser = await p.chromium.launch(headless=True)
+                            try:
+                                page = await browser.new_page(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+                                response = await page.goto(BROWSER_TARGETS[platform], wait_until="domcontentloaded", timeout=15000)
+                                return {"status_code": response.status if response else None, "title": (await page.title())[:200], "final_url": page.url[:1000]}
+                            finally:
+                                await browser.close()
+                    result = asyncio.run(inspect_named_public_page())
+                    return self._json(200, {"service": "verox-playwright-platform-route", "platform": platform, "checked": True, "inspection": result, "login_performed": False, "actions_performed": False})
+                except Exception as exc:
+                    logger.warning("Playwright inspection failed for %s: %s", platform, type(exc).__name__)
+                    return self._json(502, {"error": "Inspection Playwright indisponible; aucune connexion ni action n'a été effectuée."})
             if request_path == "/api/browser/bridge":
                 token = os.getenv("VEROX_BROWSER_BRIDGE_TOKEN", "").strip()
                 if not token:
@@ -1350,21 +1408,7 @@ def run_dashboard():
                         return self._json(400, {"error": "Taille de requête invalide."})
                     body = json.loads(self.rfile.read(length).decode("utf-8"))
                     platform = str(body.get("platform", "")).strip().lower()
-                    targets = {
-                        "monetly": "https://www.monetly.in/login", "mt5": "https://www.metatrader5.com/en/trading-platform/web-trading",
-                        "1xbet": "https://1xbet.com/", "tradingview": "https://www.tradingview.com/",
-                        "oanda": "https://www.oanda.com/", "fxpro": "https://www.fxpro.com/",
-                        "chrome": "https://www.google.com/chrome/", "aws": "https://console.aws.amazon.com/",
-                        "airtel_money": "https://www.airtel.africa/airtel-money",
-                        "youtube": "https://www.youtube.com/",
-                        "vscode": "https://code.visualstudio.com/",
-                        "github": "https://github.com/",
-                        "supabase": "https://supabase.com/dashboard",
-                        "vercel": "https://vercel.com/dashboard",
-                        "render": "https://dashboard.render.com/",
-                        "files_by_google": "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.files",
-                        "besoccer": "https://www.besoccer.com/",
-                    }
+                    targets = BROWSER_TARGETS
                     if platform not in targets:
                         return self._json(400, {"error": "Plateforme non autorisée."})
                     async def inspect_public_page():
