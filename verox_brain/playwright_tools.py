@@ -5,6 +5,7 @@ import re
 from typing import Any
 from uuid import UUID
 
+from verox_brain.connector_registry import list_connector_readiness
 from verox_brain.data_plane import SupabaseDataPlane
 from verox_brain.research_dispatch import queue_public_source_batch
 from verox_brain.source_registry import DOMAINS, PUBLIC_PAGE_ACCESS, list_sources
@@ -27,6 +28,24 @@ Aucun compte, pari, trade, achat, inscription, candidature, message, publication
 """
 
 PLAYWRIGHT_FUNCTION_DECLARATIONS = [
+    {
+        "name": "list_platform_connectors",
+        "description": "Liste le catalogue de plateformes et indique honnêtement si chacune dispose seulement d'une source de recherche publique ou d'un adaptateur de compte dans le code. Ne se connecte à aucun compte.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "domain": {
+                    "type": "STRING",
+                    "enum": list(DOMAINS.keys()),
+                    "description": "Domaine facultatif.",
+                },
+                "query": {
+                    "type": "STRING",
+                    "description": "Filtre facultatif sur nom ou catégorie.",
+                },
+            },
+        },
+    },
     {
         "name": "list_public_research_sources",
         "description": "Liste les sources enregistrées dont la page HTTPS est autorisée à être consultée publiquement, sans compte. Retourne leurs identifiants, domaine, notes et statut de connexion vérifiée.",
@@ -188,7 +207,14 @@ def build_playwright_tool_handlers() -> dict[str, Any]:
     def status(args: dict[str, Any]) -> dict[str, Any]:
         return _research_status(args, SupabaseDataPlane())
 
+    def connectors(args: dict[str, Any]) -> dict[str, Any]:
+        return list_connector_readiness(
+            domain=str(args.get("domain", "")).strip() or None,
+            query=str(args.get("query", "")).strip() or None,
+        )
+
     return {
+        "list_platform_connectors": connectors,
         "list_public_research_sources": _list_sources,
         "start_public_research": start,
         "get_public_research_status": status,
