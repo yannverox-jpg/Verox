@@ -461,6 +461,10 @@ def _create_financial_intent(user_id: str, payload: dict) -> dict:
 def _requires_owner_session(method: str, path: str) -> bool:
     """Leave the dashboard and rate-limited chat public; keep private actions gated."""
     if method == "GET":
+        # Vercel Cron authenticates this route with CRON_SECRET; let its handler
+        # validate that bearer token instead of requiring an owner OTP session.
+        if path == "/api/opportunities/scan":
+            return False
         if path in {
             "/api/health",
             "/api/extensions",
