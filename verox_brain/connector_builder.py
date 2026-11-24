@@ -209,7 +209,6 @@ def create_connector_draft(args: dict[str, Any], store: Any | None = None) -> di
         body=[{
             "source_id": f"connector-draft-{platform_id}",
             "domain": domain,
-            "subject_key": platform_id,
             "name": f"{source['name']} connector draft",
             "canonical_url": api_base_url,
             "source_kind": "connector_draft",
