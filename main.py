@@ -61,7 +61,6 @@ logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
 )
 logger = logging.getLogger("CognitiveBrain")
-_research_cycle_lock = __import__("threading").Lock()
 
 
 def _supabase_base_url(value: str) -> str:
@@ -1372,31 +1371,6 @@ def run_dashboard():
 
         def do_POST(self):
             request_path = urlparse(self.path).path.rstrip("/")
-            if request_path == "/api/internal/read-only-research/run":
-                import hmac
-                token = os.getenv("VEROX_RENDER_WORKER_TOKEN", "").strip()
-                supplied = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-                if len(token) < 32 or not supplied or not hmac.compare_digest(token, supplied):
-                    return self._json(401, {"error": "Authentification de service requise."})
-                if not _research_cycle_lock.acquire(blocking=False):
-                    return self._json(202, {"accepted": True, "status": "already_running"})
-                def run_research_cycle():
-                    try:
-                        from verox_brain.opportunity_worker import run_scan
-                        from verox_brain.browser_worker import BrowserWorker
-                        scan = run_scan()
-                        worker = BrowserWorker()
-                        seeded = worker.seed_public_cycle(limit=5)
-                        processed = worker.run_once()
-                        logger.info("Cycle de recherche lecture seule terminé: leads=%s jobs=%s",
-                                    scan.get("leads_persisted", 0), processed.get("processed", 0))
-                    except Exception:
-                        logger.exception("Cycle de recherche lecture seule échoué.")
-                    finally:
-                        _research_cycle_lock.release()
-                import threading
-                threading.Thread(target=run_research_cycle, name="verox-read-only-research", daemon=True).start()
-                return self._json(202, {"accepted": True, "status": "started"})
             architecture_routes = {
                 "/api/architecture/upstream": "upstream",
                 "/api/architecture/downstream": "downstream",
