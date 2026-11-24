@@ -18,7 +18,7 @@ Le worker ouvre une nouvelle session sans cookies, sans compte, sans JavaScript 
 Il ne suit que l’hôte HTTPS exact enregistré. Aucun URL fourni par l’utilisateur ou par une page ne devient une cible.
 Les sources avec access account-only ne sont pas inspectées derrière une connexion; le registre expose lesquelles sont exclues.
 N’essaie jamais de contourner connexion, CAPTCHA, paywall, refus, limitation ou politique d’automatisation.
-Choisis list_public_research_sources pour découvrir les sources publiques par domaine.
+Choisis list_platform_connectors pour vérifier quels connecteurs sont réellement présents. Choisis list_public_research_sources pour découvrir les sources publiques par domaine.
 Choisis start_public_research seulement lorsque l’utilisateur demande effectivement une recherche/collecte.
 Chaque invocation ne met en file qu’un lot de cinq sources maximum; les jobs sont asynchrones.
 Choisis get_public_research_status pour vérifier un analysis_run_id UUID communiqué par l’utilisateur.
